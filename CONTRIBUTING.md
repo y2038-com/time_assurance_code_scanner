@@ -1,0 +1,39 @@
+# Contributing
+
+Thanks for your interest in the Time Assurance Code Scanner (`tacs`).
+
+## Development setup
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+cp .env.example .env               # only if you will call a real LLM
+tacs version
+pytest
+```
+
+New-user workflow: **[QUICK_START.md](QUICK_START.md)**.
+
+## Before you open a PR
+
+- Run `pytest` and keep changes focused.
+- Do **not** commit secrets or workspace junk: `.env`, API keys, or scan output trees (`results/`, `batch_runs/`, `findings.json`).
+- Prefer small PRs: code, docs, or tests — avoid mixing large refactors with unrelated doc edits.
+- Match existing style (Python 3.12+, Click CLI).
+
+## What to work on
+
+- Bugs and UX friction in the CLI / docs are always welcome.
+- Improving **experimental** config auto-detect (`tacs detect` / `config_detector`) is welcome, but keep expectations honest in docs.
+- Explicit env-config workflow and scan quality are higher priority than detection heuristics.
+
+## Security
+
+Report vulnerabilities privately — see **[SECURITY.md](SECURITY.md)**. Do not
+file public issues for exploitable bugs.
+
+## License
+
+By contributing, you agree that your contributions are licensed under the
+[Apache License, Version 2.0](LICENSE).

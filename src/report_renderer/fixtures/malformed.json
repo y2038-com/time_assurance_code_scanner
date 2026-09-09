@@ -1,0 +1,20 @@
+{
+  "findings": [
+    {
+      "file": "src/good.c",
+      "region": {"start_line": 10, "end_line": 10},
+      "y2038_issue": "yes",
+      "confidence": 0.9,
+      "reason": "Good entry",
+      "source_snippet": "x = now32;"
+    },
+    "not-an-object",
+    {
+      "file": "src/weird.c",
+      "region": {"start_line": "oops", "end_line": 18},
+      "confidence": "bad-number",
+      "reason": "Malformed numeric fields",
+      "source_snippet": "y = maybe_time;"
+    }
+  ]
+}

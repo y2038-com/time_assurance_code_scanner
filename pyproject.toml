@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "time-assurance-code-scanner"
+version = "0.1.0"
+description = "AI-assisted scanner for long-horizon time assurance issues in source code (Y2038/Y2106 and related)."
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "Y2038.com LLC" }]
+license = { text = "Apache-2.0" }
+dependencies = [
+    "pydantic>=2.0.0",
+    "click>=8.0.0",
+    "requests>=2.25.0",
+    "jsonschema>=4.0.0",
+]
+
+[project.optional-dependencies]
+full = ["tree-sitter>=0.20.0"]
+dev = ["pytest>=7.0.0", "black>=22.0.0", "ruff>=0.1.0"]
+
+[project.scripts]
+tacs = "tacs.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/y2038-com/time_assurance_code_scanner"
+Repository = "https://github.com/y2038-com/time_assurance_code_scanner"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+tacs = ["rules/*.json", "python/*.py", "fixtures/**/*"]
+envui = ["schemas/*.json", "examples/*.json"]
+report_renderer = ["fixtures/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "src/report_renderer/tests"]
+pythonpath = ["src"]
+
+[tool.black]
+line-length = 88
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"

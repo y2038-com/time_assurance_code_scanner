@@ -1,0 +1,15 @@
+{
+  "hardware_model": "ILP32",
+  "time_t_size_bits": 32,
+  "time_t_signed": "signed",
+  "time64_functions_available": false,
+  "d_time_bits_supported": true,
+  "d_time_bits_setting": "64",
+  "os_or_rtos": "Zephyr 3.7",
+  "c_library": "picolibc",
+  "c_library_other_text": "",
+  "toolchain_flags": ["-D_FILE_OFFSET_BITS=64"],
+  "notes": "board XYZ",
+  "scenario_hint": "ILP32-32bit-signed-time64_no",
+  "mitigation_path": "upgrade_env"
+}

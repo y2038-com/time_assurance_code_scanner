@@ -1,0 +1,13 @@
+{
+  "hardware_model": "ILP32",
+  "time_t_size_bits": 32,
+  "time_t_signed": "unsigned",
+  "time64_functions_available": false,
+  "d_time_bits_supported": false,
+  "d_time_bits_setting": "not_available",
+  "c_library": "picolibc",
+  "os_or_rtos": "Zephyr 3.7",
+  "notes": "32-bit embedded system with unsigned time_t - Y2106 risk, not Y2038",
+  "scenario_hint": "ILP32-32bit-unsigned-time64_no-N/A",
+  "mitigation_path": null
+}

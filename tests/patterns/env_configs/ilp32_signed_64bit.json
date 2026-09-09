@@ -1,0 +1,16 @@
+{
+  "hardware_model": "ILP32",
+  "time_t_size_bits": 64,
+  "time_t_signed": "signed",
+  "time64_functions_available": true,
+  "d_time_bits_supported": true,
+  "d_time_bits_setting": "64",
+  "c_library": "picolibc",
+  "os_or_rtos": "Zephyr 3.7",
+  "toolchain_flags": [
+    "-D_TIME_BITS=64"
+  ],
+  "notes": "32-bit architecture (ILP32) with 64-bit signed time_t - Y2038 safe, but detect narrowing patterns and code assuming 32-bit time_t",
+  "scenario_hint": "ILP32-64bit-signed-time64_yes-_TIME_BITS_64",
+  "mitigation_path": null
+}

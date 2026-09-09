@@ -1,0 +1,176 @@
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+from typing import Dict, List, Set, Tuple, Optional
+from tacs.core.typedef_scanner import TypedefScanner
+from tacs.core.status_logger import StatusLogger
+
+
+class DiscoveryManager:
+    """Manages the discovery of typedefs and macros for time_t aliases."""
+    
+    def __init__(self, max_typedef_hops: int = 5, max_aliases: int = 64):
+        """
+        Initialize the discovery manager.
+        
+        Args:
+            max_typedef_hops: Maximum number of hops to follow typedef chains
+            max_aliases: Maximum number of typedef aliases to discover
+        """
+        self.typedef_scanner = TypedefScanner(max_typedef_hops, max_aliases)
+        
+        # Seed types for typedef discovery
+        self.seed_types = {
+            'time_t', 'clock_t', 'timer_t', 'suseconds_t', 'useconds_t',
+            'struct_timespec', 'struct_timeval', 'struct_tm'
+        }
+    
+    def discover_time_aliases(
+        self,
+        root_path: str,
+        include_patterns: List[str],
+        exclude_patterns: List[str]
+    ) -> Tuple[Dict[str, List[str]], Dict[str, List[str]]]:
+        """
+        Discover time_t aliases and time-related macros.
+        
+        Args:
+            root_path: Root directory to scan
+            include_patterns: List of glob patterns to include
+            exclude_patterns: List of glob patterns to exclude
+            
+        Returns:
+            Tuple of (typedef_aliases, time_macros)
+        """
+        StatusLogger.timestamped_print("Stage 2: Discovering typedefs and macros...")
+        
+        # Scan for typedefs
+        StatusLogger.timestamped_print("  Scanning for typedefs...")
+        all_typedefs = self.typedef_scanner.scan_directory(
+            root_path, include_patterns, exclude_patterns
+        )
+        
+        # Find time_t aliases
+        StatusLogger.timestamped_print("  Finding time_t aliases...")
+        typedef_aliases = self.typedef_scanner.find_time_t_aliases(
+            all_typedefs, self.seed_types
+        )
+        
+        # Return empty macros dict since we now use integrated #define scanning
+        time_macros = {}
+        
+        # Print results
+        StatusLogger.timestamped_print(f"  Found {len(typedef_aliases)} typedef aliases")
+        
+        if typedef_aliases:
+            StatusLogger.timestamped_print("  Typedef aliases:")
+            for alias_name in list(typedef_aliases.keys())[:5]:  # Show first 5
+                StatusLogger.timestamped_print(f"    {alias_name}")
+            if len(typedef_aliases) > 5:
+                StatusLogger.timestamped_print(f"    ... and {len(typedef_aliases) - 5} more")
+        
+        return typedef_aliases, time_macros
+    
+    def update_rules_with_discoveries(
+        self,
+        rules_path: str,
+        typedef_aliases: Dict[str, List[str]],
+        time_macros: Dict[str, List[str]]
+    ) -> str:
+        """
+        Update rules file with discovered aliases and macros.
+        
+        Args:
+            rules_path: Path to original rules file
+            typedef_aliases: Discovered typedef aliases
+            time_macros: Discovered time-related macros
+            
+        Returns:
+            Path to updated rules file
+        """
+        StatusLogger.timestamped_print("  Updating rules with discoveries...")
+        
+        # Load original rules
+        with open(rules_path, 'r', encoding='utf-8') as f:
+            original_rules = json.load(f)
+        
+        # Create new rules for discovered items
+        new_rules = []
+        
+        # Add typedef aliases as type rules
+        for alias_name, definitions in typedef_aliases.items():
+            rule = {
+                "symbol": alias_name,
+                "risk": "high",
+                "category": "type",
+                "description": f"Typedef alias for time_t (discovered: {len(definitions)} definitions)",
+                "discovered": True,
+                "discovery_type": "typedef",
+                "definitions": definitions
+            }
+            new_rules.append(rule)
+        
+        # Add time-related macros
+        for macro_name, definitions in time_macros.items():
+            rule = {
+                "symbol": macro_name,
+                "risk": "medium",
+                "category": "macro",
+                "description": f"Time-related macro (discovered: {len(definitions)} definitions)",
+                "discovered": True,
+                "discovery_type": "macro",
+                "definitions": definitions
+            }
+            new_rules.append(rule)
+        
+        # Combine original and new rules
+        updated_rules = original_rules + new_rules
+        
+        # Save updated rules to a separate file (don't overwrite original)
+        # Use a file path that won't conflict with the original
+        rules_dir = os.path.dirname(rules_path) if os.path.dirname(rules_path) else '.'
+        rules_basename = os.path.basename(rules_path)
+        rules_name, rules_ext = os.path.splitext(rules_basename)
+        updated_rules_path = os.path.join(rules_dir, f"{rules_name}_with_discoveries{rules_ext}")
+        
+        with open(updated_rules_path, 'w', encoding='utf-8') as f:
+            json.dump(updated_rules, f, indent=2)
+        
+        StatusLogger.timestamped_print(f"  Updated rules saved to: {updated_rules_path}")
+        StatusLogger.timestamped_print(f"  Added {len(new_rules)} new rules ({len(typedef_aliases)} typedefs, {len(time_macros)} macros)")
+        
+        return updated_rules_path
+    
+    def save_discovery_report(
+        self,
+        typedef_aliases: Dict[str, List[str]],
+        time_macros: Dict[str, List[str]],
+        output_path: str = "results/discovery_report.json"
+    ):
+        """
+        Save discovery report to file.
+        
+        Args:
+            typedef_aliases: Discovered typedef aliases
+            time_macros: Discovered time-related macros
+            output_path: Path to save the report
+        """
+        report = {
+            "discovery_summary": {
+                "typedef_aliases_count": len(typedef_aliases),
+                "time_macros_count": len(time_macros),
+                "total_discovered": len(typedef_aliases) + len(time_macros)
+            },
+            "typedef_aliases": typedef_aliases,
+            "time_macros": time_macros
+        }
+        
+        # Ensure output directory exists
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(report, f, indent=2)
+        
+        StatusLogger.timestamped_print(f"  Discovery report saved to: {output_path}")

@@ -1,0 +1,127 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Y2038 Environment Configuration",
+  "description": "Environment configuration for Y2038 vulnerability scanner",
+  "type": "object",
+  "required": [
+    "hardware_model",
+    "time_t_size_bits", 
+    "time_t_signed",
+    "time64_functions_available",
+    "d_time_bits_supported",
+    "d_time_bits_setting",
+    "c_library"
+  ],
+  "properties": {
+    "hardware_model": {
+      "type": "string",
+      "enum": ["ILP32", "LP64"],
+      "description": "Hardware architecture model"
+    },
+    "time_t_size_bits": {
+      "type": "integer",
+      "enum": [32, 64],
+      "description": "Size of time_t in bits"
+    },
+    "time_t_signed": {
+      "type": "string",
+      "enum": ["signed", "unsigned"],
+      "description": "Whether time_t is signed or unsigned"
+    },
+    "time64_functions_available": {
+      "type": "boolean",
+      "description": "Whether time64 functions are available"
+    },
+    "d_time_bits_supported": {
+      "type": "boolean",
+      "description": "Whether _TIME_BITS is supported"
+    },
+    "d_time_bits_setting": {
+      "type": "string",
+      "enum": ["not_available", "not_set", "32", "64"],
+      "description": "Current _TIME_BITS setting"
+    },
+    "os_or_rtos": {
+      "type": "string",
+      "description": "Operating system or RTOS name and version"
+    },
+    "c_library": {
+      "type": "string",
+      "enum": ["glibc", "newlib", "picolibc", "musl", "minimal", "libstdc++", "other"],
+      "description": "C library implementation"
+    },
+    "c_library_other_text": {
+      "type": "string",
+      "description": "Description when c_library is 'other'"
+    },
+    "toolchain_flags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(-{1,2}[A-Za-z0-9_][A-Za-z0-9_-]*(=.+)?|-[DU][A-Za-z0-9_]+(=.+)?)$"
+      },
+      "description": "Toolchain compilation flags"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Additional notes about the environment"
+    },
+    "scenario_hint": {
+      "type": "string",
+      "enum": [
+        "LP64-64bit-N/A",
+        "ILP32-64bit-N/A", 
+        "ILP32-32bit-unsigned-time64_yes",
+        "ILP32-32bit-unsigned-time64_no",
+        "ILP32-32bit-signed-time64_yes",
+        "ILP32-32bit-signed-time64_no"
+      ],
+      "description": "Derived scenario hint"
+    },
+    "mitigation_path": {
+      "type": ["string", "null"],
+      "enum": ["upgrade_env", "stay_and_patch", null],
+      "description": "Required mitigation path for risky scenarios"
+    }
+  },
+  "if": {
+    "properties": {
+      "d_time_bits_supported": { "const": false }
+    }
+  },
+  "then": {
+    "properties": {
+      "d_time_bits_setting": { "const": "not_available" }
+    }
+  },
+  "if": {
+    "properties": {
+      "d_time_bits_supported": { "const": true }
+    }
+  },
+  "then": {
+    "properties": {
+      "d_time_bits_setting": { "not": { "const": "not_available" } }
+    }
+  },
+  "if": {
+    "properties": {
+      "c_library": { "const": "other" }
+    }
+  },
+  "then": {
+    "properties": {
+      "c_library_other_text": { "minLength": 1 }
+    }
+  },
+  "if": {
+    "properties": {
+      "scenario_hint": { "const": "ILP32-32bit-signed-time64_no" }
+    }
+  },
+  "then": {
+    "properties": {
+      "mitigation_path": { "not": { "const": null } }
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{"repo_url":"https://github.com/libevent/libevent.git","name":"libevent"}
+{"repo_url":"https://github.com/libuv/libuv.git","name":"libuv"}
+{"repo_url":"https://github.com/Mbed-TLS/mbedtls.git","name":"mbedtls"}
+{"repo_url":"https://github.com/yaml/libyaml.git","name":"libyaml"}
+{"repo_url":"https://github.com/libexpat/libexpat.git","name":"libexpat"}
+{"repo_url":"https://github.com/leethomason/tinyxml2.git","name":"tinyxml2"}
+{"repo_url":"https://github.com/json-c/json-c.git","name":"json-c"}
+{"repo_url":"https://github.com/DaveGamble/cJSON.git","name":"cJSON"}
+{"repo_url":"https://github.com/akheron/jansson.git","name":"jansson"}
+{"repo_url":"https://github.com/madler/zlib.git","name":"zlib"}

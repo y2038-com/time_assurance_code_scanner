@@ -1,0 +1,108 @@
+[
+  {
+    "symbol": "time",
+    "risk": "high",
+    "category": "function",
+    "description": "32-bit time function that may overflow in 2038"
+  },
+  {
+    "symbol": "localtime",
+    "risk": "medium",
+    "category": "function",
+    "description": "Time conversion function using time_t"
+  },
+  {
+    "symbol": "gmtime",
+    "risk": "medium",
+    "category": "function",
+    "description": "Time conversion function using time_t"
+  },
+  {
+    "symbol": "mktime",
+    "risk": "medium",
+    "category": "function",
+    "description": "Time conversion function using time_t"
+  },
+  {
+    "symbol": "clock_gettime",
+    "risk": "medium",
+    "category": "function",
+    "description": "Clock function using time_t"
+  },
+  {
+    "symbol": "gettimeofday",
+    "risk": "medium",
+    "category": "function",
+    "description": "Time function using time_t"
+  },
+  {
+    "symbol": "timespec_get",
+    "risk": "medium",
+    "category": "function",
+    "description": "Time function using time_t"
+  },
+  {
+    "symbol": "timespec_getres",
+    "risk": "medium",
+    "category": "function",
+    "description": "Time function using time_t"
+  },
+  {
+    "symbol": "time_t",
+    "risk": "high",
+    "category": "type",
+    "description": "32-bit time type that will overflow in 2038"
+  },
+  {
+    "symbol": "timespec",
+    "risk": "high",
+    "category": "structure",
+    "description": "Time structure with time_t member"
+  },
+  {
+    "symbol": "timeval",
+    "risk": "high",
+    "category": "structure",
+    "description": "Time structure with time_t member"
+  },
+  {
+    "symbol": "tv_sec",
+    "risk": "high",
+    "category": "field",
+    "description": "Time_t field in time structures"
+  },
+  {
+    "symbol": "#define",
+    "risk": "medium",
+    "category": "macro",
+    "description": "Macro definitions that may alias time types or functions",
+    "subchecks": [
+      "time_type_alias",
+      "time_function_alias",
+      "time_constant",
+      "time_struct_alias"
+    ]
+  },
+  {
+    "symbol": "my_time_t",
+    "risk": "high",
+    "category": "type",
+    "description": "Typedef alias for time_t (discovered: 1 definitions)",
+    "discovered": true,
+    "discovery_type": "typedef",
+    "definitions": [
+      "/home/john/Cursor/new_scan/tests/patterns/test_arithmetic_patterns_mini.c:8: typedef time_t my_time_t;"
+    ]
+  },
+  {
+    "symbol": "timestamp_t",
+    "risk": "high",
+    "category": "type",
+    "description": "Typedef alias for time_t (discovered: 1 definitions)",
+    "discovered": true,
+    "discovery_type": "typedef",
+    "definitions": [
+      "/home/john/Cursor/new_scan/tests/patterns/test_arithmetic_patterns_mini.c:9: typedef time_t timestamp_t;"
+    ]
+  }
+]

@@ -1,0 +1,38 @@
+{
+  "meta": {
+    "tool": "y2038-scanner",
+    "version": "0.1.0"
+  },
+  "findings": [
+    {
+      "file": "src/scheduler/alarm.c",
+      "region": {
+        "start_line": 181,
+        "end_line": 186
+      },
+      "lines": [184],
+      "symbol": "t32",
+      "rule_id": "TIME_T_TRUNCATION",
+      "y2038_issue": "yes",
+      "severity": "high",
+      "confidence": 0.94,
+      "reason": "64-bit time_t value assigned to 32-bit integer.",
+      "source_snippet": "int update_alarm(...)\\n{\\n    int32_t t32;\\n    time_t now;\\n    now = time(NULL);\\n    t32 = now;\\n    save_alarm_time(t32);\\n}"
+    },
+    {
+      "file": "src/time/cache.c",
+      "region": {
+        "start_line": 42,
+        "end_line": 43
+      },
+      "lines": [42],
+      "symbol": "safe",
+      "y2038_issue": "no",
+      "y2106_issue": "yes",
+      "severity": "medium",
+      "confidence": 0.82,
+      "reason": "Compares time_t values only; no truncation or narrowing.",
+      "source_snippet": "if (a->expires < b->expires) {\\n    return -1;\\n}"
+    }
+  ]
+}

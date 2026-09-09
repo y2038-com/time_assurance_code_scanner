@@ -1,0 +1,22 @@
+{
+  "findings": [
+    {
+      "file": "src/legacy/time.c",
+      "confidence": 0.77,
+      "reason": "Potential time type narrowing.",
+      "source_snippet": "legacy_time = (int)now;"
+    },
+    {
+      "file": "src/legacy/time.c",
+      "region": {
+        "start_line": 120,
+        "end_line": 120
+      },
+      "lines": [120],
+      "y2038_issue": "abstain",
+      "issue_type": "TIME_SIGNEDNESS_UNCLEAR",
+      "reason": "Type alias unresolved under current macro branch.",
+      "source_snippet": "typedef MY_TIME_T time_alias;"
+    }
+  ]
+}

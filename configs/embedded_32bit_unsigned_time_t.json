@@ -1,0 +1,10 @@
+{
+  "hardware_model": "32-bit embedded system",
+  "time_t_size_bits": 32,
+  "time_t_signed": "unsigned",
+  "time64_functions_available": false,
+  "d_time_bits_supported": false,
+  "d_time_bits_setting": "not set",
+  "c_library": "embedded C library",
+  "scenario_hint": "32-bit embedded system with unsigned time_t - Y2106 issue, not Y2038"
+}

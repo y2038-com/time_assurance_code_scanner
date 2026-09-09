@@ -1,0 +1,16 @@
+{
+  "hardware_model": "LP64",
+  "time_t_size_bits": 64,
+  "time_t_signed": "unsigned",
+  "time64_functions_available": true,
+  "d_time_bits_supported": true,
+  "d_time_bits_setting": "64",
+  "c_library": "glibc",
+  "os_or_rtos": "Linux 5.4",
+  "toolchain_flags": [
+    "-D_TIME_BITS=64"
+  ],
+  "notes": "64-bit system with unsigned 64-bit time_t - very rare configuration",
+  "scenario_hint": "LP64-64bit-unsigned-time64_yes-_TIME_BITS_64",
+  "mitigation_path": null
+}
