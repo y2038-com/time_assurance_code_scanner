@@ -38,7 +38,8 @@ class LLMClient:
         self.debug_pass2_prompt = debug_pass2_prompt
         self.time_t_aliases = time_t_aliases or {}
         self.io_metadata_map = io_metadata_map or {}
-        self.cloud_token = os.getenv('OLLAMA_CLOUD_TOKEN')
+        # Prefer OLLAMA_API_KEY (docs); keep OLLAMA_CLOUD_TOKEN for existing installs.
+        self.cloud_token = os.getenv("OLLAMA_API_KEY") or os.getenv("OLLAMA_CLOUD_TOKEN")
         
         # Migration mode support
         self.migration_mode = migration_mode
@@ -1197,51 +1198,88 @@ Classification in migration mode:
             return self._make_gemini_request(prompt)
         raise RuntimeError(f"Unsupported LLM type for API requests: {self.llm_type}")
     
+    @staticmethod
+    def _is_ollama_cloud_model(model: str) -> bool:
+        name = (model or "").strip().lower()
+        return "-cloud" in name or name.endswith(":cloud")
+
+    def _ollama_request_target(self) -> tuple[str, dict[str, str] | None, str]:
+        """
+        Resolve Ollama base URL, optional auth headers, and model id.
+
+        Cloud models prefer direct https://ollama.com with an API key so WSL does
+        not depend on a signed-in local Ollama proxy. Local models use OLLAMA_HOST
+        or localhost:11434.
+        """
+        model = self.model
+        use_cloud = self._is_ollama_cloud_model(model)
+        token = self.cloud_token
+
+        if use_cloud and token:
+            base = os.getenv("OLLAMA_CLOUD_BASE_URL", "https://ollama.com").rstrip("/")
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            }
+            # Hosted API often uses ids without the "-cloud" suffix.
+            api_model = model[:-6] if model.endswith("-cloud") else model
+            return f"{base}/api/generate", headers, api_model
+
+        base = os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+        return f"{base}/api/generate", None, model
+
     def _make_local_request(self, prompt: str) -> Dict[str, Any]:
-        """Make request to local Ollama server."""
+        """Make request to local Ollama or Ollama Cloud (direct)."""
         import requests
-        
-        url = "http://localhost:11434/api/generate"
-        
+
+        url, headers, model = self._ollama_request_target()
+        using_cloud_api = "ollama.com" in url
+
         data = {
-            "model": self.model,
+            "model": model,
             "prompt": prompt,
             "stream": False,
             "options": {
                 "temperature": 0.1,
-                "num_predict": 8000  # Increased from 2000 to handle larger JSON responses
-            }
+                "num_predict": 8000,  # Increased from 2000 to handle larger JSON responses
+            },
         }
-        
+
         try:
-            # For cloud models, use a longer timeout to account for cloud connection time
-            timeout = self.timeout_sec * 2 if "-cloud" in self.model else self.timeout_sec
-            
+            # Cloud / remote hops need more headroom than a local daemon.
+            timeout = self.timeout_sec * 2 if using_cloud_api or self._is_ollama_cloud_model(self.model) else self.timeout_sec
+
             response = requests.post(
                 url,
                 json=data,
-                timeout=timeout
+                headers=headers,
+                timeout=timeout,
             )
-            
+
             if response.status_code != 200:
                 error_text = response.text
-                # Check if this is a cloud connection error
+                if response.status_code in {401, 403}:
+                    raise LLMNonRetryableError(
+                        "Ollama Cloud unauthorized. Set OLLAMA_API_KEY or OLLAMA_CLOUD_TOKEN "
+                        "in the backend shell (create a key at https://ollama.com/settings/keys), "
+                        f"then restart uvicorn. Detail: {error_text[:150]}"
+                    )
                 if "ollama.com" in error_text or "TLS handshake" in error_text or "cloud" in error_text.lower():
                     raise RuntimeError(
                         f"Cloud model connection failed (status {response.status_code}): "
                         f"TLS handshake timeout. This may be a temporary network issue. "
                         f"Error: {error_text[:100]}"
                     )
-                raise RuntimeError(f"Local Ollama request failed: {response.status_code} - {error_text[:150]}")
-            
+                where = "Ollama Cloud" if using_cloud_api else "Local Ollama"
+                raise RuntimeError(f"{where} request failed: {response.status_code} - {error_text[:150]}")
+
             result = response.json()
-            
-            # Convert Ollama local format to expected format
+
+            # Convert Ollama generate format to expected chat-completions-like shape
             if "response" in result:
-                # Extract token metadata from Ollama response
-                prompt_tokens = result.get("prompt_eval_count", 0)  # Input tokens
-                completion_tokens = result.get("eval_count", 0)  # Output tokens
-                
+                prompt_tokens = result.get("prompt_eval_count", 0)
+                completion_tokens = result.get("eval_count", 0)
+
                 return {
                     "choices": [{
                         "message": {
@@ -1254,15 +1292,19 @@ Classification in migration mode:
                         "total_tokens": prompt_tokens + completion_tokens
                     }
                 }
-            else:
-                raise RuntimeError("Unexpected response format from local Ollama")
-                
+            raise RuntimeError("Unexpected response format from Ollama")
+
+        except LLMNonRetryableError:
+            raise
         except requests.exceptions.ConnectionError:
+            if using_cloud_api:
+                raise RuntimeError("Cannot connect to Ollama Cloud (https://ollama.com). Check network/DNS.")
             raise RuntimeError("Cannot connect to local Ollama server. Is Ollama running on localhost:11434?")
         except requests.exceptions.Timeout:
             raise RuntimeError(f"Request timeout after {self.timeout_sec} seconds")
         except Exception as e:
-            raise RuntimeError(f"Local Ollama request failed: {e}")
+            where = "Ollama Cloud" if using_cloud_api else "Local Ollama"
+            raise RuntimeError(f"{where} request failed: {e}")
     
     def _make_openai_request(self, prompt: str) -> Dict[str, Any]:
         """Make request to OpenAI-compatible chat completions API."""

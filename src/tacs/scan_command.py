@@ -117,8 +117,10 @@ def main(
     
     # Check LLM configuration
     if llm == "ollama":
-        cloud_token = os.getenv('OLLAMA_CLOUD_TOKEN')
-        if not cloud_token:
+        cloud_token = os.getenv("OLLAMA_API_KEY") or os.getenv("OLLAMA_CLOUD_TOKEN")
+        if cloud_token and ("-cloud" in (model or "") or (model or "").endswith(":cloud")):
+            StatusLogger.timestamped_info("Using Ollama Cloud (https://ollama.com) with API key")
+        else:
             StatusLogger.timestamped_info("Using local Ollama server")
             StatusLogger.timestamped_info("Make sure Ollama is running on localhost:11434")
     elif llm in {"openai", "anthropic", "gemini"}:
