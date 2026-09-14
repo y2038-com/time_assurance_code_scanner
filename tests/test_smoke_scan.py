@@ -89,6 +89,14 @@ int main() {
         assert "root" in meta, "Missing 'root' in meta"
         assert "rules_path" in meta, "Missing 'rules_path' in meta"
         assert "model" in meta, "Missing 'model' in meta"
+        assert meta["model"] == "none", (
+            f"Discovery-only scan should report model 'none', got {meta['model']!r}"
+        )
+        assert session_meta.get("models", {}).get("llm_type") == "none"
+        assert session_meta.get("models", {}).get("llm_model") == "none", (
+            f"Session llm_model should be 'none' for --llm none, "
+            f"got {session_meta.get('models', {}).get('llm_model')!r}"
+        )
         assert "confidence_floor" in meta, "Missing 'confidence_floor' in meta"
         assert "metrics" in meta, "Missing 'metrics' in meta"
         

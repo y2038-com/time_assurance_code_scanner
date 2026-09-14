@@ -239,8 +239,16 @@ This scan session contains all data needed for debugging, review, and fine-tunin
             "version": versions,
             "models": {
                 "llm_type": config.get("llm_type"),
-                "llm_model": config.get("llm_model") or config.get("model", "none"),
-                "llm_name": config.get("llm_model") or config.get("model", "none"),
+                "llm_model": (
+                    "none"
+                    if config.get("llm_type") == "none"
+                    else (config.get("llm_model") or config.get("model", "none"))
+                ),
+                "llm_name": (
+                    "none"
+                    if config.get("llm_type") == "none"
+                    else (config.get("llm_model") or config.get("model", "none"))
+                ),
                 "llm_version": config.get("model_version", "unknown"),
             },
             "limits": {

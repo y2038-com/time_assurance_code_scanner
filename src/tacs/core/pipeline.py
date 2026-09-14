@@ -1532,11 +1532,14 @@ class ScanningPipeline:
             if hasattr(self, "function_llm_client")
             else self.model
         )
-        pipeline_mode = "function-first" if self.function_first else api_model
+        # CLI still has a default --model for when LLM is enabled; do not
+        # attribute that model to discovery-only (--llm none) provenance.
+        reported_model = "none" if api_llm_type == "none" else api_model
+        pipeline_mode = "function-first" if self.function_first else reported_model
 
         config = {
             "llm_type": api_llm_type,
-            "llm_model": api_model,
+            "llm_model": reported_model,
             "model": pipeline_mode,
             "model_version": "unknown",
             "confidence_floor": self.confidence_floor,
@@ -1640,7 +1643,7 @@ Timing (ms):
         metadata = ScanMetadata(
             root=root_path,
             rules_path=rules_path,
-            model=api_model,
+            model=reported_model,
             confidence_floor=self.confidence_floor,
             metrics=metrics,
             timestamp=datetime.utcnow().isoformat() + "Z",

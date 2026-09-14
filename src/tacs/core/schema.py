@@ -166,7 +166,7 @@ class ScanMetadata(BaseModel):
     """Metadata for the scan."""
     root: str = Field(..., description="Root directory scanned")
     rules_path: str = Field(..., description="Rules file path")
-    model: str = Field(..., description="LLM model used")
+    model: str = Field(..., description="LLM model used (\"none\" when LLM is disabled)")
     confidence_floor: float = Field(..., description="Confidence threshold")
     metrics: Metrics = Field(..., description="Code metrics")
     timestamp: str = Field(..., description="Scan timestamp (UTC ISO 8601)")
