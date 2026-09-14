@@ -1,12 +1,29 @@
 from __future__ import annotations
 
-import os
 import sys
 import click
 from pathlib import Path
 from typing import List
 from tacs.core.status_logger import StatusLogger
 from tacs.core.pipeline import ScanningPipeline
+from tacs.llm.env import (
+    DEFAULT_LOCAL_HOST,
+    default_llm_type,
+    default_model_id,
+    ollama_api_key,
+    ollama_host,
+    ollama_is_cloud_host,
+)
+
+
+def _default_llm() -> str:
+    value = default_llm_type()
+    allowed = {"none", "ollama", "openai", "anthropic", "gemini"}
+    return value if value in allowed else "none"
+
+
+def _default_model() -> str:
+    return default_model_id()
 
 
 @click.command("scan")
@@ -42,7 +59,13 @@ from tacs.core.pipeline import ScanningPipeline
 @click.option('--migration-from', help='Source config JSON file for migration (required if --migration-mode)')
 @click.option('--migration-to', help='Target config JSON file for migration (required if --migration-mode)')
 @click.option('--log-llm', is_flag=True, default=False, help='Enable LLM logging (default: disabled)')
-@click.option('--llm', type=click.Choice(['none', 'ollama', 'openai', 'anthropic', 'gemini']), default='none', help='LLM type to use: none, ollama, openai, anthropic, gemini (default: none)')
+@click.option(
+    '--llm',
+    type=click.Choice(['none', 'ollama', 'openai', 'anthropic', 'gemini']),
+    default=_default_llm,
+    show_default=True,
+    help='LLM provider (default: none — set --llm or TACS_LLM_PROVIDER to opt in)',
+)
 @click.option('--max-aliases', type=int, default=64, help='Max typedef aliases to discover (default: 64)')
 @click.option('--max-function-chars', type=int, default=20000, help='Maximum function characters before splitting (default: 20000)')
 @click.option('--max-function-iters', type=int, default=2, help='Maximum iterations per function in Stage S2 Pass P2 (default: 2)')
@@ -50,7 +73,12 @@ from tacs.core.pipeline import ScanningPipeline
 @click.option('--max-macros', type=int, default=64, help='Max macros to discover (default: 64)')
 @click.option('--max-typedef-hops', type=int, default=5, help='Max typedef chain hops (default: 5)')
 @click.option('--min-risk', type=click.Choice(['low', 'medium', 'high']), default='medium', help='Minimum risk level (default: medium)')
-@click.option('--model', default='gpt-oss:120b-cloud', help='Model name for selected provider (default: gpt-oss:120b-cloud)')
+@click.option(
+    '--model',
+    default=_default_model,
+    show_default=True,
+    help='Model name for selected provider (default: gpt-oss:120b-cloud or TACS_MODEL)',
+)
 @click.option('--no-enable-discovery', is_flag=True, default=False, help='Disable typedef/macro discovery (default: enabled)')
 @click.option('--out', default='findings.json', help='Output file path (default: findings.json)')
 @click.option('--redact-prompts/--no-redact-prompts', default=True, help='Redact prompts in logs (default: enabled)')
@@ -117,12 +145,17 @@ def main(
     
     # Check LLM configuration
     if llm == "ollama":
-        cloud_token = os.getenv("OLLAMA_API_KEY") or os.getenv("OLLAMA_CLOUD_TOKEN")
-        if cloud_token and ("-cloud" in (model or "") or (model or "").endswith(":cloud")):
-            StatusLogger.timestamped_info("Using Ollama Cloud (https://ollama.com) with API key")
+        host = ollama_host()
+        if ollama_is_cloud_host(host):
+            if ollama_api_key():
+                StatusLogger.timestamped_info(f"Using Ollama Cloud ({host}) with API key")
+            else:
+                StatusLogger.timestamped_warning(
+                    "Ollama Cloud selected but OLLAMA_API_KEY is unset "
+                    f"(legacy: OLLAMA_CLOUD_TOKEN). Local daemon: OLLAMA_HOST={DEFAULT_LOCAL_HOST}"
+                )
         else:
-            StatusLogger.timestamped_info("Using local Ollama server")
-            StatusLogger.timestamped_info("Make sure Ollama is running on localhost:11434")
+            StatusLogger.timestamped_info(f"Using local Ollama at {host}")
     elif llm in {"openai", "anthropic", "gemini"}:
         StatusLogger.timestamped_info(f"Using {llm} provider")
     

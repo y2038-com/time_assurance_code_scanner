@@ -33,8 +33,9 @@ class LLMAnalyzer:
         self.debug = debug
         self.cloud_token = None
         if llm_type == "ollama":
-            import os
-            self.cloud_token = os.getenv('OLLAMA_CLOUD_TOKEN')
+            from tacs.llm.env import ollama_api_key
+
+            self.cloud_token = ollama_api_key()
     
     def analyze_build_system(
         self,
@@ -165,14 +166,16 @@ CRITICAL RULES:
         return prompt
     
     def _make_api_request(self, prompt: str) -> Dict[str, Any]:
-        """Make API request to Ollama."""
+        """Make API request to Ollama (local or cloud)."""
+        from tacs.llm.env import resolve_ollama_request_target
+
         if self.llm_type != "ollama":
             raise ValueError(f"Unsupported LLM type: {self.llm_type}")
-        
-        url = "http://localhost:11434/api/generate"
-        
+
+        url, headers, api_model, is_cloud = resolve_ollama_request_target(self.model)
+
         data = {
-            "model": self.model,
+            "model": api_model,
             "prompt": prompt,
             "stream": False,
             "options": {
@@ -180,13 +183,13 @@ CRITICAL RULES:
                 "num_predict": 4000  # Enough for JSON response
             }
         }
-        
+
         # For cloud models, use longer timeout
-        timeout = self.timeout_sec * 2 if "-cloud" in self.model else self.timeout_sec
-        
+        timeout = self.timeout_sec * 2 if is_cloud else self.timeout_sec
+
         try:
-            response = requests.post(url, json=data, timeout=timeout)
-            
+            response = requests.post(url, json=data, headers=headers, timeout=timeout)
+
             if response.status_code != 200:
                 error_text = response.text
                 if "ollama.com" in error_text or "TLS handshake" in error_text:
@@ -194,22 +197,23 @@ CRITICAL RULES:
                         f"Cloud model connection failed: TLS handshake timeout. "
                         f"This may be a temporary network issue. Error: {error_text[:200]}"
                     )
-                raise RuntimeError(f"Ollama request failed: {response.status_code} - {error_text[:200]}")
-            
+                where = "Ollama Cloud" if is_cloud else "Local Ollama"
+                raise RuntimeError(f"{where} request failed: {response.status_code} - {error_text[:200]}")
+
             result = response.json()
-            
+
             # Extract response text
             if "response" in result:
                 response_text = result["response"]
             else:
                 raise ValueError("No 'response' field in Ollama response")
-            
+
             return {"response": response_text, "usage": result.get("eval_count", {})}
-            
+
         except requests.exceptions.Timeout:
             raise RuntimeError(f"Request timeout after {timeout} seconds")
         except requests.exceptions.ConnectionError as e:
-            raise RuntimeError(f"Failed to connect to Ollama server: {e}")
+            raise RuntimeError(f"Failed to connect to Ollama: {e}")
     
     def _parse_response(self, response_data: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, float], Dict[str, str]]:
         """Parse LLM response and extract configuration, confidence, and reasoning."""

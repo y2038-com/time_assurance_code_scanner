@@ -2,6 +2,11 @@
 
 Thanks for your interest in the Time Assurance Code Scanner (`tacs`).
 
+This CLI is the code-scanning sibling of
+[`time_assurance_doc_scanner`](https://github.com/y2038-com/time_assurance_doc_scanner)
+(`tads`). Prefer matching the sibling’s operator conventions for LLM keys and
+`.env` layout where practical (`OLLAMA_API_KEY`, optional `TACS_*` knobs).
+
 ## Development setup
 
 ```bash
@@ -15,12 +20,16 @@ pytest
 
 New-user workflow: **[QUICK_START.md](QUICK_START.md)**.
 
+**Privacy:** leave `--llm none` (default) unless you intentionally opt in. Do not
+commit `.env` or scan outputs.
+
 ## Before you open a PR
 
 - Run `pytest` and keep changes focused.
 - Do **not** commit secrets or workspace junk: `.env`, API keys, or scan output trees (`results/`, `batch_runs/`, `findings.json`).
 - Prefer small PRs: code, docs, or tests — avoid mixing large refactors with unrelated doc edits.
 - Match existing style (Python 3.12+, Click CLI).
+- Keep public docs honest about **experimental** features (`tacs detect`) and about findings as **candidates for review**.
 
 ## What to work on
 

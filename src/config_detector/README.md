@@ -1,6 +1,9 @@
 # Configuration Detector
 
-A separate Python utility that analyzes build systems and outputs likelihood scores for all eight possible environment configurations.
+**Experimental.** Prefer an explicit `--env-config` for real scans. Public CLI:
+`tacs detect`. Design notes also live in [docs/config_detector.md](../../docs/config_detector.md).
+
+A Python utility that analyzes build systems and outputs likelihood scores for all eight possible environment configurations.
 
 ## Overview
 
@@ -113,15 +116,20 @@ Evidence:
 
 ## Integration with Scanner
 
-The scanner can use this utility:
+Prefer an explicit env config. For a best-effort guess:
 
 ```bash
-# Auto-detect and use most likely config
-python -m scanner.cli \
+tacs detect /path/to/code --out results/detected.json
+# Review results, then map to a real env_config JSON and run:
+tacs scan \
   --root /path/to/code \
   --rules src/tacs/rules/y2038_sample_rules.json \
-  --auto-detect-config
+  --env-config configs/example.env_config.json \
+  --llm none \
+  --out findings.json
 ```
+
+There is no supported `--auto-detect-config` flag on `tacs scan`; use `tacs detect` separately.
 
 ## Architecture
 

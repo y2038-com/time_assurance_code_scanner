@@ -7,8 +7,8 @@ This guide explains how to test the I/O-boundary analyzer with the test patterns
 Test I/O boundary detection without LLM classification:
 
 ```bash
-cd /path/to/new_scan
-python -m scanner.cli \
+cd /path/to/time_assurance_code_scanner
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_io_boundary_patterns.c" \
@@ -34,7 +34,7 @@ python -m scanner.cli \
 Test with full LLM analysis to see how I/O candidates are classified:
 
 ```bash
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_io_boundary_patterns.c" \
@@ -125,7 +125,7 @@ void test_printf_mismatch(void) {
 ```
 
 ```bash
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_io_formatted.c" \
@@ -150,7 +150,7 @@ void test_write_time_t(void) {
 ```
 
 ```bash
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_io_raw.c" \
@@ -164,7 +164,7 @@ python -m scanner.cli \
 ### Lower Score Threshold (More Candidates)
 
 ```bash
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_io_boundary_patterns.c" \
@@ -177,7 +177,7 @@ python -m scanner.cli \
 ### Disable Literal Width Checking
 
 ```bash
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_io_boundary_patterns.c" \
@@ -190,7 +190,7 @@ python -m scanner.cli \
 ### Disable I/O Analysis (Baseline)
 
 ```bash
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_io_boundary_patterns.c" \
@@ -279,7 +279,7 @@ python -m scanner.cli \
 
 ```bash
 # 1. Quick test (fast)
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_io_boundary_patterns.c" \
@@ -292,7 +292,7 @@ cat test_io_quick.json | jq '.findings | length'
 cat test_io_quick.json | jq '.findings[] | select(.io_category != null) | {file, line, io_category, io_function, io_score}'
 
 # 3. Full test with LLM (slower)
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_io_boundary_patterns.c" \

@@ -5705,5 +5705,27 @@
       "time_constant",
       "time_struct_alias"
     ]
+  },
+  {
+    "symbol": "my_time_t",
+    "risk": "high",
+    "category": "type",
+    "description": "Typedef alias for time_t (discovered: 1 definitions)",
+    "discovered": true,
+    "discovery_type": "typedef",
+    "definitions": [
+      "/home/john/Cursor/time_assurance_code_scanner/tests/patterns/test_arithmetic_patterns_mini.c:8: typedef time_t my_time_t;"
+    ]
+  },
+  {
+    "symbol": "timestamp_t",
+    "risk": "high",
+    "category": "type",
+    "description": "Typedef alias for time_t (discovered: 1 definitions)",
+    "discovered": true,
+    "discovery_type": "typedef",
+    "definitions": [
+      "/home/john/Cursor/time_assurance_code_scanner/tests/patterns/test_arithmetic_patterns_mini.c:9: typedef time_t timestamp_t;"
+    ]
   }
 ]

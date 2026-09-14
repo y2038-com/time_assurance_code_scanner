@@ -595,7 +595,7 @@ def main() -> int:
     parser.add_argument("--scanner-timeout-sec", type=int, default=3600, help="Per-repo scan timeout")
     parser.add_argument("--enable-llm", action=argparse.BooleanOptionalAction, default=True, help="Enable LLM stages (default: enabled)")
     parser.add_argument("--llm-type", choices=["ollama", "openai", "anthropic", "gemini"], default="ollama", help="LLM provider when enabled (default: ollama)")
-    parser.add_argument("--model", default="gpt-oss:120b-cloud", help="Model name for selected LLM provider")
+    parser.add_argument("--model", default="gpt-oss:120b-cloud", help="Model name for selected LLM provider (or TACS_MODEL)")
     parser.add_argument("--disable-stage1", action=argparse.BooleanOptionalAction, default=True, help="Disable Stage 1 line-level pass (default: disabled)")
     parser.add_argument("--detect-y2106", action=argparse.BooleanOptionalAction, default=True, help="Enable Y2106 detection (default: enabled)")
     parser.add_argument("--confidence-floor", type=float, default=0.85, help="Confidence floor for classifications (default: 0.85)")

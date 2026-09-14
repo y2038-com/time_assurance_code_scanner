@@ -1,20 +1,24 @@
 # Configuration Detector Usage Guide
 
+**Experimental.** Prefer an explicit `--env-config` for production scans. Auto-detect
+is best-effort and often low-confidence.
+
 ## Overview
 
-The `config_detector` utility automatically analyzes build systems (Makefiles, CMakeLists.txt) to determine the likelihood of each of the four main environment configurations.
+`tacs detect` (and the underlying `config_detector` package) analyzes build systems
+(Makefiles, CMakeLists.txt) and scores likelihoods among the eight ABI/`time_t`
+configurations.
 
 ## Quick Start
 
 ```bash
-# Basic usage - analyze a project
-python -m config_detector.cli /path/to/project
+# Preferred public CLI
+tacs detect /path/to/project
+tacs detect /path/to/project --format text
+tacs detect /path/to/project --out results/config_likelihoods.json
 
-# JSON output
+# Equivalent module entry (advanced / scripting)
 python -m config_detector.cli /path/to/project --format json
-
-# Save results to file
-python -m config_detector.cli /path/to/project --out results/config_likelihoods.json
 ```
 
 ## Example: Simple Embedded Project
@@ -91,18 +95,18 @@ Recommendation: Use lp64_signed_64bit configuration
 
 ## Integration with Scanner
 
-The scanner can use auto-detected configurations:
+Auto-detected configs are a convenience only — validate before trusting them.
 
 ```bash
-# Step 1: Detect configuration
-python -m config_detector.cli /path/to/project --out results/detected_config.json
+# Step 1: Detect configuration (experimental)
+tacs detect /path/to/project --out results/detected_config.json
 
-# Step 2: Use detected config with scanner
-python -m scanner.cli \
+# Step 2: Prefer converting / mapping to a real env_config JSON, then:
+tacs scan \
   --root /path/to/code \
-  --rules scanner/rules/y2038_sample_rules.json \
-  --env-config results/detected_config.json \
-  --llm ollama \
+  --rules src/tacs/rules/y2038_sample_rules.json \
+  --env-config configs/example.env_config.json \
+  --llm none \
   --out findings.json
 ```
 

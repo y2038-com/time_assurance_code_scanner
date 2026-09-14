@@ -40,6 +40,7 @@ int main() {
         # Run the scanner
         cmd = [
             sys.executable, "-m", "tacs.cli",
+            "scan",
             "--root", str(temp_path),
             "--rules", str(rules_file),
             "--include", "*.c",

@@ -1,33 +1,39 @@
 #!/usr/bin/env python3
 """
-Test the fixed environment wizard imports.
+Manual smoke for environment wizard imports.
+Run: python3 tests/test_wizard_fix.py
 """
 
-import sys
-from pathlib import Path
+from __future__ import annotations
 
-# Test the import fix
-try:
-    # This should work now
-    from envui.cli.env_wizard import EnvironmentWizard
-    print("✓ Import successful!")
-    
-    # Test creating wizard instance
-    wizard = EnvironmentWizard()
-    print("✓ Wizard instance created successfully!")
-    
-    # Test non-interactive mode with sample config
-    print("\nTesting non-interactive mode...")
-    wizard.run_non_interactive(
-        'envui/examples/env_config.sample.json',
-        'results/test_env_config.json',
-        print_summary=True,
-        log_cli=False
-    )
-    print("✓ Non-interactive mode test passed!")
-    
-except Exception as e:
-    print(f"✗ Error: {e}")
-    import traceback
-    traceback.print_exc()
-    sys.exit(1)
+import sys
+
+
+def main() -> int:
+    try:
+        from envui.cli.env_wizard import EnvironmentWizard
+
+        print("Import successful!")
+
+        wizard = EnvironmentWizard()
+        print("Wizard instance created successfully!")
+
+        print("\nTesting non-interactive mode...")
+        wizard.run_non_interactive(
+            "envui/examples/env_config.sample.json",
+            "results/test_env_config.json",
+            print_summary=True,
+            log_cli=False,
+        )
+        print("Non-interactive mode test passed!")
+        return 0
+    except Exception as e:
+        print(f"Error: {e}")
+        import traceback
+
+        traceback.print_exc()
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

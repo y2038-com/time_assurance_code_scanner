@@ -128,7 +128,7 @@ You can run the scanner manually on any test file:
 
 ```bash
 # Fast test (no LLM, just detection)
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules configs/example.rules.json \
   --include "test_function_patterns.c" \
@@ -136,7 +136,7 @@ python -m scanner.cli \
   --out test_results.json
 
 # Full test (with LLM classification)
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules configs/example.rules.json \
   --include "test_function_patterns.c" \

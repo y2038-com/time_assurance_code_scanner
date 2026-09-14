@@ -1,10 +1,19 @@
 # report_renderer
 
-CLI utility to render scanner `findings.json` as either terminal text or a standalone HTML report.
+Renders scanner `findings.json` as terminal text or a standalone HTML report.
 
-## Usage
+## Preferred CLI
 
-Run from repository root:
+```bash
+tacs render --help
+```
+
+`tacs render` forwards to the batch/report entrypoints used for single findings
+files and batch run directories.
+
+## Module usage
+
+Run from repository root (with the package installed editable):
 
 ```bash
 python -m report_renderer <path-to-findings.json> --format text
@@ -29,5 +38,5 @@ python -m report_renderer <path-to-findings.json> --format html --out report.htm
 
 - `--out report.html`
 - `--group-by file|rule|none`
-- `--title "Y2038 Scan Report"`
+- `--title "Time Assurance Scan Report"`
 - `--open` (best-effort)

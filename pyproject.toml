@@ -39,6 +39,8 @@ report_renderer = ["fixtures/*.json"]
 [tool.pytest.ini_options]
 testpaths = ["tests", "src/report_renderer/tests"]
 pythonpath = ["src"]
+python_files = ["test_*.py"]
+norecursedirs = [".git", ".venv", "venv", "results", "batch_runs"]
 
 [tool.black]
 line-length = 88

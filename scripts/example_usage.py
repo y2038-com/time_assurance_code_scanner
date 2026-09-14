@@ -120,7 +120,7 @@ def run_scanner_example():
     ]
     
     print(f"Command: {' '.join(cmd2)}")
-    print("Note: This requires OLLAMA_CLOUD_TOKEN environment variable")
+    print("Note: This requires OLLAMA_API_KEY (legacy: OLLAMA_CLOUD_TOKEN)")
     
     # Clean up
     print(f"\nCleaning up temporary directory: {temp_dir}")

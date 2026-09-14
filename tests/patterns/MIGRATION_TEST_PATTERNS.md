@@ -92,7 +92,7 @@ To test migration patterns:
 python3 tests/patterns/test_config_fixtures.py
 
 # Run migration analysis
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_migration_patterns.c" \

@@ -1,7 +1,15 @@
 # Y2038 Repo Scanner – Scanning Workflow (preprocessor-agnostic, LLM-assisted)
 
+> **Historical / design document.** This PRD describes the pipeline as designed during
+> early implementation. It is **not** the CLI user guide and may disagree with the
+> current `tacs` command surface, defaults, or stage naming.
+>
+> For public usage, start with [QUICK_START.md](../../QUICK_START.md) and
+> [docs/usage/RUNNING_FULL_PIPELINE.md](../usage/RUNNING_FULL_PIPELINE.md).
+> Planned items labeled “v0.4” below are **not** a ship commitment for the open-source CLI.
+
 Version: 0.3
-Status: Implementation Complete (v0.3), Planning Next Phase (v0.4)
+Status: Design-era record (implementation evolved; treat as historical)
 Owners: John Lange; Contributors: GPT-5 Thinking
 
 ## 1. Goals and scope

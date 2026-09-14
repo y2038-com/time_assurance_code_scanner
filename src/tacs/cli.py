@@ -9,6 +9,20 @@ from pathlib import Path
 import click
 
 from tacs import __version__
+from tacs.llm.env import DEFAULT_MODEL, default_llm_type, default_model_id, load_dotenv
+
+# Load local `.env` before Click resolves option defaults / provider checks.
+load_dotenv()
+
+
+def _cli_default_llm() -> str:
+    value = default_llm_type()
+    allowed = {"none", "ollama", "openai", "anthropic", "gemini"}
+    return value if value in allowed else "none"
+
+
+def _cli_default_model() -> str:
+    return default_model_id() or DEFAULT_MODEL
 
 
 @click.group()
@@ -65,7 +79,12 @@ def render_cmd(ctx: click.Context) -> None:
 @app.command("detect")
 @click.argument("project_path", type=click.Path(exists=True, file_okay=False, path_type=Path))
 @click.option("--llm/--no-llm", default=False, help="Enable experimental LLM-assisted detection")
-@click.option("--model", default="gpt-oss:120b-cloud", show_default=True, help="LLM model when --llm is set")
+@click.option(
+    "--model",
+    default=_cli_default_model,
+    show_default=True,
+    help="LLM model when --llm is set",
+)
 @click.option("--format", "fmt", type=click.Choice(["json", "text"]), default="json", show_default=True)
 @click.option("--out", type=click.Path(path_type=Path), default=None, help="Optional output file")
 def detect_cmd(project_path: Path, llm: bool, model: str, fmt: str, out: Path | None) -> None:

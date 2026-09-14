@@ -4,13 +4,13 @@ This document provides ready-to-use commands for testing the scanner with test p
 
 ## Quick Reference
 
-All commands should be run from the project root: `/path/to/new_scan`
+All commands should be run from the project root: `/path/to/time_assurance_code_scanner`
 
 ## 1. Basic Pattern Detection Tests (Fast - No LLM)
 
 ### Test All Pattern Files
 ```bash
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_*.c" \
@@ -31,7 +31,7 @@ python -m scanner.cli \
 ### Test Specific Pattern File
 ```bash
 # Arithmetic patterns
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_arithmetic_patterns.c" \
@@ -39,7 +39,7 @@ python -m scanner.cli \
   --out test_arithmetic_results.json
 
 # Cast patterns
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_cast_patterns.c" \
@@ -47,7 +47,7 @@ python -m scanner.cli \
   --out test_cast_results.json
 
 # Narrowing patterns
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_narrowing_patterns.c" \
@@ -59,7 +59,7 @@ python -m scanner.cli \
 
 ### Quick I/O Test (No LLM)
 ```bash
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_io_boundary_patterns.c" \
@@ -77,7 +77,7 @@ python -m scanner.cli \
 
 ### Full I/O Test (With LLM)
 ```bash
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_io_boundary_patterns.c" \
@@ -102,7 +102,7 @@ python tests/patterns/inspect_io_results.py test_io_results.json
 
 ### Migration Test (ILP32 signed 32-bit → ILP32 signed 64-bit)
 ```bash
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_migration_patterns.c" \
@@ -115,7 +115,7 @@ python -m scanner.cli \
 
 ### Migration Test (ILP32 → LP64)
 ```bash
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_migration_patterns.c" \
@@ -128,7 +128,7 @@ python -m scanner.cli \
 
 ### Migration Test (Signed → Unsigned)
 ```bash
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_migration_patterns.c" \
@@ -143,7 +143,7 @@ python -m scanner.cli \
 
 ### Test with ILP32 Signed 32-bit Config (Classic Y2038)
 ```bash
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_arithmetic_patterns.c" \
@@ -154,7 +154,7 @@ python -m scanner.cli \
 
 ### Test with LP64 Signed 64-bit Config (Modern Safe)
 ```bash
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_arithmetic_patterns.c" \
@@ -169,7 +169,7 @@ python -m scanner.cli \
 
 ### All Patterns with Full LLM Analysis
 ```bash
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_*.c" \
@@ -208,7 +208,7 @@ python test_io_quick.py
 
 ### Test Typedef Discovery
 ```bash
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_type_patterns.c" \
@@ -220,7 +220,7 @@ Check `results/discovery_report.json` for discovered typedefs.
 
 ### Test Macro Discovery
 ```bash
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_macro_patterns.h" \
@@ -230,7 +230,7 @@ python -m scanner.cli \
 
 ### Test Safe Patterns (Should NOT be flagged)
 ```bash
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_safe_patterns.c" \
@@ -244,7 +244,7 @@ python -m scanner.cli \
 
 ### Large Pattern File Test
 ```bash
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_arithmetic_patterns.c" \
@@ -262,7 +262,7 @@ Monitor:
 
 ### Show All Candidates (No Filtering)
 ```bash
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_arithmetic_patterns.c" \
@@ -273,7 +273,7 @@ python -m scanner.cli \
 
 ### Show LLM Prompts and Responses
 ```bash
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_arithmetic_patterns.c" \
@@ -302,27 +302,27 @@ python test_multi_config.py
 
 1. **Start with quick tests (no LLM):**
    ```bash
-   python -m scanner.cli --root tests/patterns --rules tests/patterns/test_patterns_rules.json --include "test_arithmetic_patterns.c" --llm none --out quick_test.json
+   tacs scan --root tests/patterns --rules tests/patterns/test_patterns_rules.json --include "test_arithmetic_patterns.c" --llm none --out quick_test.json
    ```
 
 2. **Test I/O boundary detection:**
    ```bash
-   python -m scanner.cli --root tests/patterns --rules tests/patterns/test_patterns_rules.json --include "test_io_boundary_patterns.c" --llm none --io-analysis --out io_test.json
+   tacs scan --root tests/patterns --rules tests/patterns/test_patterns_rules.json --include "test_io_boundary_patterns.c" --llm none --io-analysis --out io_test.json
    ```
 
 3. **Test with LLM on one file:**
    ```bash
-   python -m scanner.cli --root tests/patterns --rules tests/patterns/test_patterns_rules.json --include "test_arithmetic_patterns.c" --llm ollama --out llm_test.json
+   tacs scan --root tests/patterns --rules tests/patterns/test_patterns_rules.json --include "test_arithmetic_patterns.c" --llm ollama --out llm_test.json
    ```
 
 4. **Test migration analysis:**
    ```bash
-   python -m scanner.cli --root tests/patterns --rules tests/patterns/test_patterns_rules.json --include "test_migration_patterns.c" --migration-mode --migration-from tests/patterns/env_configs/ilp32_signed_32bit.json --migration-to tests/patterns/env_configs/ilp32_signed_64bit.json --llm ollama --out migration_test.json
+   tacs scan --root tests/patterns --rules tests/patterns/test_patterns_rules.json --include "test_migration_patterns.c" --migration-mode --migration-from tests/patterns/env_configs/ilp32_signed_32bit.json --migration-to tests/patterns/env_configs/ilp32_signed_64bit.json --llm ollama --out migration_test.json
    ```
 
 5. **Run comprehensive test:**
    ```bash
-   python -m scanner.cli --root tests/patterns --rules tests/patterns/test_patterns_rules.json --include "test_*.c" --llm ollama --io-analysis --out comprehensive_test.json
+   tacs scan --root tests/patterns --rules tests/patterns/test_patterns_rules.json --include "test_*.c" --llm ollama --io-analysis --out comprehensive_test.json
    ```
 
 ## Checking Results

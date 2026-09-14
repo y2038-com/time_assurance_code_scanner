@@ -25,7 +25,7 @@ fi
 
 # Run the scanner
 echo "Running I/O boundary test..."
-python3 -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules "$RULES_FILE" \
   --include "test_io_boundary_patterns.c" \

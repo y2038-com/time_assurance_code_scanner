@@ -91,7 +91,7 @@
     "discovered": true,
     "discovery_type": "typedef",
     "definitions": [
-      "/home/john/Cursor/new_scan/tests/patterns/test_arithmetic_patterns_mini.c:8: typedef time_t my_time_t;"
+      "tests/patterns/test_arithmetic_patterns_mini.c:8: typedef time_t my_time_t;"
     ]
   },
   {
@@ -102,7 +102,7 @@
     "discovered": true,
     "discovery_type": "typedef",
     "definitions": [
-      "/home/john/Cursor/new_scan/tests/patterns/test_arithmetic_patterns_mini.c:9: typedef time_t timestamp_t;"
+      "tests/patterns/test_arithmetic_patterns_mini.c:9: typedef time_t timestamp_t;"
     ]
   }
 ]

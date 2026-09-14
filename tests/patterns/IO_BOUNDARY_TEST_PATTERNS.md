@@ -137,7 +137,7 @@ Run the test file with the scanner:
 
 ```bash
 # Fast test (no LLM, just detection)
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules configs/example.rules.json \
   --include "test_io_boundary_patterns.c" \
@@ -146,7 +146,7 @@ python -m scanner.cli \
   --out test_io_results.json
 
 # Full test (with LLM classification)
-python -m scanner.cli \
+tacs scan \
   --root tests/patterns \
   --rules configs/example.rules.json \
   --include "test_io_boundary_patterns.c" \

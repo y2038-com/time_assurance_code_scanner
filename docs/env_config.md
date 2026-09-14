@@ -1,10 +1,12 @@
-# Y2038 Environment Configuration
+# Environment configuration (`--env-config`)
 
-This document explains the environment configuration fields used by the Y2038 vulnerability scanner and how they influence the scanning process.
+This document explains the environment configuration fields used by **TACS**
+(`tacs scan --env-config …`) and how they influence time-assurance analysis
+(Y2038 / Y2106 class risks).
 
 ## Overview
 
-The Y2038 scanner requires detailed environment configuration to make accurate assessments about potential Year 2038 issues. The environment configuration determines:
+Scans are only as meaningful as the assumed ABI/`time_t` model. The environment configuration determines:
 
 - **Scenario-specific rule application**: Different architectures and time_t configurations require different detection rules
 - **LLM prompt context**: The scanner provides environment details to LLM models for better context

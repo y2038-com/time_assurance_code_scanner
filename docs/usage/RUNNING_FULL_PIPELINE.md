@@ -1,11 +1,18 @@
 # Running the Full Analysis Pipeline
 
+Current CLI entrypoint: **`tacs scan`**. For a first local run without an LLM, see
+[QUICK_START.md](../../QUICK_START.md).
+
 ## Overview
 
-The Y2038 scanner supports two analysis approaches:
+`tacs` supports two analysis approaches:
 
 1. **Function-First Pipeline** (default): Analyzes complete functions with Stage S2 (function-level) Pass P1/P2 and Stage S3 (file-level) Pass P1
 2. **Legacy Pipeline with Stage S1**: Single-line triage (Stage S1, Pass P1) followed by widened context (Stage S2, Pass P1) and file context (Stage S3, Pass P1)
+
+LLM providers are **opt-in** (`--llm none` by default). Examples below that use
+`--llm ollama` assume you have configured `OLLAMA_API_KEY` (and left `OLLAMA_HOST`
+unset for Ollama Cloud) or set `OLLAMA_HOST` for a local daemon.
 
 ## Y2106 Detection
 
@@ -21,9 +28,9 @@ By default, only Y2038 issues are detected. When `--detect-y2106` is enabled:
 
 **Example with Y2106 detection:**
 ```bash
-python -m scanner.cli \
+tacs scan \
   --root ~/git/wolfssl \
-  --rules scanner/rules/y2038_sample_rules.json \
+  --rules src/tacs/rules/y2038_sample_rules.json \
   --llm ollama \
   --detect-y2106 \
   --env-config results/env_config.json \
@@ -49,9 +56,9 @@ Scan complete: 31 findings
 This is the default and recommended approach:
 
 ```bash
-python -m scanner.cli \
+tacs scan \
   --root ~/git/wolfssl \
-  --rules scanner/rules/y2038_sample_rules.json \
+  --rules src/tacs/rules/y2038_sample_rules.json \
   --include "**/*.c" \
   --include "**/*.h" \
   --exclude "**/doc/**" \
@@ -80,9 +87,9 @@ python -m scanner.cli \
 To enable the legacy pipeline with single-line Pass 1 analysis:
 
 ```bash
-python -m scanner.cli \
+tacs scan \
   --root ~/git/wolfssl \
-  --rules scanner/rules/y2038_sample_rules.json \
+  --rules src/tacs/rules/y2038_sample_rules.json \
   --include "**/*.c" \
   --include "**/*.h" \
   --exclude "**/doc/**" \
@@ -196,9 +203,9 @@ For codebases with very long lines:
 
 ```bash
 # Full analysis with Pass 1 enabled
-python -m scanner.cli \
+tacs scan \
   --root ~/git/wolfssl \
-  --rules scanner/rules/y2038_sample_rules.json \
+  --rules src/tacs/rules/y2038_sample_rules.json \
   --include "**/*.c" \
   --include "**/*.h" \
   --exclude "**/doc/**" \

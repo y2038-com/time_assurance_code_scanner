@@ -17,16 +17,25 @@ This repository is the open-source scanner engine and CLI. It is the code-scanni
 | `tacs render` | Render `findings.json` (or a batch run) to text/HTML |
 | `tacs detect` | **Experimental** guess among the 8 ABI/`time_t` configs |
 
-**Default LLM mode for a first run:** `--llm none` (deterministic candidate discovery; no API key).
+**Default LLM mode for a first run:** `--llm none` (deterministic candidate discovery on the bundled `tests/patterns` tree; no API key). External LLMs are **opt-in** via `--llm` or `TACS_LLM_PROVIDER`.
 
-BYOLLM also supports local Ollama, Ollama Cloud, OpenAI, Anthropic, and Gemini.
+| Provider | Typical model | Notes |
+|----------|---------------|--------|
+| *(none)* | — | Default; discovery-only candidates |
+| Ollama Cloud | `gpt-oss:120b-cloud` | Recommended optional path; `OLLAMA_API_KEY`, leave `OLLAMA_HOST` unset |
+| Ollama local | e.g. `llama3.1` | Set `OLLAMA_HOST=http://127.0.0.1:11434` |
+| OpenAI / Anthropic / Gemini | see `.env.example` | Requires the matching API key |
+
+BYOLLM: bring your own provider; no vendor lock-in.
 
 ## Privacy (read this)
 
 Processing is **ephemeral by default**: the tool does not keep a private code store. That does **not** mean “never leaves your machine.”
 
-- **Source snippets may be sent to the LLM provider you configure** when `--llm` is not `none`.
+- **Source snippets may be sent to the LLM provider you configure** only when you opt in (`--llm` ≠ `none`, or `TACS_LLM_PROVIDER`).
 - Reports are written only where you ask (`--out` / batch output dirs). Prefer `--llm none` or local Ollama for sensitive trees.
+
+Details: [docs/privacy.md](docs/privacy.md).
 
 ## Principles
 
@@ -35,6 +44,20 @@ Processing is **ephemeral by default**: the tool does not keep a private code st
 - Evidence-oriented pipeline with optional multi-stage LLM analysis
 - Human review is authoritative — scanner outputs are **candidates for review**
 - Language surface today is C/C++; the project name and CLI are not limited to C forever
+
+## Limitations
+
+TACS is an AI-assisted review aid, not an authoritative compliance oracle. Treat outputs as **candidates for review**, not confirmed defects.
+
+- False positives and false negatives are expected.
+- With `--llm none`, findings are discovery locations (often `abstain`) — not LLM-validated issues.
+- Results vary by model, provider, rules, and `--env-config` assumptions.
+- Wrong or missing environment config can mis-rank risk (prefer an explicit ABI/`time_t` config).
+- `tacs detect` is experimental and often low-confidence — not ground truth.
+- Preprocessor-agnostic scanning means guarded/dead code may still appear as candidates.
+- Structural filtering (tree-sitter) is optional (`pip install -e ".[full]"`); without it, filtering is weaker.
+- No findings ≠ “no time-assurance risk.”
+- Experts should review severity and remediation before changing production code or ABI choices.
 
 ## Environment configuration (important)
 
@@ -54,11 +77,12 @@ tacs version
 tacs scan \
   --root tests/patterns \
   --rules src/tacs/rules/y2038_sample_rules.json \
+  --env-config configs/example.env_config.json \
   --llm none \
   --out findings.json
 ```
 
-Then open `findings.json`. For providers and batch/render, see **QUICK_START.md**.
+Then open `findings.json`. For providers, troubleshooting, and batch/render, see **[QUICK_START.md](QUICK_START.md)**.
 
 ## Layout
 
@@ -69,17 +93,26 @@ Then open `findings.json`. For providers and batch/render, see **QUICK_START.md*
 | `src/envui/` | Environment config schema + wizard helpers |
 | `src/report_renderer/` | Text/HTML report rendering |
 | `configs/` | Example rules / env configs |
+| `tests/patterns/` | Bundled example C patterns for local smoke scans |
 | `tests/` | Unit and pattern tests |
 
 ## Docs
 
-| Doc | Purpose |
-|-----|---------|
-| [QUICK_START.md](QUICK_START.md) | Install → first scan |
-| [docs/env_config.md](docs/env_config.md) | Environment configuration |
-| [docs/usage/RUNNING_FULL_PIPELINE.md](docs/usage/RUNNING_FULL_PIPELINE.md) | Full pipeline notes |
-| [docs/usage/CONFIG_DETECTOR_USAGE.md](docs/usage/CONFIG_DETECTOR_USAGE.md) | Experimental detector |
-| [docs/prd/Scanning-Workflow.md](docs/prd/Scanning-Workflow.md) | Workflow specification |
+**Start here:** [QUICK_START.md](QUICK_START.md)
+
+| Doc | Status | Purpose |
+|-----|--------|---------|
+| [QUICK_START.md](QUICK_START.md) | Current | Install → offline scan → optional LLM |
+| [docs/privacy.md](docs/privacy.md) | Current | Privacy and retention defaults |
+| [docs/env_config.md](docs/env_config.md) | Current | Environment / ABI configuration |
+| [docs/usage/RUNNING_FULL_PIPELINE.md](docs/usage/RUNNING_FULL_PIPELINE.md) | Current | Function-first vs legacy pipeline flags |
+| [docs/usage/CONFIG_DETECTOR_USAGE.md](docs/usage/CONFIG_DETECTOR_USAGE.md) | Current | Experimental `tacs detect` |
+| [docs/config_detector.md](docs/config_detector.md) | Current | Detector design notes |
+| [docs/report_renderer.md](docs/report_renderer.md) | Current | Text/HTML rendering |
+| [docs/prd/Scanning-Workflow.md](docs/prd/Scanning-Workflow.md) | Historical | Design-era workflow PRD (not CLI source of truth) |
+| [docs/README.md](docs/README.md) | Current | Docs index |
+
+Sibling project: [time_assurance_doc_scanner](https://github.com/y2038-com/time_assurance_doc_scanner) (`tads`) — documentation / standards scanner.
 
 ## Contributing
 

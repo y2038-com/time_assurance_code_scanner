@@ -74,7 +74,7 @@ int main() {
     
     # Run the scanner
     print("\nRunning scanner...")
-    cmd = f"python -m scanner.cli --root {test_dir} --rules configs/example.rules.json --llm none --debug-candidates"
+    cmd = f"tacs scan --root {test_dir} --rules configs/example.rules.json --llm none --debug-candidates"
     print(f"Command: {cmd}")
     
     print("\nExpected results:")

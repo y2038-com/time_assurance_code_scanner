@@ -6,6 +6,13 @@ import time
 from typing import List, Dict, Any, Optional, Tuple
 from tacs.core.schema import Candidate, LLMResponse, Y2038Issue, SeverityLevel
 from tacs.core.status_logger import StatusLogger
+from tacs.llm.env import (
+    DEFAULT_MODEL,
+    default_model_id,
+    looks_like_cloud_model,
+    ollama_api_key,
+    resolve_ollama_request_target,
+)
 
 
 class LLMNonRetryableError(RuntimeError):
@@ -15,7 +22,7 @@ class LLMNonRetryableError(RuntimeError):
 class LLMClient:
     """Pluggable LLM client with provider-specific HTTP adapters."""
     
-    def __init__(self, llm_type: str = "none", model: str = "gpt-oss:120b-cloud", environment_config: Optional[Dict[str, Any]] = None, timeout_sec: int = 30, batch_size_pass2: int = 20, batch_size_pass3: int = 10, debug_llm_raw: bool = False, debug_pass2_prompt: bool = False, time_t_aliases: Optional[Dict[str, List[str]]] = None, io_metadata_map: Optional[Dict[str, Dict[str, Any]]] = None, migration_mode: bool = False, migration_from_config: Optional[Dict[str, Any]] = None, migration_to_config: Optional[Dict[str, Any]] = None):
+    def __init__(self, llm_type: str = "none", model: Optional[str] = None, environment_config: Optional[Dict[str, Any]] = None, timeout_sec: int = 30, batch_size_pass2: int = 20, batch_size_pass3: int = 10, debug_llm_raw: bool = False, debug_pass2_prompt: bool = False, time_t_aliases: Optional[Dict[str, List[str]]] = None, io_metadata_map: Optional[Dict[str, Dict[str, Any]]] = None, migration_mode: bool = False, migration_from_config: Optional[Dict[str, Any]] = None, migration_to_config: Optional[Dict[str, Any]] = None):
         """
         Initialize the LLM client.
         
@@ -29,7 +36,7 @@ class LLMClient:
             io_metadata_map: Mapping of candidate IDs to I/O-boundary metadata
         """
         self.llm_type = llm_type
-        self.model = model
+        self.model = model or default_model_id() or DEFAULT_MODEL
         self.environment_config = environment_config
         self.timeout_sec = timeout_sec
         self.batch_size_pass2 = batch_size_pass2
@@ -38,8 +45,8 @@ class LLMClient:
         self.debug_pass2_prompt = debug_pass2_prompt
         self.time_t_aliases = time_t_aliases or {}
         self.io_metadata_map = io_metadata_map or {}
-        # Prefer OLLAMA_API_KEY (docs); keep OLLAMA_CLOUD_TOKEN for existing installs.
-        self.cloud_token = os.getenv("OLLAMA_API_KEY") or os.getenv("OLLAMA_CLOUD_TOKEN")
+        # Prefer OLLAMA_API_KEY; keep OLLAMA_CLOUD_TOKEN for existing installs (COMPAT).
+        self.cloud_token = ollama_api_key()
         
         # Migration mode support
         self.migration_mode = migration_mode
@@ -1200,33 +1207,17 @@ Classification in migration mode:
     
     @staticmethod
     def _is_ollama_cloud_model(model: str) -> bool:
-        name = (model or "").strip().lower()
-        return "-cloud" in name or name.endswith(":cloud")
+        return looks_like_cloud_model(model)
 
     def _ollama_request_target(self) -> tuple[str, dict[str, str] | None, str]:
         """
         Resolve Ollama base URL, optional auth headers, and model id.
 
-        Cloud models prefer direct https://ollama.com with an API key so WSL does
-        not depend on a signed-in local Ollama proxy. Local models use OLLAMA_HOST
-        or localhost:11434.
+        ``OLLAMA_HOST`` unset → Ollama Cloud (``https://ollama.com``) with API key.
+        Local daemon: set ``OLLAMA_HOST=http://127.0.0.1:11434``.
         """
-        model = self.model
-        use_cloud = self._is_ollama_cloud_model(model)
-        token = self.cloud_token
-
-        if use_cloud and token:
-            base = os.getenv("OLLAMA_CLOUD_BASE_URL", "https://ollama.com").rstrip("/")
-            headers = {
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-            }
-            # Hosted API often uses ids without the "-cloud" suffix.
-            api_model = model[:-6] if model.endswith("-cloud") else model
-            return f"{base}/api/generate", headers, api_model
-
-        base = os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
-        return f"{base}/api/generate", None, model
+        url, headers, api_model, _is_cloud = resolve_ollama_request_target(self.model)
+        return url, headers, api_model
 
     def _make_local_request(self, prompt: str) -> Dict[str, Any]:
         """Make request to local Ollama or Ollama Cloud (direct)."""
@@ -1260,9 +1251,10 @@ Classification in migration mode:
                 error_text = response.text
                 if response.status_code in {401, 403}:
                     raise LLMNonRetryableError(
-                        "Ollama Cloud unauthorized. Set OLLAMA_API_KEY or OLLAMA_CLOUD_TOKEN "
-                        "in the backend shell (create a key at https://ollama.com/settings/keys), "
-                        f"then restart uvicorn. Detail: {error_text[:150]}"
+                        "Ollama Cloud unauthorized. Set OLLAMA_API_KEY "
+                        "(legacy alias: OLLAMA_CLOUD_TOKEN) — create a key at "
+                        "https://ollama.com/settings/keys. "
+                        f"Detail: {error_text[:150]}"
                     )
                 if "ollama.com" in error_text or "TLS handshake" in error_text or "cloud" in error_text.lower():
                     raise RuntimeError(
@@ -1272,6 +1264,7 @@ Classification in migration mode:
                     )
                 where = "Ollama Cloud" if using_cloud_api else "Local Ollama"
                 raise RuntimeError(f"{where} request failed: {response.status_code} - {error_text[:150]}")
+
 
             result = response.json()
 
@@ -1522,7 +1515,10 @@ Classification in migration mode:
         """Validate selected provider against env allowlist."""
         if self.llm_type == "none":
             return
-        allowed_raw = os.getenv("ALLOWED_LLM_PROVIDERS", "ollama")
+        # OSS default: all built-in providers. Deployments (e.g. webapp) may tighten via env.
+        allowed_raw = os.getenv(
+            "ALLOWED_LLM_PROVIDERS", "ollama,openai,anthropic,gemini"
+        )
         allowed = {item.strip().lower() for item in allowed_raw.split(",") if item.strip()}
         if self.llm_type.lower() not in allowed:
             raise RuntimeError(

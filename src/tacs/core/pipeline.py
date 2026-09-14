@@ -13,10 +13,11 @@ from tacs.core.metrics import calculate_metrics
 from tacs.core.discovery_manager import DiscoveryManager
 from tacs.core.ir_adapter import IRAdapter
 from tacs.core.struct_filter import StructuralFilter
-from tacs.core.llm_client import LLMClient
 from tacs.core.status_logger import StatusLogger
 from tacs.core.scan_session import ScanSession
 from tacs.core.function_schemas import FunctionBody, FunctionAnalysis
+from tacs.llm.env import DEFAULT_MODEL
+from tacs.llm.factory import create_llm_client
 
 
 class ScanningPipeline:
@@ -26,7 +27,7 @@ class ScanningPipeline:
         self,
         scanner_path: str,
         llm_type: str = "none",
-        model: str = "gpt-oss:120b-cloud",
+        model: str = DEFAULT_MODEL,
         confidence_floor: float = 0.85,
         batch_size_pass1: int = 100,
         timeout_sec: int = 300,
@@ -200,14 +201,20 @@ class ScanningPipeline:
             )
         else:
             # Legacy pipeline - initialize LLM client for all stages
-            from tacs.core.llm_client import LLMClient
-            self.llm_client = LLMClient(
-                llm_type, model, self.environment_config, timeout_sec, 
-                batch_size_pass2, batch_size_pass3, debug_llm_raw, debug_pass2_prompt, 
-                time_t_aliases={}, io_metadata_map={},
+            self.llm_client = create_llm_client(
+                llm_type,
+                model,
+                environment_config=self.environment_config,
+                timeout_sec=timeout_sec,
+                batch_size_pass2=batch_size_pass2,
+                batch_size_pass3=batch_size_pass3,
+                debug_llm_raw=debug_llm_raw,
+                debug_pass2_prompt=debug_pass2_prompt,
+                time_t_aliases={},
+                io_metadata_map={},
                 migration_mode=self.migration_mode,
                 migration_from_config=self.migration_from_config,
-                migration_to_config=self.migration_to_config
+                migration_to_config=self.migration_to_config,
             )
             # Store time_t aliases for Stage S1, Pass P1 (will be set when discovery runs)
             self._time_t_aliases = {}
