@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Y2038.com LLC
+# SPDX-License-Identifier: Apache-2.0
+
 """Build include glob patterns from file extensions and folders."""
 
 from __future__ import annotations

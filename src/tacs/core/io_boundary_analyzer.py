@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Y2038.com LLC
+# SPDX-License-Identifier: Apache-2.0
+
 """I/O boundary analyzer for Y2038/Y2106 detection."""
 
 import re

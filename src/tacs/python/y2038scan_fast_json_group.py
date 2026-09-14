@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Y2038.com LLC
+# SPDX-License-Identifier: Apache-2.0
+
 # y2038scan_fast_json_group.py
 # Fast Y2038 scanner with inverted token index, bigrams, comment/string stripping,
 # function-call guard via category, risk filtering, group-by-line, and JSON output.

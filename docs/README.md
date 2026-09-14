@@ -12,6 +12,7 @@ Public entry points:
 | [usage/CONFIG_DETECTOR_USAGE.md](usage/CONFIG_DETECTOR_USAGE.md) | Experimental `tacs detect` |
 | [config_detector.md](config_detector.md) | Detector design notes |
 | [report_renderer.md](report_renderer.md) | Text/HTML rendering |
+| [release_checklist.md](release_checklist.md) | Maintainer release / GitHub metadata checklist |
 
 Historical:
 

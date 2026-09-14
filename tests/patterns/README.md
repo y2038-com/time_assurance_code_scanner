@@ -116,7 +116,7 @@ live alongside this file. Older analysis notes are under
 Run the validation script to test all patterns:
 
 ```bash
-python tests/patterns/test_pattern_detection.py
+python tests/manual/manual_pattern_detection.py
 ```
 
 The script will:

@@ -111,6 +111,7 @@ Then open `findings.json`. For providers, troubleshooting, and batch/render, see
 | [docs/report_renderer.md](docs/report_renderer.md) | Current | Text/HTML rendering |
 | [docs/prd/Scanning-Workflow.md](docs/prd/Scanning-Workflow.md) | Historical | Design-era workflow PRD (not CLI source of truth) |
 | [docs/README.md](docs/README.md) | Current | Docs index |
+| [docs/release_checklist.md](docs/release_checklist.md) | Current | Maintainer release / GitHub metadata checklist |
 
 Sibling project: [time_assurance_doc_scanner](https://github.com/y2038-com/time_assurance_doc_scanner) (`tads`) — documentation / standards scanner.
 

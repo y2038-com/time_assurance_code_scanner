@@ -10,6 +10,29 @@ readme = "README.md"
 requires-python = ">=3.12"
 authors = [{ name = "Y2038.com LLC" }]
 license = { text = "Apache-2.0" }
+keywords = [
+    "y2038",
+    "y2106",
+    "time_t",
+    "static-analysis",
+    "security",
+    "c",
+    "cpp",
+    "time-assurance",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Security",
+    "Topic :: Software Development :: Quality Assurance",
+    "Typing :: Typed",
+]
 dependencies = [
     "pydantic>=2.0.0",
     "click>=8.0.0",
@@ -27,6 +50,8 @@ tacs = "tacs.cli:app"
 [project.urls]
 Homepage = "https://github.com/y2038-com/time_assurance_code_scanner"
 Repository = "https://github.com/y2038-com/time_assurance_code_scanner"
+Issues = "https://github.com/y2038-com/time_assurance_code_scanner/issues"
+Documentation = "https://github.com/y2038-com/time_assurance_code_scanner#readme"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -40,7 +65,12 @@ report_renderer = ["fixtures/*.json"]
 testpaths = ["tests", "src/report_renderer/tests"]
 pythonpath = ["src"]
 python_files = ["test_*.py"]
-norecursedirs = [".git", ".venv", "venv", "results", "batch_runs"]
+norecursedirs = [".git", ".venv", "venv", "results", "batch_runs", "manual", "historical"]
+filterwarnings = [
+    "ignore::DeprecationWarning:tacs.core.scan_session",
+    "ignore::DeprecationWarning:tacs.core.pipeline",
+    "ignore::pydantic.warnings.PydanticDeprecatedSince20",
+]
 
 [tool.black]
 line-length = 88

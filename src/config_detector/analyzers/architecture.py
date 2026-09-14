@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Y2038.com LLC
+# SPDX-License-Identifier: Apache-2.0
+
 """Architecture detection analyzer (ILP32 vs LP64)."""
 
 import re

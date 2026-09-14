@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Y2038.com LLC
+# SPDX-License-Identifier: Apache-2.0
+
 """Configuration validator for all 8 config combinations."""
 
 from typing import Dict, Optional, Tuple
