@@ -13,6 +13,11 @@ Copy secrets only into a local `.env` (never commit it). Template: [`.env.exampl
 in later stages, file-level context and type/macro definitions — may be sent to your
 configured provider. See [docs/privacy.md](docs/privacy.md).
 
+**Local workspace:** optional `inputs/` (run-specific JSONL, env configs, etc.) and
+`outputs/` (findings, batch runs, reports) mirror the `tads` convention. Their
+contents are gitignored; tracked fixtures under `src/tacs/fixtures/` and `configs/`
+are unchanged. CLI defaults (`findings.json`, `results/`, `batch_runs/`) still work.
+
 ---
 
 ## 1. Install

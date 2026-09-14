@@ -33,7 +33,7 @@ BYOLLM: bring your own provider; no vendor lock-in.
 Processing is **ephemeral by default**: the tool does not keep a private code store. That does **not** mean “never leaves your machine.”
 
 - **Source code context may be sent to the LLM provider you configure** only when you opt in (`--llm` ≠ `none`, or `TACS_LLM_PROVIDER`). That can include complete function bodies and, in later analysis stages, file-level context and type/macro definitions.
-- Reports are written only where you ask (`--out` / batch output dirs). Prefer `--llm none` or local Ollama for sensitive trees.
+- Reports are written only where you ask (`--out` / batch output dirs). Prefer `--llm none` or local Ollama for sensitive trees. For local runs, you may keep private inputs under `inputs/` and generated artifacts under `outputs/` (both gitignored except their READMEs).
 
 Details: [docs/privacy.md](docs/privacy.md).
 
@@ -95,6 +95,8 @@ Then open `findings.json`. For providers, troubleshooting, and batch/render, see
 | `configs/` | Example rules / env configs |
 | `tests/patterns/` | Bundled example C patterns for local smoke scans |
 | `tests/` | Unit and pattern tests |
+| `inputs/` | Optional local run inputs (contents gitignored) |
+| `outputs/` | Optional local generated results (contents gitignored) |
 
 ## Docs
 

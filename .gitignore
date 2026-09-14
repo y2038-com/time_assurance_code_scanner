@@ -37,6 +37,12 @@ findings_*.json
 *_findings.json
 findings.json
 
+# Local working directories (same convention as tads; contents gitignored)
+inputs/*
+!inputs/README.md
+outputs/*
+!outputs/README.md
+
 # OS
 .DS_Store
 Thumbs.db

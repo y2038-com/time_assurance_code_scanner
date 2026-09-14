@@ -26,7 +26,7 @@ commit `.env` or scan outputs.
 ## Before you open a PR
 
 - Run `pytest` and keep changes focused.
-- Do **not** commit secrets or workspace junk: `.env`, API keys, or scan output trees (`results/`, `batch_runs/`, `findings.json`).
+- Do **not** commit secrets or workspace junk: `.env`, API keys, or scan output trees (`results/`, `batch_runs/`, `findings.json`, `inputs/*`, `outputs/*`).
 - Prefer small PRs: code, docs, or tests — avoid mixing large refactors with unrelated doc edits.
 - Match existing style (Python 3.12+, Click CLI).
 - Keep public docs honest about **experimental** features (`tacs detect`) and about findings as **candidates for review**.
