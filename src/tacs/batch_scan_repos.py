@@ -584,7 +584,7 @@ def _repo_matches_filters(task: RepoTask, filters: Iterable[str]) -> bool:
     return any(term in hay for term in terms)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Batch scan repositories for Y2038 issues")
     parser.add_argument("--repos-file", required=True, help="Path to JSONL repos file")
     parser.add_argument("--cache-dir", default=".repo_cache", help="Repo cache directory")
@@ -606,7 +606,7 @@ def main() -> int:
     parser.add_argument("--config-min-confidence", type=float, default=0.70, help="Minimum detection confidence to accept recommended config (default: 0.70)")
     parser.add_argument("--include-no-findings", action=argparse.BooleanOptionalAction, default=False, help="Include NO findings in output (default: disabled)")
     parser.add_argument("--verbose", action="store_true", help="Verbose logging")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     fallback_config_id = args.fallback_config.strip().lower()
     if fallback_config_id not in VALID_CONFIG_IDS:
