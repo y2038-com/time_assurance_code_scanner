@@ -74,3 +74,23 @@ def test_batch_pipeline_uses_packaged_tacs_scanner() -> None:
     assert path.parent.name == "python"
     assert path.parent.parent.name == "tacs"
     assert "scanner" not in path.parts
+
+
+def test_tacs_repos_help_shows_argparse_options() -> None:
+    """tacs repos --help must surface argparse flags, not thin Click wrapper help."""
+    runner = CliRunner()
+    result = runner.invoke(app, ["repos", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "--repos-file" in result.output
+    assert "--enable-llm" in result.output
+    assert "Usage: app repos" not in result.output
+
+
+def test_tacs_render_help_shows_argparse_options() -> None:
+    """tacs render --help must surface argparse flags, not thin Click wrapper help."""
+    runner = CliRunner()
+    result = runner.invoke(app, ["render", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "--batch-run-dir" in result.output
+    assert "--format" in result.output
+    assert "Usage: app render" not in result.output

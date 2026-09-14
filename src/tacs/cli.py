@@ -48,6 +48,7 @@ app.add_command(scan_main, name="scan")
 
 @app.command(
     "repos",
+    add_help_option=False,
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
 )
 @click.pass_context
@@ -57,15 +58,16 @@ def repos_cmd(ctx: click.Context) -> None:
 
     # Forward all remaining args to the argparse entrypoint.
     # Example: tacs repos --repos-file fixtures/repos.jsonl --dry-run
+    # Click's own --help is disabled so users get the detailed argparse help.
     argv = list(ctx.args)
     if not argv or argv[0] in {"-h", "--help"}:
-        # Force argparse help when no args / help requested through click.
         raise SystemExit(batch_main(["--help"] if not argv else argv))
     raise SystemExit(batch_main(argv))
 
 
 @app.command(
     "render",
+    add_help_option=False,
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
 )
 @click.pass_context
@@ -73,6 +75,7 @@ def render_cmd(ctx: click.Context) -> None:
     """Render findings.json (or a batch run directory) to text/HTML."""
     from tacs.batch_render_reports import main as render_main
 
+    # Click's own --help is disabled so users get the detailed argparse help.
     argv = list(ctx.args)
     if not argv or argv[0] in {"-h", "--help"}:
         raise SystemExit(render_main(["--help"] if not argv else argv))
