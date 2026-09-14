@@ -97,6 +97,16 @@ int main() {
             f"Session llm_model should be 'none' for --llm none, "
             f"got {session_meta.get('models', {}).get('llm_model')!r}"
         )
+
+        summary_file = meta_files[0].parent / "findings" / "summary.txt"
+        assert summary_file.exists(), "Expected session findings/summary.txt"
+        summary_text = summary_file.read_text(encoding="utf-8")
+        assert "{session.timing" not in summary_text, (
+            "Session summary timing section left uninterpolated placeholders"
+        )
+        assert "Timing (ms):" in summary_text
+        assert "- Total:" in summary_text
+
         assert "confidence_floor" in meta, "Missing 'confidence_floor' in meta"
         assert "metrics" in meta, "Missing 'metrics' in meta"
         

@@ -1616,7 +1616,7 @@ Token Usage:
 - Stage S1, Pass P1 dropped: {info.get('stage_s1_pass_p1_dropped', 0)}
 """
         
-        summary += """
+        summary += f"""
 Timing (ms):
 - Total: {session.timing.get('total_ms', 0)}
 - Metrics: {session.timing.get('metrics_ms', 0)}
