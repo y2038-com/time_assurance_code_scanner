@@ -532,8 +532,10 @@ def _build_pipeline(
     # Import lazily so `--dry-run` can work without installing full scanner deps.
     from tacs.core.pipeline import ScanningPipeline
 
-    project_root = Path(__file__).resolve().parents[1]
-    scanner_path = project_root / "scanner" / "python" / "y2038scan_fast_json_group.py"
+    # Packaged with tacs (same resolution as scan_command.py); not the pre-split src/scanner/ layout.
+    scanner_path = Path(__file__).resolve().parent / "python" / "y2038scan_fast_json_group.py"
+    if not scanner_path.exists():
+        raise FileNotFoundError(f"Scanner script not found: {scanner_path}")
     return ScanningPipeline(
         scanner_path=str(scanner_path),
         llm_type=llm_type if enable_llm else "none",

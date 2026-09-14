@@ -46,3 +46,25 @@ def test_tacs_repos_forwards_argv_to_batch_main(tmp_path: Path) -> None:
     assert result.exception is None, result.exception
     assert result.exit_code == 0, result.output
     assert any(out_dir.glob("*/summary.json")), "expected batch summary under --out-dir"
+
+
+def test_batch_pipeline_uses_packaged_tacs_scanner() -> None:
+    """Batch scans must resolve y2038scan from src/tacs/python/, not pre-split src/scanner/."""
+    from tacs.batch_scan_repos import _build_pipeline
+
+    pipeline = _build_pipeline(
+        include_no_findings=False,
+        enable_llm=False,
+        llm_type="ollama",
+        model="none",
+        disable_stage1=True,
+        detect_y2106=True,
+        confidence_floor=0.85,
+        timeout_sec=60,
+    )
+    path = Path(pipeline.scanner_path)
+    assert path.is_file(), path
+    assert path.name == "y2038scan_fast_json_group.py"
+    assert path.parent.name == "python"
+    assert path.parent.parent.name == "tacs"
+    assert "scanner" not in path.parts
