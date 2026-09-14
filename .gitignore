@@ -36,8 +36,6 @@ batch_runs/
 findings_*.json
 *_findings.json
 findings.json
-findings_*.json
-*_findings.json
 
 # OS
 .DS_Store
