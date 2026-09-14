@@ -5714,7 +5714,7 @@
     "discovered": true,
     "discovery_type": "typedef",
     "definitions": [
-      "/home/john/Cursor/time_assurance_code_scanner/tests/patterns/test_arithmetic_patterns_mini.c:8: typedef time_t my_time_t;"
+      "tests/patterns/test_arithmetic_patterns_mini.c:8: typedef time_t my_time_t;"
     ]
   },
   {
@@ -5725,7 +5725,7 @@
     "discovered": true,
     "discovery_type": "typedef",
     "definitions": [
-      "/home/john/Cursor/time_assurance_code_scanner/tests/patterns/test_arithmetic_patterns_mini.c:9: typedef time_t timestamp_t;"
+      "tests/patterns/test_arithmetic_patterns_mini.c:9: typedef time_t timestamp_t;"
     ]
   }
 ]

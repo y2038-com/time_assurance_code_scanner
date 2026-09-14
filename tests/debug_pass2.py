@@ -94,7 +94,7 @@ def debug_pass2():
         from tacs.core.pipeline import ScanningPipeline
         
         pipeline = ScanningPipeline(
-            scanner_path="scanner/python/y2038scan_fast_json_group.py",
+            scanner_path=str(Path(__file__).resolve().parents[1] / "src" / "tacs" / "python" / "y2038scan_fast_json_group.py"),
             llm_type="none",
             batch_size_pass2=5
         )

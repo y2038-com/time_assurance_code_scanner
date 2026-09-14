@@ -357,14 +357,21 @@ class ScanningPipeline:
             session.end_timing("prescan")
             session.log_message("INFO", f"Prescan: {len(typedef_aliases)} typedefs discovered")
             
-            # Update rules with discoveries
+            # Update rules with discoveries (session/prescan only — never mutate --rules path)
             updated_rules_path = self.discovery_manager.update_rules_with_discoveries(
-                rules_path, typedef_aliases, time_macros
+                rules_path,
+                typedef_aliases,
+                time_macros,
+                output_dir=str(session.prescan_dir),
+                root_path=root_path,
             )
             
-            # Save discovery report
+            # Save discovery report beside other prescan artifacts
             self.discovery_manager.save_discovery_report(
-                typedef_aliases, time_macros
+                typedef_aliases,
+                time_macros,
+                str(session.prescan_dir / "discovery_report.json"),
+                root_path=root_path,
             )
             
             # Extract and save new rules to scan session

@@ -61,7 +61,7 @@ def test_environment_integration():
         from tacs.core.pipeline import ScanningPipeline
         
         pipeline = ScanningPipeline(
-            scanner_path="scanner/python/y2038scan_fast_json_group.py",
+            scanner_path=str(Path(__file__).resolve().parents[1] / "src" / "tacs" / "python" / "y2038scan_fast_json_group.py"),
             llm_type="none",
             environment_config_path="results/test_env_config.json"
         )
@@ -80,7 +80,7 @@ def test_environment_integration():
     print("\n🎉 All integration tests passed!")
     print("\nHow to use:")
     print("1. Create environment config: python envui/cli/env_wizard.py --out results/env_config.json")
-    print("2. Run scanner with config: python scanner/cli.py --root . --rules configs/example.rules.json --env-config results/env_config.json --llm none")
+    print("2. Run scanner with config: tacs scan --root . --rules configs/example.rules.json --env-config results/env_config.json --llm none")
     
     return 0
 

@@ -70,7 +70,7 @@ void clear_function() {
             from tacs.core.pipeline import ScanningPipeline
             
             pipeline = ScanningPipeline(
-                scanner_path="scanner/python/y2038scan_fast_json_group.py",
+                scanner_path=str(Path(__file__).resolve().parents[1] / "src" / "tacs" / "python" / "y2038scan_fast_json_group.py"),
                 llm_type="none",
                 environment_config_path=str(env_config_file),
                 enable_discovery=False,
@@ -107,7 +107,7 @@ void clear_function() {
         print("\n2. Testing Pass 2 with 'ollama' LLM...")
         try:
             ollama_pipeline = ScanningPipeline(
-                scanner_path="scanner/python/y2038scan_fast_json_group.py",
+                scanner_path=str(Path(__file__).resolve().parents[1] / "src" / "tacs" / "python" / "y2038scan_fast_json_group.py"),
                 llm_type="ollama",
                 model="qwen3-coder:480b-cloud",
                 environment_config_path=str(env_config_file),

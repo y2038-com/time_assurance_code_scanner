@@ -1,6 +1,11 @@
-# Y2038 Pattern Detection Tests
+# Pattern detection tests (public guide)
 
-This directory contains comprehensive test files to verify that the Y2038 scanner correctly identifies all patterns it's designed to detect.
+Bundled C/C++ examples used to exercise **TACS** candidate discovery and optional
+LLM classification. This README is the authoritative guide for `tests/patterns/`.
+
+Additional topic docs (I/O, migration, narrowing, multi-config, command lists)
+live alongside this file. Older analysis notes are under
+[historical/](historical/README.md).
 
 ## Test Files
 
@@ -124,23 +129,42 @@ The script will:
 
 ### Manual Testing
 
-You can run the scanner manually on any test file:
+Quick offline smoke (recommended):
+
+```bash
+tacs scan \
+  --root tests/patterns \
+  --rules src/tacs/rules/y2038_sample_rules.json \
+  --env-config configs/example.env_config.json \
+  --include "test_arithmetic_patterns_mini.c" \
+  --llm none \
+  --out findings_mini.json
+```
+
+Discovery artifacts (merged rules, discovery report) are written under
+`results/scans/<session>/prescan/` — packaged rules under `src/tacs/rules/` are
+not modified.
+
+You can also target any single pattern file:
 
 ```bash
 # Fast test (no LLM, just detection)
 tacs scan \
   --root tests/patterns \
-  --rules configs/example.rules.json \
+  --rules src/tacs/rules/y2038_sample_rules.json \
+  --env-config configs/example.env_config.json \
   --include "test_function_patterns.c" \
   --llm none \
   --out test_results.json
 
-# Full test (with LLM classification)
+# Optional LLM classification (opt-in)
 tacs scan \
   --root tests/patterns \
-  --rules configs/example.rules.json \
+  --rules src/tacs/rules/y2038_sample_rules.json \
+  --env-config configs/example.env_config.json \
   --include "test_function_patterns.c" \
   --llm ollama \
+  --model gpt-oss:120b-cloud \
   --out test_results.json
 ```
 
@@ -234,3 +258,15 @@ To add a new test pattern:
 - Check that the pattern is truly safe (no time_t usage)
 - Verify the LLM is correctly classifying as NO
 - Check for edge cases that might trigger false detection
+
+## Related docs
+
+| Doc | Purpose |
+|-----|---------|
+| [TEST_COMMANDS.md](TEST_COMMANDS.md) | Ready-to-run `tacs` command recipes |
+| [RUN_IO_TESTS.md](RUN_IO_TESTS.md) | I/O-boundary test how-to |
+| [IO_BOUNDARY_TEST_PATTERNS.md](IO_BOUNDARY_TEST_PATTERNS.md) | I/O pattern catalog |
+| [MIGRATION_TEST_PATTERNS.md](MIGRATION_TEST_PATTERNS.md) | Migration pattern catalog |
+| [NARROWING_PATTERNS.md](NARROWING_PATTERNS.md) | Narrowing pattern catalog |
+| [README_MULTI_CONFIG.md](README_MULTI_CONFIG.md) | Multi env-config framework |
+| [historical/](historical/README.md) | Older framework notes (not current guide) |

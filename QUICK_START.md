@@ -49,6 +49,9 @@ tacs scan \
 You should see a non-empty `findings` array (often hundreds of candidates on the
 full patterns tree). Treat them as **candidates for review**, not confirmed defects.
 
+Discovery artifacts (merged rules, discovery report) land under
+`results/scans/<session>/prescan/` — the `--rules` file you pass is never modified.
+
 Useful checks:
 
 ```bash

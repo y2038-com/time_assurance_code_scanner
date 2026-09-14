@@ -64,7 +64,7 @@ void test_function() {
             from tacs.core.pipeline import ScanningPipeline
             
             pipeline = ScanningPipeline(
-                scanner_path="scanner/python/y2038scan_fast_json_group.py",
+                scanner_path=str(Path(__file__).resolve().parents[1] / "src" / "tacs" / "python" / "y2038scan_fast_json_group.py"),
                 llm_type="none",
                 environment_config_path=str(env_config_file),
                 enable_discovery=False  # Skip discovery for this test
@@ -98,7 +98,7 @@ void test_function() {
         print("\n2. Testing with 'ollama' LLM...")
         try:
             ollama_pipeline = ScanningPipeline(
-                scanner_path="scanner/python/y2038scan_fast_json_group.py",
+                scanner_path=str(Path(__file__).resolve().parents[1] / "src" / "tacs" / "python" / "y2038scan_fast_json_group.py"),
                 llm_type="ollama",
                 model="llama2",
                 environment_config_path=str(env_config_file),

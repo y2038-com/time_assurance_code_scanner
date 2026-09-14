@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Y2038.com LLC
+# SPDX-License-Identifier: Apache-2.0
+
 from __future__ import annotations
 
 import json
@@ -72,25 +75,68 @@ class DiscoveryManager:
                 StatusLogger.timestamped_print(f"    ... and {len(typedef_aliases) - 5} more")
         
         return typedef_aliases, time_macros
+
+    @staticmethod
+    def _relativize_definition(definition: str, root_path: Optional[str]) -> str:
+        """Prefer paths relative to the scan root in discovery artifacts."""
+        if not root_path or ":" not in definition:
+            return definition
+        parts = definition.split(":", 2)
+        if len(parts) < 3:
+            return definition
+        file_part, line_part, rest = parts[0], parts[1], parts[2]
+        try:
+            file_path = Path(file_part)
+            root = Path(root_path).resolve()
+            if file_path.is_absolute():
+                try:
+                    rel = file_path.resolve().relative_to(root)
+                    return f"{rel.as_posix()}:{line_part}:{rest}"
+                except ValueError:
+                    return definition
+        except OSError:
+            return definition
+        return definition
+
+    def _relativize_alias_map(
+        self,
+        aliases: Dict[str, List[str]],
+        root_path: Optional[str],
+    ) -> Dict[str, List[str]]:
+        return {
+            name: [self._relativize_definition(d, root_path) for d in defs]
+            for name, defs in aliases.items()
+        }
     
     def update_rules_with_discoveries(
         self,
         rules_path: str,
         typedef_aliases: Dict[str, List[str]],
-        time_macros: Dict[str, List[str]]
+        time_macros: Dict[str, List[str]],
+        *,
+        output_dir: str,
+        root_path: Optional[str] = None,
     ) -> str:
         """
-        Update rules file with discovered aliases and macros.
+        Build an updated rules file with discovered aliases/macros.
+
+        Writes only under ``output_dir`` (typically the scan session ``prescan/``
+        folder). Never modifies packaged or user-supplied rules paths.
         
         Args:
-            rules_path: Path to original rules file
+            rules_path: Path to original rules file (read-only)
             typedef_aliases: Discovered typedef aliases
             time_macros: Discovered time-related macros
+            output_dir: Directory for discovery artifacts
+            root_path: Scan root used to relativize definition paths
             
         Returns:
-            Path to updated rules file
+            Path to updated rules file under ``output_dir``
         """
         StatusLogger.timestamped_print("  Updating rules with discoveries...")
+
+        typedef_aliases = self._relativize_alias_map(typedef_aliases, root_path)
+        time_macros = self._relativize_alias_map(time_macros, root_path)
         
         # Load original rules
         with open(rules_path, 'r', encoding='utf-8') as f:
@@ -128,35 +174,35 @@ class DiscoveryManager:
         # Combine original and new rules
         updated_rules = original_rules + new_rules
         
-        # Save updated rules to a separate file (don't overwrite original)
-        # Use a file path that won't conflict with the original
-        rules_dir = os.path.dirname(rules_path) if os.path.dirname(rules_path) else '.'
-        rules_basename = os.path.basename(rules_path)
-        rules_name, rules_ext = os.path.splitext(rules_basename)
-        updated_rules_path = os.path.join(rules_dir, f"{rules_name}_with_discoveries{rules_ext}")
+        out_dir = Path(output_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        updated_rules_path = out_dir / "rules_with_discoveries.json"
         
         with open(updated_rules_path, 'w', encoding='utf-8') as f:
             json.dump(updated_rules, f, indent=2)
         
         StatusLogger.timestamped_print(f"  Updated rules saved to: {updated_rules_path}")
-        StatusLogger.timestamped_print(f"  Added {len(new_rules)} new rules ({len(typedef_aliases)} typedefs, {len(time_macros)} macros)")
+        StatusLogger.timestamped_print(
+            f"  Added {len(new_rules)} new rules "
+            f"({len(typedef_aliases)} typedefs, {len(time_macros)} macros)"
+        )
         
-        return updated_rules_path
+        return str(updated_rules_path)
     
     def save_discovery_report(
         self,
         typedef_aliases: Dict[str, List[str]],
         time_macros: Dict[str, List[str]],
-        output_path: str = "results/discovery_report.json"
+        output_path: str,
+        *,
+        root_path: Optional[str] = None,
     ):
         """
-        Save discovery report to file.
-        
-        Args:
-            typedef_aliases: Discovered typedef aliases
-            time_macros: Discovered time-related macros
-            output_path: Path to save the report
+        Save discovery report to ``output_path`` (session/prescan preferred).
         """
+        typedef_aliases = self._relativize_alias_map(typedef_aliases, root_path)
+        time_macros = self._relativize_alias_map(time_macros, root_path)
+
         report = {
             "discovery_summary": {
                 "typedef_aliases_count": len(typedef_aliases),
