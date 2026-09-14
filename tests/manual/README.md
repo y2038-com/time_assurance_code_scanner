@@ -25,6 +25,6 @@ pytest
 | `manual_io_quick.py` | Quick I/O-boundary smoke |
 | `manual_llm_*.py` / `manual_pass2.py` | LLM integration experiments |
 | `manual_env_integration.py` | Env-config wizard demos |
-| `manual_improved_scanning.py` | Define-scan experiment |
+| `manual_improved_scanning.py` | Define-scan experiment (temp tree; unit coverage in `tests/test_define_scanner.py`) |
 | `manual_wizard_fix.py` | Wizard import smoke |
 | `debug_*.py` / `analyze_*.py` / `inspect_*.py` / `show_abstains.py` | Ad-hoc debug helpers |

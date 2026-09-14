@@ -1,22 +1,21 @@
 #!/usr/bin/env python3
 """
-Test script to verify the improved #define scanning.
+Manual harness: exercise #define scanning on a small synthetic tree.
+
+Prefer the unit coverage in tests/test_define_scanner.py for CI. This script
+only scaffolds a temporary sample and prints a suggested tacs scan command.
 """
 
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from __future__ import annotations
 
-def test_improved_scanning():
-    """Test the improved scanning with a small sample."""
+import tempfile
+from pathlib import Path
+
+
+def main() -> None:
     print("Testing Improved #define Scanning")
     print("=" * 50)
-    
-    # Create a test directory with some sample files
-    test_dir = "test_define_scan"
-    os.makedirs(test_dir, exist_ok=True)
-    
-    # Create test files with various #define patterns
+
     test_files = {
         "test_time_defines.c": """
 #include <time.h>
@@ -53,7 +52,6 @@ def test_improved_scanning():
 #define LFCLK_FREQ 32768
 #define SLEEP_DELAY 100
 """,
-        
         "test_regular_code.c": """
 #include <stdio.h>
 
@@ -61,28 +59,31 @@ int main() {
     printf("Hello World\\n");
     return 0;
 }
-"""
+""",
     }
-    
-    # Write test files
-    for filename, content in test_files.items():
-        with open(os.path.join(test_dir, filename), 'w') as f:
-            f.write(content)
-    
-    print(f"Created test directory: {test_dir}")
-    print("Test files created with various #define patterns")
-    
-    # Run the scanner
-    print("\nRunning scanner...")
-    cmd = f"tacs scan --root {test_dir} --rules configs/example.rules.json --llm none --debug-candidates"
-    print(f"Command: {cmd}")
-    
-    print("\nExpected results:")
-    print("- Should find ~10-15 Y2038-relevant #define statements")
-    print("- Should NOT find RTC_REGISTER, PORT_NUMBER, BUFFER_SIZE, CTL_VALUE, BICR_MASK")
-    print("- Should find MY_TIME_T, CLOCK_TYPE, MY_TIME_FUNC, etc.")
-    print("- Should find time constants with time context (SECONDS_PER_MINUTE, TIMEOUT_MS)")
-    print("- Should NOT find ONE_THOUSAND (no time context)")
+
+    with tempfile.TemporaryDirectory(prefix="tacs_define_scan_") as tmp:
+        test_dir = Path(tmp)
+        for filename, content in test_files.items():
+            (test_dir / filename).write_text(content, encoding="utf-8")
+
+        print(f"Created temporary test directory: {test_dir}")
+        print("Test files created with various #define patterns")
+        print("\nRunning scanner...")
+        cmd = (
+            f"tacs scan --root {test_dir} --rules configs/example.rules.json "
+            f"--llm none --debug-candidates"
+        )
+        print(f"Command: {cmd}")
+
+        print("\nExpected results:")
+        print("- Should find Y2038-relevant #define statements (types/structs/functions/constants)")
+        print("- Should NOT find RTC_REGISTER, PORT_NUMBER, BUFFER_SIZE, CTL_VALUE, BICR_MASK")
+        print("- Should find MY_TIME_T, CLOCK_TYPE, GET_TIME, etc.")
+        print("- Should find time constants with time context (SECONDS_PER_MINUTE)")
+        print("- Should NOT find ONE_THOUSAND (no time context)")
+        print("\nNote: CI coverage lives in tests/test_define_scanner.py")
+
 
 if __name__ == "__main__":
-    test_improved_scanning()
+    main()
