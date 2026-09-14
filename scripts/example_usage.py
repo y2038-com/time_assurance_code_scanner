@@ -72,6 +72,7 @@ def run_scanner_example():
     print("\n=== Example 1: Scan with LLM disabled ===")
     cmd1 = [
         sys.executable, "-m", "tacs.cli",
+        "scan",
         "--root", str(temp_dir),
         "--rules", str(rules_file),
         "--include", "*.c",
@@ -108,6 +109,7 @@ def run_scanner_example():
     print("\n=== Example 2: Scan with Ollama LLM (command only) ===")
     cmd2 = [
         sys.executable, "-m", "tacs.cli",
+        "scan",
         "--root", str(temp_dir),
         "--rules", str(rules_file),
         "--include", "*.c",
