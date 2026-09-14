@@ -37,7 +37,7 @@ int main() {
         # Create a temporary output file
         output_file = temp_path / "output.json"
         
-        # Run the scanner
+        # Run the scanner from the temp dir so any relative default write would land here
         cmd = [
             sys.executable, "-m", "tacs.cli",
             "scan",
@@ -50,13 +50,20 @@ int main() {
             "--out", str(output_file)
         ]
         
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=temp_path)
         
         # Check that the command succeeded
-        assert result.returncode == 0, f"Scanner failed: {result.stderr}"
+        assert result.returncode == 0, f"Scanner failed: {result.stderr}\n{result.stdout}"
         
         # Check that output file was created
         assert output_file.exists(), "Output file was not created"
+
+        # --out must be exclusive for the public report (no implicit ./findings.json)
+        stray = temp_path / "findings.json"
+        assert not stray.exists(), (
+            f"Unexpected default findings.json written at {stray}; "
+            "--out should control the only top-level public report"
+        )
         
         # Load and validate the JSON output
         with open(output_file, 'r') as f:

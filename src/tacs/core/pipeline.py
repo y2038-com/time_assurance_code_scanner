@@ -1516,31 +1516,8 @@ class ScanningPipeline:
             for pass_name, count in sorted(abstain_by_pass.items()):
                 StatusLogger.timestamped_print(f"  - {count} from {pass_name}")
         
-        # Save findings (serialize each finding safely so missing/invalid function_id never raises)
-        findings_path = "findings.json"
-        def _safe_finding_dict(f):
-            try:
-                d = f.model_dump() if hasattr(f, 'model_dump') else f.dict()
-            except Exception:
-                d = {
-                    'file': getattr(f, 'file', ''),
-                    'region': getattr(f, 'region', {}),
-                    'function_id': str(getattr(f, 'function_id', None) or 'unknown'),
-                    'y2038_issue': getattr(getattr(f, 'y2038_issue', None), 'value', 'abstain'),
-                    'confidence': getattr(f, 'confidence', 0.0),
-                    'reason': getattr(f, 'reason', ''),
-                }
-            if isinstance(d, dict):
-                fid = d.get('function_id')
-                if fid is None or (isinstance(fid, str) and not fid.strip()):
-                    d['function_id'] = 'unknown'
-                elif not isinstance(fid, str):
-                    d['function_id'] = str(fid)
-            return d
-        with open(findings_path, 'w', encoding='utf-8') as f:
-            findings_data = [_safe_finding_dict(finding) for finding in findings]
-            json.dump(findings_data, f, indent=2)
-        StatusLogger.timestamped_print(f"Results saved to: {findings_path}")
+        # Public findings JSON is written only by save_results(..., --out).
+        # Session still keeps an internal copy under results/scans/.../findings/.
         
         # Save session metadata and findings (for function-first path)
         # Legacy path does this in _run_legacy_analysis, but function-first needs it here
