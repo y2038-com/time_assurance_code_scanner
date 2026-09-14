@@ -9,8 +9,9 @@ Goal: **clone → install → first candidate findings in about 15 minutes.**
 Copy secrets only into a local `.env` (never commit it). Template: [`.env.example`](.env.example).
 
 **Privacy:** CLI default is `--llm none`. When `--llm` is not `none` (or you set
-`TACS_LLM_PROVIDER`), source snippets may be sent to your configured provider.
-See [docs/privacy.md](docs/privacy.md).
+`TACS_LLM_PROVIDER`), source code context — including complete function bodies and,
+in later stages, file-level context and type/macro definitions — may be sent to your
+configured provider. See [docs/privacy.md](docs/privacy.md).
 
 ---
 

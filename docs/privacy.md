@@ -12,7 +12,7 @@ source trees — external LLM use is therefore **opt-in**.
 | Persist source trees | No (scans read files in place) |
 | Persist findings | Only to paths you pass (`--out`, batch dirs, optional session trees under `results/` when the pipeline writes them) |
 | Log source bodies | No at default verbosity |
-| Third-party sharing | Only the user-selected LLM provider receives snippets when LLM mode is enabled |
+| Third-party sharing | Only the user-selected LLM provider receives source context when LLM mode is enabled |
 
 ## Modes
 
@@ -24,10 +24,10 @@ source trees — external LLM use is therefore **opt-in**.
 
 ### Opt-in LLM review (`--llm ollama|openai|anthropic|gemini`)
 
-- Source snippets and prompts are sent to that provider
+- Source code context, including complete function bodies and, in later analysis stages, file-level context and type/macro definitions, may be sent to the configured provider
 - Also triggered if you set `TACS_LLM_PROVIDER` in `.env` (explicit env opt-in)
 - Prefer local Ollama (`OLLAMA_HOST=http://127.0.0.1:11434`) for sensitive trees
-- Prefer Ollama Cloud only when you accept sending snippets to that host (`OLLAMA_API_KEY`; leave `OLLAMA_HOST` unset)
+- Prefer Ollama Cloud only when you accept sending that context to that host (`OLLAMA_API_KEY`; leave `OLLAMA_HOST` unset)
 
 ### Optional LLM logging (`--log-llm`)
 
@@ -40,8 +40,10 @@ source trees — external LLM use is therefore **opt-in**.
 
 Nothing leaves the machine for `--llm none`.
 
-When LLM mode is enabled, snippets (and related prompt context) go to the configured
-API endpoint. Treat provider choice as a data-handling decision.
+When LLM mode is enabled, prompts that include source code context go to the configured
+API endpoint — typically complete extracted function bodies, and in later stages file
+preamble (for example leading lines) plus typedefs, structs, and macros gathered from
+the file. Treat provider choice as a data-handling decision.
 
 ## Operational hygiene
 

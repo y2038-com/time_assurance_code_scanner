@@ -32,7 +32,7 @@ BYOLLM: bring your own provider; no vendor lock-in.
 
 Processing is **ephemeral by default**: the tool does not keep a private code store. That does **not** mean “never leaves your machine.”
 
-- **Source snippets may be sent to the LLM provider you configure** only when you opt in (`--llm` ≠ `none`, or `TACS_LLM_PROVIDER`).
+- **Source code context may be sent to the LLM provider you configure** only when you opt in (`--llm` ≠ `none`, or `TACS_LLM_PROVIDER`). That can include complete function bodies and, in later analysis stages, file-level context and type/macro definitions.
 - Reports are written only where you ask (`--out` / batch output dirs). Prefer `--llm none` or local Ollama for sensitive trees.
 
 Details: [docs/privacy.md](docs/privacy.md).
