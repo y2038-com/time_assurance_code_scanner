@@ -22,8 +22,6 @@ cd /path/to/time_assurance_code_scanner
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
-# Optional structural filtering (tree-sitter):
-# pip install -e ".[full]"
 cp .env.example .env               # optional until you use a real provider
 tacs version
 ```
