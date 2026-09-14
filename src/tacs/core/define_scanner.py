@@ -171,7 +171,8 @@ class DefineScanner:
         
         # Subcheck 4: Time Constants (only in time-related context)
         if self.time_constant_regex.search(macro_value_lower):
-            # Additional context check - only flag if the macro name suggests time usage
+            # Additional context check - only flag if the macro name suggests time usage.
+            # Treat underscores as separators so SECONDS_PER_MINUTE matches "seconds"/"per".
             time_context_patterns = [
                 r'time', r'clock', r'timer', r'delay', r'sleep', r'wait',
                 r'timeout', r'interval', r'period', r'frequency', r'rate',
@@ -180,9 +181,9 @@ class DefineScanner:
                 r'per', r'each', r'every', r'between', r'duration', r'length'
             ]
             
-            macro_name_lower = macro_name.lower()
+            macro_name_tokens = macro_name.lower().replace('_', ' ')
             for pattern in time_context_patterns:
-                if re.search(r'\b' + pattern + r'\b', macro_name_lower):
+                if re.search(r'\b' + pattern + r'\b', macro_name_tokens):
                     return {
                         'type': 'time_constant',
                         'confidence': 0.8,

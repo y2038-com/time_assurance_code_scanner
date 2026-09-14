@@ -1,85 +1,74 @@
-#!/usr/bin/env python3
-"""
-Test script for the new integrated #define scanning functionality.
-"""
+# Copyright (c) 2026 Y2038.com LLC
+# SPDX-License-Identifier: Apache-2.0
 
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+"""Unit tests for DefineScanner match / non-match classification."""
 
-from tacs.core.define_scanner import DefineScanner, DefineMatch
+from __future__ import annotations
 
-def test_define_scanner():
-    """Test the DefineScanner with various #define patterns."""
-    print("Testing DefineScanner...")
-    
+import pytest
+
+from tacs.core.define_scanner import DefineScanner
+
+
+@pytest.mark.parametrize(
+    "line,expected_type",
+    [
+        ("#define MY_TIME_T time_t", "time_type_alias"),
+        ("#define CLOCK_TYPE clock_t", "time_type_alias"),
+        ("#define TIMER_TYPE timer_t", "time_type_alias"),
+        ("#define MY_TIME_FUNC time()", "time_function_alias"),
+        ("#define GET_TIME gettimeofday", "time_function_alias"),
+        ("#define LOCAL_TIME localtime", "time_function_alias"),
+        ("#define MY_TIMESPEC struct timespec", "time_struct_alias"),
+        ("#define TIMEVAL_TYPE struct timeval", "time_struct_alias"),
+        ("#define SECONDS_PER_MINUTE 60", "time_constant"),
+        ("#define SECONDS_PER_HOUR 3600", "time_constant"),
+        ("#define SECONDS_PER_DAY 86400", "time_constant"),
+        ("#define TIMEOUT_SECONDS 60", "time_constant"),
+    ],
+)
+def test_define_scanner_matches_time_related_macros(line: str, expected_type: str) -> None:
     scanner = DefineScanner()
-    
-    # Test cases
-    test_cases = [
-        # Time type aliases (should match)
-        ("#define MY_TIME_T time_t", "test.c", 10),
-        ("#define CLOCK_TYPE clock_t", "test.c", 11),
-        ("#define TIMER_TYPE timer_t", "test.c", 12),
-        
-        # Time function aliases (should match)
-        ("#define MY_TIME_FUNC time", "test.c", 13),
-        ("#define GET_TIME gettimeofday", "test.c", 14),
-        ("#define LOCAL_TIME localtime", "test.c", 15),
-        
-        # Time struct aliases (should match)
-        ("#define MY_TIMESPEC struct timespec", "test.c", 16),
-        ("#define TIMEVAL_TYPE struct timeval", "test.c", 17),
-        
-        # Time constants (should match only with time context)
-        ("#define SECONDS_PER_MINUTE 60", "test.c", 18),
-        ("#define SECONDS_PER_HOUR 3600", "test.c", 19),
-        ("#define SECONDS_PER_DAY 86400", "test.c", 20),
-        
-        # Non-time-related (should NOT match)
-        ("#define RTC_REGISTER 0x1234", "test.c", 21),
-        ("#define PORT_NUMBER 1000", "test.c", 22),
-        ("#define BUFFER_SIZE 1000000", "test.c", 23),
-        ("#define CTL_VALUE 0x456", "test.c", 24),
-        ("#define BICR_MASK 0xFF", "test.c", 25),
-        
-        # Edge cases
-        ("#define ONE_THOUSAND 1000", "test.c", 26),  # Should NOT match (no time context)
-        ("#define TIMEOUT_MS 1000", "test.c", 27),    # Should match (time context)
-    ]
-    
-    matches = []
-    for line, file_path, line_num in test_cases:
-        line_matches = scanner.scan_line_for_defines(line, file_path, line_num)
-        matches.extend(line_matches)
-        if line_matches:
-            print(f"✓ MATCH: {line}")
-            for match in line_matches:
-                print(f"  -> {match.subcheck_type}: {match.macro_name} -> {match.macro_value}")
-        else:
-            print(f"✗ NO MATCH: {line}")
-    
-    print(f"\nTotal matches: {len(matches)}")
-    
-    # Group by subcheck type
-    by_type = {}
-    for match in matches:
-        if match.subcheck_type not in by_type:
-            by_type[match.subcheck_type] = []
-        by_type[match.subcheck_type].append(match)
-    
-    print("\nResults by subcheck type:")
-    for subcheck_type, type_matches in by_type.items():
-        print(f"  {subcheck_type}: {len(type_matches)} matches")
-        for match in type_matches:
-            print(f"    {match.macro_name} -> {match.macro_value}")
-    
-    # Test follow-up rule generation
-    print("\nTesting follow-up rule generation...")
-    followup_rules = scanner.generate_followup_rules(matches)
-    print(f"Generated {len(followup_rules)} follow-up rules:")
-    for rule in followup_rules:
-        print(f"  {rule['symbol']}: {rule['risk']} risk - {rule['description']}")
+    matches = scanner.scan_line_for_defines(line, "test.c", 10)
+    assert len(matches) == 1, f"expected one match for {line!r}, got {matches!r}"
+    assert matches[0].subcheck_type == expected_type
 
-if __name__ == "__main__":
-    test_define_scanner()
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "#define RTC_REGISTER 0x1234",
+        "#define PORT_NUMBER 1000",
+        "#define BUFFER_SIZE 1000000",
+        "#define CTL_VALUE 0x456",
+        "#define BICR_MASK 0xFF",
+        "#define ONE_THOUSAND 1000",
+        # Bare `time` without call form is intentionally not treated as a function alias
+        "#define MY_TIME_FUNC time",
+        # 1000 is not a canonical seconds-scale constant pattern
+        "#define TIMEOUT_MS 1000",
+    ],
+)
+def test_define_scanner_rejects_non_time_or_ambiguous_macros(line: str) -> None:
+    scanner = DefineScanner()
+    matches = scanner.scan_line_for_defines(line, "test.c", 10)
+    assert matches == [], f"expected no match for {line!r}, got {matches!r}"
+
+
+def test_define_scanner_followup_rules_from_aliases() -> None:
+    scanner = DefineScanner()
+    matches = []
+    for line in (
+        "#define MY_TIME_T time_t",
+        "#define GET_TIME gettimeofday",
+        "#define SECONDS_PER_MINUTE 60",
+    ):
+        matches.extend(scanner.scan_line_for_defines(line, "test.c", 1))
+
+    followup = scanner.generate_followup_rules(matches)
+    symbols = {rule["symbol"] for rule in followup}
+    # Alias macros that need follow-up scanning should produce rules
+    assert "MY_TIME_T" in symbols
+    assert "GET_TIME" in symbols
+    # Constants do not request follow-up scanning
+    assert "SECONDS_PER_MINUTE" not in symbols

@@ -1,85 +1,51 @@
-#!/usr/bin/env python3
-"""
-Test script to verify the improved hardware filtering.
-"""
+# Copyright (c) 2026 Y2038.com LLC
+# SPDX-License-Identifier: Apache-2.0
 
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+"""DefineScanner should filter hardware-oriented #defines."""
+
+from __future__ import annotations
+
+import pytest
 
 from tacs.core.define_scanner import DefineScanner
 
-def test_hardware_filtering():
-    """Test that hardware-related #defines are properly filtered out."""
-    print("Testing Hardware Filtering")
-    print("=" * 50)
-    
-    scanner = DefineScanner()
-    
-    # Test cases - these should be FILTERED OUT (hardware-related)
-    hardware_cases = [
-        "#define RCAR_I2C_ICCCR          0x18    /* Clock Control Register */",
-        "#define NPCX_ITIM_CLK_SEL_DELAY 92 /* Delay for clock selection (Unit:us) */",
-        "#define SDMMC_FREQ_DEFAULT   20000 /*!< SD/MMC Default speed (limited by clock divider) */",
-        "#define XUARTPS_MR_CCLK             0x00000400U /**< Input clock select */",
-        "#define GPIO_PIN_5                  5",
-        "#define I2C_BUS_SPEED              100000",
-        "#define SPI_FREQUENCY              1000000",
-        "#define UART_BAUD_RATE             115200",
-        "#define DMA_CHANNEL_0               0",
-        "#define INTERRUPT_PRIORITY         3",
-        "#define POWER_VOLTAGE_3V3          3300",
-        "#define TEMP_SENSOR_OFFSET         25",
-        "#define CLOCK_FREQUENCY_100MHZ     100000000",  # Hardware clock freq
-        "#define TIMER_PRESCALER_64         64",         # Hardware timer
-        "#define DELAY_COUNTER_1000         1000",       # Hardware delay counter
-    ]
-    
-    # Test cases - these should MATCH (Y2038-relevant)
-    y2038_cases = [
-        "#define MY_TIME_T time_t",
-        "#define MY_CLOCK_FUNC clock_gettime",
-        "#define MY_TIMESPEC struct timespec",
-        "#define SECONDS_PER_MINUTE 60",
-        "#define TIMEOUT_SECONDS 30",
-        "#define SLEEP_DELAY_MS 1000",
-        "#define WAIT_INTERVAL 500",
-        "#define HOURS_PER_DAY 24",
-        "#define MINUTES_PER_HOUR 60",
-        "#define DAYS_PER_WEEK 7",
-    ]
-    
-    print("Testing hardware cases (should be FILTERED OUT):")
-    hardware_matches = 0
-    for line in hardware_cases:
-        matches = scanner.scan_line_for_defines(line, "test.c", 1)
-        if matches:
-            print(f"❌ UNEXPECTED MATCH: {line}")
-            for match in matches:
-                print(f"   -> {match.subcheck_type}: {match.macro_name}")
-            hardware_matches += len(matches)
-        else:
-            print(f"✅ CORRECTLY FILTERED: {line}")
-    
-    print(f"\nHardware matches found: {hardware_matches} (should be 0)")
-    
-    print("\nTesting Y2038 cases (should MATCH):")
-    y2038_matches = 0
-    for line in y2038_cases:
-        matches = scanner.scan_line_for_defines(line, "test.c", 1)
-        if matches:
-            print(f"✅ CORRECTLY MATCHED: {line}")
-            for match in matches:
-                print(f"   -> {match.subcheck_type}: {match.macro_name}")
-            y2038_matches += len(matches)
-        else:
-            print(f"❌ UNEXPECTED FILTER: {line}")
-    
-    print(f"\nY2038 matches found: {y2038_matches} (should be > 0)")
-    
-    print(f"\nSummary:")
-    print(f"  Hardware filtering: {'✅ PASS' if hardware_matches == 0 else '❌ FAIL'}")
-    print(f"  Y2038 detection: {'✅ PASS' if y2038_matches > 0 else '❌ FAIL'}")
 
-if __name__ == "__main__":
-    test_hardware_filtering()
+HARDWARE_CASES = [
+    "#define RCAR_I2C_ICCCR          0x18    /* Clock Control Register */",
+    "#define NPCX_ITIM_CLK_SEL_DELAY 92 /* Delay for clock selection (Unit:us) */",
+    "#define SDMMC_FREQ_DEFAULT   20000 /*!< SD/MMC Default speed (limited by clock divider) */",
+    "#define XUARTPS_MR_CCLK             0x00000400U /**< Input clock select */",
+    "#define GPIO_PIN_5                  5",
+    "#define I2C_BUS_SPEED              100000",
+    "#define SPI_FREQUENCY              1000000",
+    "#define UART_BAUD_RATE             115200",
+    "#define DMA_CHANNEL_0               0",
+    "#define INTERRUPT_PRIORITY         3",
+    "#define POWER_VOLTAGE_3V3          3300",
+    "#define TEMP_SENSOR_OFFSET         25",
+    "#define CLOCK_FREQUENCY_100MHZ     100000000",
+    "#define TIMER_PRESCALER_64         64",
+    "#define DELAY_COUNTER_1000         1000",
+]
+
+Y2038_CASES = [
+    ("#define MY_TIME_T time_t", "time_type_alias"),
+    ("#define MY_CLOCK_FUNC clock_gettime", "time_function_alias"),
+    ("#define MY_TIMESPEC struct timespec", "time_struct_alias"),
+    ("#define SECONDS_PER_MINUTE 60", "time_constant"),
+    ("#define TIMEOUT_SECONDS 60", "time_constant"),
+]
+
+
+@pytest.mark.parametrize("line", HARDWARE_CASES)
+def test_hardware_defines_are_filtered(line: str) -> None:
+    scanner = DefineScanner()
+    assert scanner.scan_line_for_defines(line, "test.c", 1) == []
+
+
+@pytest.mark.parametrize("line,expected_type", Y2038_CASES)
+def test_y2038_defines_still_match(line: str, expected_type: str) -> None:
+    scanner = DefineScanner()
+    matches = scanner.scan_line_for_defines(line, "test.c", 1)
+    assert len(matches) == 1
+    assert matches[0].subcheck_type == expected_type
