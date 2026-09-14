@@ -21,6 +21,7 @@ from tacs.core.scan_session import ScanSession
 from tacs.core.function_schemas import FunctionBody, FunctionAnalysis
 from tacs.llm.env import DEFAULT_MODEL
 from tacs.llm.factory import create_llm_client
+from tacs import __version__ as TACS_VERSION
 
 
 class ScanningPipeline:
@@ -1546,7 +1547,7 @@ class ScanningPipeline:
         }
         
         versions = {
-            "scanner_cli": "0.2.0",
+            "scanner_cli": TACS_VERSION,
             "tii_script": "y2038scan_fast_json_group.py@unknown",
             "prompt_pack": "pp-v1",
             "rules": f"{Path(rules_path).name}@unknown"

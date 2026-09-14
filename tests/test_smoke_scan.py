@@ -64,6 +64,18 @@ int main() {
             f"Unexpected default findings.json written at {stray}; "
             "--out should control the only top-level public report"
         )
+
+        # Session provenance must track the installed package version
+        from tacs import __version__ as tacs_version
+
+        meta_files = list((temp_path / "results" / "scans").glob("*/meta.json"))
+        assert meta_files, "Expected a session meta.json under results/scans"
+        with open(meta_files[0], "r", encoding="utf-8") as f:
+            session_meta = json.load(f)
+        assert session_meta.get("version", {}).get("scanner_cli") == tacs_version, (
+            f"scanner_cli provenance {session_meta.get('version', {}).get('scanner_cli')!r} "
+            f"does not match tacs.__version__ {tacs_version!r}"
+        )
         
         # Load and validate the JSON output
         with open(output_file, 'r') as f:
