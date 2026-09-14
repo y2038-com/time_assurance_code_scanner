@@ -172,6 +172,9 @@ tacs repos --help
 
 tacs repos --repos-file src/tacs/fixtures/repo_lists/test_repos.jsonl --dry-run
 
+# LLM is opt-in for batch (same privacy default as tacs scan):
+# tacs repos ... --enable-llm --llm-type ollama
+
 tacs render --help
 ```
 

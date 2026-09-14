@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -45,7 +46,12 @@ def test_tacs_repos_forwards_argv_to_batch_main(tmp_path: Path) -> None:
     )
     assert result.exception is None, result.exception
     assert result.exit_code == 0, result.output
-    assert any(out_dir.glob("*/summary.json")), "expected batch summary under --out-dir"
+    summaries = list(out_dir.glob("*/summary.json"))
+    assert summaries, "expected batch summary under --out-dir"
+    summary = json.loads(summaries[0].read_text(encoding="utf-8"))
+    assert summary["args"]["enable_llm"] is False, (
+        "batch LLM must be opt-in by default (privacy-safe)"
+    )
 
 
 def test_batch_pipeline_uses_packaged_tacs_scanner() -> None:
