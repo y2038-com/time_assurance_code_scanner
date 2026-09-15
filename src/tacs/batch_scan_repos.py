@@ -720,6 +720,8 @@ def main(argv: list[str] | None = None) -> int:
     start_ts = time.time()
     run_id = _run_id_now()
     repos_file = Path(args.repos_file).resolve()
+    if not repos_file.is_file():
+        raise SystemExit(f"error: --repos-file not found: {repos_file}")
     cache_dir = Path(args.cache_dir).resolve()
     out_root = Path(args.out_dir).resolve()
     run_dir = out_root / run_id

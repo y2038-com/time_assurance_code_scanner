@@ -76,6 +76,51 @@ def test_batch_pipeline_uses_packaged_tacs_scanner() -> None:
     assert "scanner" not in path.parts
 
 
+def test_tacs_repos_missing_repos_file_clear_error(tmp_path: Path) -> None:
+    """Missing --repos-file should fail with a clear message, not a traceback."""
+    missing = tmp_path / "does_not_exist.jsonl"
+    out_dir = tmp_path / "batch_out"
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "repos",
+            "--repos-file",
+            str(missing),
+            "--out-dir",
+            str(out_dir),
+            "--dry-run",
+        ],
+    )
+    assert result.exit_code != 0
+    combined = (result.output or "") + (result.stderr or "") + str(result.exception or "")
+    assert "--repos-file not found" in combined
+    assert str(missing.resolve()) in combined or str(missing) in combined
+    assert "Traceback" not in combined
+    assert not out_dir.exists() or not any(out_dir.iterdir())
+
+
+def test_batch_main_missing_repos_file_system_exit(tmp_path: Path) -> None:
+    missing = tmp_path / "missing.jsonl"
+    try:
+        batch_main(
+            [
+                "--repos-file",
+                str(missing),
+                "--out-dir",
+                str(tmp_path / "out"),
+                "--dry-run",
+            ]
+        )
+    except SystemExit as exc:
+        assert exc.code != 0
+        assert isinstance(exc.code, str)
+        assert "--repos-file not found" in exc.code
+        assert "Traceback" not in exc.code
+    else:
+        raise AssertionError("expected SystemExit for missing repos file")
+
+
 def test_tacs_repos_help_shows_argparse_options() -> None:
     """tacs repos --help must surface argparse flags, not thin Click wrapper help."""
     runner = CliRunner()
