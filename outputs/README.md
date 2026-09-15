@@ -16,7 +16,8 @@ tacs scan \
   --out outputs/findings.json
 
 tacs repos --repos-file inputs/my_repos.jsonl --out-dir outputs/batch_runs
-tacs render --batch-run-dir outputs/batch_runs/<run_id> --format text --out-dir outputs/reports
+tacs render outputs/findings.json --format text
+tacs render outputs/batch_runs/<run_id> --format text --out-dir outputs/reports
 ```
 
 Contents of this folder are gitignored (except this README).

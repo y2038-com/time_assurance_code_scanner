@@ -6,10 +6,18 @@ Renders scanner `findings.json` as terminal text or a standalone HTML report.
 
 ```bash
 tacs render --help
+
+# Single findings file (from tacs scan --out, or a session findings.json):
+tacs render path/to/findings.json --format text
+tacs render path/to/findings.json --format html --out report.html
+
+# Batch run directory:
+tacs render batch_runs/<run_id> --format text
+tacs render batch_runs/<run_id> --format html --out-dir reports/
 ```
 
-`tacs render` forwards to the batch/report entrypoints used for single findings
-files and batch run directories.
+`tacs render` auto-detects a findings JSON file vs a `batch_runs/<run_id>` directory
+(with `repos/`). `--batch-run-dir` remains as a deprecated alias for batch input.
 
 ## Module usage
 
@@ -31,12 +39,13 @@ python -m report_renderer <path-to-findings.json> --format html --out report.htm
 
 ## Text mode options
 
-- `--finding 12`
+- `--finding 12` (single-file mode)
 - `--list`
 
 ## HTML mode options
 
-- `--out report.html`
+- `--out report.html` (single-file; defaults beside the findings file if omitted)
+- `--out-dir DIR` (batch mode)
 - `--group-by file|rule|none`
 - `--title "Time Assurance Scan Report"`
-- `--open` (best-effort)
+- `--open` (single-file HTML; best-effort)

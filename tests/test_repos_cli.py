@@ -136,6 +136,7 @@ def test_tacs_render_help_shows_argparse_options() -> None:
     runner = CliRunner()
     result = runner.invoke(app, ["render", "--help"])
     assert result.exit_code == 0, result.output
-    assert "--batch-run-dir" in result.output
+    assert "findings JSON" in result.output.lower() or "Findings JSON" in result.output
     assert "--format" in result.output
+    assert "--batch-run-dir" in result.output
     assert "Usage: app render" not in result.output

@@ -179,6 +179,14 @@ tacs repos --repos-file src/tacs/fixtures/repo_lists/test_repos.jsonl --dry-run
 # tacs repos ... --enable-llm --llm-type ollama
 
 tacs render --help
+
+# Single findings JSON (e.g. from tacs scan --out):
+# tacs render outputs/findings.json --format text
+# tacs render outputs/findings.json --format html --out outputs/report.html
+
+# Batch run directory:
+# tacs render batch_runs/<run_id> --format text
+# tacs render batch_runs/<run_id> --format html --out-dir outputs/reports
 ```
 
 Prefer an explicit `config_override` / env config per repo when known. `tacs detect`
