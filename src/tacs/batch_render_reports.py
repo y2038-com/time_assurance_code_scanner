@@ -292,13 +292,14 @@ def build_parser() -> argparse.ArgumentParser:
         prog="tacs render",
         description=(
             "Render scanner findings as text or HTML. "
-            "Accepts a findings JSON file or a batch_runs/<run_id> directory."
+            "Accepts a findings JSON file or a batch run directory "
+            "(e.g. results/batch_runs/<run_id>)."
         ),
     )
     parser.add_argument(
         "input",
         nargs="?",
-        help="Findings JSON file, or a batch_runs/<run_id> directory",
+        help="Findings JSON file, or a batch run directory (e.g. results/batch_runs/<run_id>)",
     )
     parser.add_argument(
         "--batch-run-dir",

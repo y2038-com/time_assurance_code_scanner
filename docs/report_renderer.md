@@ -11,12 +11,12 @@ tacs render --help
 tacs render path/to/findings.json --format text
 tacs render path/to/findings.json --format html --out report.html
 
-# Batch run directory:
-tacs render batch_runs/<run_id> --format text
-tacs render batch_runs/<run_id> --format html --out-dir reports/
+# Batch run directory (default tacs repos out-dir is results/batch_runs):
+tacs render results/batch_runs/<run_id> --format text
+tacs render results/batch_runs/<run_id> --format html --out-dir results/reports/
 ```
 
-`tacs render` auto-detects a findings JSON file vs a `batch_runs/<run_id>` directory
+`tacs render` auto-detects a findings JSON file vs a batch run directory
 (with `repos/`). `--batch-run-dir` remains as a deprecated alias for batch input.
 
 ## Module usage

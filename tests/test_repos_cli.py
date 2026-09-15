@@ -121,6 +121,48 @@ def test_batch_main_missing_repos_file_system_exit(tmp_path: Path) -> None:
         raise AssertionError("expected SystemExit for missing repos file")
 
 
+def test_batch_default_out_dir_is_results_batch_runs(tmp_path: Path, monkeypatch) -> None:
+    """Omitting --out-dir must write under results/batch_runs, not top-level batch_runs/."""
+    monkeypatch.chdir(tmp_path)
+    repos = tmp_path / "repos.jsonl"
+    repos.write_text("", encoding="utf-8")
+    code = batch_main(
+        [
+            "--repos-file",
+            str(repos),
+            "--dry-run",
+            "--limit",
+            "0",
+        ]
+    )
+    assert code == 0
+    batch_root = tmp_path / "results" / "batch_runs"
+    assert batch_root.is_dir()
+    summaries = list(batch_root.glob("*/summary.json"))
+    assert summaries, "expected summary under results/batch_runs/<run_id>/"
+    assert not (tmp_path / "batch_runs").exists()
+
+
+def test_batch_explicit_out_dir_not_forced_under_results(tmp_path: Path) -> None:
+    repos = tmp_path / "repos.jsonl"
+    repos.write_text("", encoding="utf-8")
+    custom = tmp_path / "custom_batch"
+    code = batch_main(
+        [
+            "--repos-file",
+            str(repos),
+            "--out-dir",
+            str(custom),
+            "--dry-run",
+            "--limit",
+            "0",
+        ]
+    )
+    assert code == 0
+    assert list(custom.glob("*/summary.json")), "explicit --out-dir must be used as-is"
+    assert not (tmp_path / "results" / "batch_runs").exists()
+
+
 def test_tacs_repos_help_shows_argparse_options() -> None:
     """tacs repos --help must surface argparse flags, not thin Click wrapper help."""
     runner = CliRunner()
@@ -128,6 +170,7 @@ def test_tacs_repos_help_shows_argparse_options() -> None:
     assert result.exit_code == 0, result.output
     assert "--repos-file" in result.output
     assert "--enable-llm" in result.output
+    assert "results/batch_runs" in result.output
     assert "Usage: app repos" not in result.output
 
 

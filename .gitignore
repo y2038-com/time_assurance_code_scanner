@@ -29,7 +29,8 @@ htmlcov/
 *.pem
 
 # Scan artifacts (user-controlled; never commit by default)
-results/
+results/*
+!results/README.md
 batch_runs/
 .findings/
 *.findings.json
@@ -37,11 +38,11 @@ findings_*.json
 *_findings.json
 findings.json
 
-# Local working directories (same convention as tads; contents gitignored)
+# Local working directories (contents gitignored)
 inputs/*
 !inputs/README.md
-outputs/*
-!outputs/README.md
+# Legacy optional folder; ignore if present
+outputs/
 
 # OS
 .DS_Store

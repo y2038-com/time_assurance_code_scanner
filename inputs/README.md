@@ -10,9 +10,11 @@ Tracked examples stay under source control (for example
 `src/tacs/fixtures/repo_lists/*.jsonl` and `configs/`). Copy or adapt them into
 `inputs/` when you want a private working copy.
 
+Generated output belongs under `results/` (not here).
+
 ```bash
-# Example: batch dry-run from a local list
-tacs repos --repos-file inputs/my_repos.jsonl --dry-run --out-dir outputs/batch
+# Example: batch dry-run from a local list (default out-dir: results/batch_runs)
+tacs repos --repos-file inputs/my_repos.jsonl --dry-run
 ```
 
 Contents of this folder are gitignored (except this README).

@@ -13,10 +13,10 @@ Copy secrets only into a local `.env` (never commit it). Template: [`.env.exampl
 in later stages, file-level context and type/macro definitions — may be sent to your
 configured provider. See [docs/privacy.md](docs/privacy.md).
 
-**Local workspace:** optional `inputs/` (run-specific JSONL, env configs, etc.) and
-`outputs/` (findings, batch runs, reports) mirror the `tads` convention. Their
-contents are gitignored; tracked fixtures under `src/tacs/fixtures/` and `configs/`
-are unchanged. CLI defaults (`findings.json`, `results/`, `batch_runs/`) still work.
+**Local workspace:** `inputs/` for run-specific manifests and configs you supply;
+`results/` for everything TACS generates (`results/scans/`, `results/batch_runs/`).
+Both are gitignored except their READMEs. Tracked fixtures under `src/tacs/fixtures/`
+and `configs/` are unchanged. Override destinations anytime with `--out` / `--out-dir`.
 
 ---
 
@@ -181,12 +181,12 @@ tacs repos --repos-file src/tacs/fixtures/repo_lists/test_repos.jsonl --dry-run
 tacs render --help
 
 # Single findings JSON (e.g. from tacs scan --out):
-# tacs render outputs/findings.json --format text
-# tacs render outputs/findings.json --format html --out outputs/report.html
+# tacs render findings.json --format text
+# tacs render findings.json --format html --out results/report.html
 
-# Batch run directory:
-# tacs render batch_runs/<run_id> --format text
-# tacs render batch_runs/<run_id> --format html --out-dir outputs/reports
+# Batch run directory (default repos out-dir is results/batch_runs):
+# tacs render results/batch_runs/<run_id> --format text
+# tacs render results/batch_runs/<run_id> --format html --out-dir results/reports
 ```
 
 Prefer an explicit `config_override` / env config per repo when known. `tacs detect`

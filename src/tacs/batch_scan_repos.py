@@ -674,7 +674,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Batch scan repositories for Y2038 issues")
     parser.add_argument("--repos-file", required=True, help="Path to JSONL repos file")
     parser.add_argument("--cache-dir", default=".repo_cache", help="Repo cache directory")
-    parser.add_argument("--out-dir", default="batch_runs", help="Batch output root directory")
+    parser.add_argument(
+        "--out-dir",
+        default="results/batch_runs",
+        help="Batch output root directory (default: results/batch_runs)",
+    )
     parser.add_argument("--continue-on-error", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--fail-fast", action="store_true", help="Stop on first repository failure")
     parser.add_argument("--ref-override", help="Override ref for all repos")

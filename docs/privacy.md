@@ -48,5 +48,7 @@ the file. Treat provider choice as a data-handling decision.
 ## Operational hygiene
 
 - Do not commit `.env`, API keys, or scan outputs that may contain proprietary source
-- Prefer gitignored output paths (`findings.json`, `results/`, `batch_runs/` are ignored by default)
+- Prefer gitignored output paths (`findings.json`, `results/` — including
+  `results/scans/` and `results/batch_runs/` — are ignored by default; legacy
+  top-level `batch_runs/` is also ignored if present)
 - Debug flags that dump raw prompts (`--debug-llm-raw`, etc.) may expose secrets in the scanned tree — use carefully
