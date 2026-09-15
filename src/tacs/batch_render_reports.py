@@ -95,7 +95,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--list", action="store_true", help="Text mode: compact list")
     parser.add_argument("--group-by", choices=["file", "rule", "none"], default="file", help="HTML grouping")
     parser.add_argument("--title", default="Y2038 Scan Report", help="HTML title")
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "debug", "info", "warning", "error"],
+        help="Console diagnostic log level (default: INFO)",
+    )
     args = parser.parse_args(argv)
+
+    from tacs.core.logging_config import configure_logging, get_logger, resolve_log_level
+
+    configure_logging(resolve_log_level(log_level=args.log_level))
+    log = get_logger("tacs.batch_render_reports")
 
     if args.min_confidence is not None and not (0.0 <= args.min_confidence <= 1.0):
         raise SystemExit("--min-confidence must be between 0.0 and 1.0")
@@ -115,11 +126,14 @@ def main(argv: list[str] | None = None) -> int:
     skipped: list[dict[str, Any]] = []
     failed = 0
 
+    log.info("Rendering %d repo report(s) from %s", len(repos), batch_run_dir)
+
     for repo_dir in repos:
         repo_key = repo_dir.name
         findings = _findings_path(repo_dir)
         if not findings.exists():
             skipped.append({"repo_key": repo_key, "reason": "missing findings.json"})
+            log.debug("skip %s: missing findings.json", repo_key)
             continue
 
         if args.format == "html":
@@ -143,9 +157,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         if ok:
             rendered.append({"repo_key": repo_key, "output": msg})
+            log.debug("rendered %s -> %s", repo_key, msg)
         else:
             failed += 1
             skipped.append({"repo_key": repo_key, "reason": msg})
+            log.warning("skip %s: %s", repo_key, msg)
 
     index = {
         "batch_run_dir": str(batch_run_dir),
@@ -162,6 +178,7 @@ def main(argv: list[str] | None = None) -> int:
     }
     index_path = out_dir / "index.json"
     index_path.write_text(json.dumps(index, indent=2), encoding="utf-8")
+    # Primary command result on stdout (not mixed into diagnostics).
     print(f"Rendered {len(rendered)} report(s). Index: {index_path}")
     return 0 if failed == 0 else 1
 

@@ -91,24 +91,40 @@ def render_cmd(ctx: click.Context) -> None:
     show_default=True,
     help="LLM model when --llm is set",
 )
+@click.option(
+    "--log-level",
+    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),
+    default="INFO",
+    show_default=True,
+    help="Console diagnostic log level (stderr)",
+)
 @click.option("--format", "fmt", type=click.Choice(["json", "text"]), default="json", show_default=True)
 @click.option("--out", type=click.Path(path_type=Path), default=None, help="Optional output file")
-def detect_cmd(project_path: Path, llm: bool, model: str, fmt: str, out: Path | None) -> None:
+def detect_cmd(
+    project_path: Path,
+    llm: bool,
+    model: str,
+    log_level: str,
+    fmt: str,
+    out: Path | None,
+) -> None:
     """Experimental: guess which of the 8 ABI/time_t configs a project uses.
 
     Prefer an explicit ``--env-config`` / config_id for production scans.
     Auto-detect is best-effort and often low-confidence.
     """
     from config_detector.likelihoods import ConfigDetectionError, detect_config_likelihoods
+    from tacs.core.logging_config import configure_logging, get_logger, resolve_log_level
 
-    click.echo(
-        "NOTE: config auto-detect is experimental; prefer explicit env_config when known.",
-        err=True,
+    configure_logging(resolve_log_level(log_level=log_level))
+    log = get_logger("tacs.cli.detect")
+    log.warning(
+        "config auto-detect is experimental; prefer explicit env_config when known"
     )
     try:
         result = detect_config_likelihoods(project_path, use_llm=llm, llm_model=model)
     except ConfigDetectionError as exc:
-        click.echo(f"detect failed: {exc}", err=True)
+        log.error("detect failed: %s", exc)
         raise SystemExit(1) from exc
 
     if fmt == "json":

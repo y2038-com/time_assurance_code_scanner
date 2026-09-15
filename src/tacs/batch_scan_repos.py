@@ -19,7 +19,7 @@ from urllib.parse import urlparse
 from tacs.core.include_patterns import build_include_patterns
 
 
-LOGGER = logging.getLogger("batch_scan_repos")
+LOGGER = logging.getLogger("tacs.batch_scan_repos")
 
 DEFAULT_FALLBACK_CONFIG_ID = "ilp32_signed_32bit"
 VALID_CONFIG_IDS = {
@@ -578,6 +578,76 @@ def _build_pipeline(
     )
 
 
+def _resolve_effective_config(
+    *,
+    explicit_config_id: str | None,
+    repo_dir: Path,
+    fallback_config_id: str,
+    config_min_confidence: float,
+    detect_fn=None,
+) -> tuple[str, str, str, dict[str, Any]]:
+    """
+    Choose effective ABI/time_t config for a repo.
+
+    When ``explicit_config_id`` is set, auto-detection is skipped entirely.
+    Returns ``(effective_config_id, config_source, config_reason, detection_payload)``.
+    """
+    if explicit_config_id:
+        payload = {
+            "skipped": True,
+            "reason": "explicit config_override provided",
+            "config_override": explicit_config_id,
+            "experimental": True,
+        }
+        return (
+            explicit_config_id,
+            "explicit",
+            "repo override config_override provided",
+            payload,
+        )
+
+    if detect_fn is None:
+        from config_detector.likelihoods import detect_config_likelihoods as detect_fn
+
+    detection = detect_fn(str(repo_dir), use_llm=False)
+    if detection.get("experimental"):
+        LOGGER.warning(
+            "config auto-detect is experimental; prefer explicit config_id/env_config when known"
+        )
+    detector_overall_confidence = float(detection.get("overall_confidence") or 0.0)
+    detector_recommended_id = detection.get("recommended_config_id")
+    if not isinstance(detector_recommended_id, str) or not detector_recommended_id:
+        detector_recommended_id = _parse_detector_recommended_id(detection.get("recommended"))
+    elif detector_recommended_id.strip().lower() not in VALID_CONFIG_IDS:
+        detector_recommended_id = None
+    else:
+        detector_recommended_id = detector_recommended_id.strip().lower()
+    detector_top_id = _top_likelihood_config_id(detection.get("likelihoods", []))
+    detection_payload = {
+        "overall_confidence": detector_overall_confidence,
+        "recommended": _to_plain_dict(detection.get("recommended"))
+        if detection.get("recommended")
+        else None,
+        "recommended_config_id": detector_recommended_id,
+        "top_likelihood_config_id": detector_top_id,
+        "likelihoods": [_to_plain_dict(l) for l in detection.get("likelihoods", [])],
+        "experimental": bool(detection.get("experimental", True)),
+    }
+    if detector_recommended_id and detector_overall_confidence >= config_min_confidence:
+        return (
+            detector_recommended_id,
+            "detected",
+            "detector recommendation meets confidence threshold",
+            detection_payload,
+        )
+    return (
+        fallback_config_id,
+        "fallback",
+        "detector recommendation missing or below confidence threshold",
+        detection_payload,
+    )
+
+
 def _repo_matches_filters(task: RepoTask, filters: Iterable[str]) -> bool:
     terms = [t.lower() for t in filters if t]
     if not terms:
@@ -599,6 +669,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="Resolve/plan only, do not clone/scan")
     parser.add_argument("--scanner-timeout-sec", type=int, default=3600, help="Per-repo scan timeout")
     parser.add_argument(
+        "--log-level",
+        default=None,
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "debug", "info", "warning", "error"],
+        help="Console diagnostic log level (default: INFO; --verbose implies DEBUG)",
+    )
+    parser.add_argument(
         "--enable-llm",
         action=argparse.BooleanOptionalAction,
         default=False,
@@ -615,14 +691,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--verbose", action="store_true", help="Verbose logging")
     args = parser.parse_args(argv)
 
+    from tacs.core.logging_config import configure_logging, resolve_log_level
+
+    configure_logging(
+        resolve_log_level(log_level=args.log_level, verbose=bool(args.verbose))
+    )
+
     fallback_config_id = args.fallback_config.strip().lower()
     if fallback_config_id not in VALID_CONFIG_IDS:
         raise SystemExit(f"invalid --fallback-config: {args.fallback_config}")
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-    )
+    # Logging already configured above; keep verbose flag for summary metadata only.
 
     start_ts = time.time()
     run_id = _run_id_now()
@@ -730,33 +809,6 @@ def main(argv: list[str] | None = None) -> int:
                 per_repo_dir = resolved_repo_dir
 
             stage = "config_detect"
-            # Experimental auto-detect; prefer explicit config_id in JSONL when known.
-            from config_detector.likelihoods import detect_config_likelihoods
-
-            detection = detect_config_likelihoods(str(repo_dir), use_llm=False)
-            if detection.get("experimental"):
-                LOGGER.warning(
-                    "config auto-detect is experimental; prefer explicit config_id/env_config when known"
-                )
-            detector_overall_confidence = float(detection.get("overall_confidence") or 0.0)
-            detector_recommended_id = detection.get("recommended_config_id")
-            if not isinstance(detector_recommended_id, str) or not detector_recommended_id:
-                detector_recommended_id = _parse_detector_recommended_id(detection.get("recommended"))
-            elif detector_recommended_id.strip().lower() not in VALID_CONFIG_IDS:
-                detector_recommended_id = None
-            else:
-                detector_recommended_id = detector_recommended_id.strip().lower()
-            detector_top_id = _top_likelihood_config_id(detection.get("likelihoods", []))
-            detection_payload = {
-                "overall_confidence": detector_overall_confidence,
-                "recommended": _to_plain_dict(detection.get("recommended")) if detection.get("recommended") else None,
-                "recommended_config_id": detector_recommended_id,
-                "top_likelihood_config_id": detector_top_id,
-                "likelihoods": [_to_plain_dict(l) for l in detection.get("likelihoods", [])],
-                "experimental": bool(detection.get("experimental", True)),
-            }
-            _write_json(per_repo_dir / "config_detection.json", detection_payload)
-
             overrides, override_warnings = _scan_overrides(task.scan_overrides)
             repo_warnings.extend(override_warnings)
             explicit_config_override = overrides.get("config_override")
@@ -768,18 +820,22 @@ def main(argv: list[str] | None = None) -> int:
             if explicit_config_id is not None and explicit_config_id not in VALID_CONFIG_IDS:
                 raise RuntimeError(f"invalid config_override: {explicit_config_override}")
 
-            if explicit_config_id:
-                effective_config_id = explicit_config_id
-                config_source = "explicit"
-                config_reason = "repo override config_override provided"
-            elif detector_recommended_id and detector_overall_confidence >= args.config_min_confidence:
-                effective_config_id = detector_recommended_id
-                config_source = "detected"
-                config_reason = "detector recommendation meets confidence threshold"
-            else:
-                effective_config_id = fallback_config_id
-                config_source = "fallback"
-                config_reason = "detector recommendation missing or below confidence threshold"
+            effective_config_id, config_source, config_reason, detection_payload = (
+                _resolve_effective_config(
+                    explicit_config_id=explicit_config_id,
+                    repo_dir=repo_dir,
+                    fallback_config_id=fallback_config_id,
+                    config_min_confidence=args.config_min_confidence,
+                )
+            )
+            if config_source == "explicit":
+                LOGGER.debug(
+                    "skipping config auto-detect for %s (config_override=%s)",
+                    dry_repo_key,
+                    explicit_config_id,
+                )
+
+            _write_json(per_repo_dir / "config_detection.json", detection_payload)
 
             env_config_path = per_repo_dir / "env_config.json"
             _write_json(env_config_path, _config_id_to_env_json(effective_config_id))
@@ -846,6 +902,22 @@ def main(argv: list[str] | None = None) -> int:
                 os.chdir(original_cwd)
             pipeline.save_results(results_obj, str(scan_out))
             finding_summary = _parse_findings_summary(scan_out)
+            if not enable_llm:
+                LOGGER.info(
+                    "%s: %d confirmed Y2038 issues; %d candidate findings remain unclassified (LLM disabled)",
+                    per_repo_dir.name,
+                    finding_summary.get("yes_findings", 0),
+                    finding_summary.get("abstain_findings", 0),
+                )
+            else:
+                LOGGER.info(
+                    "%s: %d findings (%d yes, %d no, %d abstain)",
+                    per_repo_dir.name,
+                    finding_summary.get("total_findings", 0),
+                    finding_summary.get("yes_findings", 0),
+                    finding_summary.get("no_findings", 0),
+                    finding_summary.get("abstain_findings", 0),
+                )
             repo_metrics = _extract_scan_metrics(results_obj)
             stage_stats = _extract_stage_stats(scan_out.parent)
             if repo_metrics.get("total_files", 0) > 0 or repo_metrics.get("total_lines", 0) > 0:
@@ -1024,6 +1096,9 @@ def main(argv: list[str] | None = None) -> int:
             "fallback_config": fallback_config_id,
             "config_min_confidence": args.config_min_confidence,
             "include_no_findings": args.include_no_findings,
+            "log_level": resolve_log_level(
+                log_level=args.log_level, verbose=bool(args.verbose)
+            ),
             "verbose": args.verbose,
         },
         "counts": {

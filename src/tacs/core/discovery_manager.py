@@ -50,13 +50,13 @@ class DiscoveryManager:
         StatusLogger.timestamped_print("Stage 2: Discovering typedefs and macros...")
         
         # Scan for typedefs
-        StatusLogger.timestamped_print("  Scanning for typedefs...")
+        StatusLogger.timestamped_debug("  Scanning for typedefs...")
         all_typedefs = self.typedef_scanner.scan_directory(
             root_path, include_patterns, exclude_patterns
         )
         
         # Find time_t aliases
-        StatusLogger.timestamped_print("  Finding time_t aliases...")
+        StatusLogger.timestamped_debug("  Finding time_t aliases...")
         typedef_aliases = self.typedef_scanner.find_time_t_aliases(
             all_typedefs, self.seed_types
         )
@@ -68,11 +68,11 @@ class DiscoveryManager:
         StatusLogger.timestamped_print(f"  Found {len(typedef_aliases)} typedef aliases")
         
         if typedef_aliases:
-            StatusLogger.timestamped_print("  Typedef aliases:")
+            StatusLogger.timestamped_debug("  Typedef aliases:")
             for alias_name in list(typedef_aliases.keys())[:5]:  # Show first 5
-                StatusLogger.timestamped_print(f"    {alias_name}")
+                StatusLogger.timestamped_debug(f"    {alias_name}")
             if len(typedef_aliases) > 5:
-                StatusLogger.timestamped_print(f"    ... and {len(typedef_aliases) - 5} more")
+                StatusLogger.timestamped_debug(f"    ... and {len(typedef_aliases) - 5} more")
         
         return typedef_aliases, time_macros
 
@@ -181,7 +181,7 @@ class DiscoveryManager:
         with open(updated_rules_path, 'w', encoding='utf-8') as f:
             json.dump(updated_rules, f, indent=2)
         
-        StatusLogger.timestamped_print(f"  Updated rules saved to: {updated_rules_path}")
+        StatusLogger.timestamped_debug(f"  Updated rules saved to: {updated_rules_path}")
         StatusLogger.timestamped_print(
             f"  Added {len(new_rules)} new rules "
             f"({len(typedef_aliases)} typedefs, {len(time_macros)} macros)"
@@ -219,4 +219,4 @@ class DiscoveryManager:
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(report, f, indent=2)
         
-        StatusLogger.timestamped_print(f"  Discovery report saved to: {output_path}")
+        StatusLogger.timestamped_debug(f"  Discovery report saved to: {output_path}")

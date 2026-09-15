@@ -125,7 +125,7 @@ class IRAdapter:
                 stderr_lines.append(line)
                 # Print progress messages immediately with timestamp
                 if line.strip().startswith('Progress:'):
-                    StatusLogger.timestamped_print(line.strip())
+                    StatusLogger.timestamped_debug(line.strip())
             
             # Wait for process to complete
             stdout, remaining_stderr = process.communicate()

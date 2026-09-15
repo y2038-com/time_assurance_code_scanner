@@ -8,6 +8,7 @@ import click
 from pathlib import Path
 from typing import List
 from tacs.core.status_logger import StatusLogger
+from tacs.core.logging_config import configure_logging, resolve_log_level
 from tacs.core.pipeline import ScanningPipeline
 from tacs.llm.env import (
     DEFAULT_LOCAL_HOST,
@@ -58,6 +59,13 @@ def _default_model() -> str:
 @click.option('--io-score-threshold', type=float, default=6.0, help='Minimum score for I/O-boundary candidates (default: 6.0)')
 @click.option('--io-check-literal-widths/--no-io-check-literal-widths', default=True, help='Check for suspicious literal widths (4/8) in I/O operations (default: enabled)')
 @click.option('--log-dir', default='results/llm_logs', help='LLM log directory (default: results/llm_logs)')
+@click.option(
+    '--log-level',
+    type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR'], case_sensitive=False),
+    default='INFO',
+    show_default=True,
+    help='Console diagnostic log level (stderr)',
+)
 @click.option('--migration-mode', is_flag=True, default=False, help='Enable migration analysis mode (default: disabled)')
 @click.option('--migration-from', help='Source config JSON file for migration (required if --migration-mode)')
 @click.option('--migration-to', help='Target config JSON file for migration (required if --migration-mode)')
@@ -102,6 +110,7 @@ def main(
     out: str,
     log_llm: bool,
     log_dir: str,
+    log_level: str,
     redact_prompts: bool,
     no_enable_discovery: bool,
     max_typedef_hops: int,
@@ -134,6 +143,7 @@ def main(
     migration_to: str
 ):
     """Time Assurance Code Scanner (single-repo scan) with LLM-assisted analysis."""
+    configure_logging(resolve_log_level(log_level=log_level))
     
     # Validate inputs
     root_path = Path(root)
@@ -223,21 +233,18 @@ def main(
         # Save results
         pipeline.save_results(results, out)
         
-        # Print summary
-        total_findings = len(results.findings)
-        yes_findings = len([f for f in results.findings if f.y2038_issue.value == "yes"])
-        no_findings = len([f for f in results.findings if f.y2038_issue.value == "no"])
-        abstain_findings = len([f for f in results.findings if f.y2038_issue.value == "abstain"])
-        
-        StatusLogger.timestamped_print(f"Scan complete: {total_findings} findings ({yes_findings} yes, {no_findings} no, {abstain_findings} abstain)")
+        # Print summary (pipeline already logged confirmed/unclassified counts)
         StatusLogger.timestamped_print(f"Results saved to: {out}")
         
         # Print intermediate results location
         if hasattr(pipeline, 'session') and pipeline.session:
             StatusLogger.timestamped_print(f"Intermediate results saved to: {pipeline.session.scan_folder}")
-            StatusLogger.timestamped_print(f"  - Discovered rules: prescan/discovered_rules.json")
-            StatusLogger.timestamped_print(f"  - All candidates: ir/candidates.jsonl")
-            StatusLogger.timestamped_print(f"  - Function batches: llm/stage_8_pass_2a/batches/, llm/stage_8_pass_2b/batches/, llm/stage_9_pass_1/batches/")
+            StatusLogger.timestamped_debug("  - Discovered rules: prescan/discovered_rules.json")
+            StatusLogger.timestamped_debug("  - All candidates: ir/candidates.jsonl")
+            StatusLogger.timestamped_debug(
+                "  - Function batches: llm/stage_8_pass_2a/batches/, "
+                "llm/stage_8_pass_2b/batches/, llm/stage_9_pass_1/batches/"
+            )
         
     except Exception as e:
         StatusLogger.timestamped_error(f"Scan failed: {e}")

@@ -1145,9 +1145,9 @@ class ScanningPipeline:
         # Log abstain details for debugging
         StatusLogger.timestamped_print(f"Stage 8, Pass 2b: Abstain findings breakdown:")
         for finding in abstain_findings[:5]:  # Log first 5 for debugging
-            StatusLogger.timestamped_print(f"  - {finding.function_id}: {finding.reason[:80]}")
+            StatusLogger.timestamped_debug(f"  - {finding.function_id}: {finding.reason[:80]}")
         if len(abstain_findings) > 5:
-            StatusLogger.timestamped_print(f"  ... and {len(abstain_findings) - 5} more")
+            StatusLogger.timestamped_debug(f"  ... and {len(abstain_findings) - 5} more")
         
         # Group findings by function_id to avoid duplicate processing
         function_findings_map = {}
@@ -1503,11 +1503,19 @@ class ScanningPipeline:
             StatusLogger.timestamped_print(f"  Y2038: {yes_count} yes, {no_count - y2106_yes} no, {abstain_count} abstain")
             StatusLogger.timestamped_print(f"  Y2106: {y2106_yes} yes, {y2106_no} no, {y2106_abstain} abstain")
             StatusLogger.timestamped_print(f"  Total issues: {total_issues} ({yes_count} Y2038, {y2106_yes} Y2106)")
+        elif self.llm_type == "none":
+            StatusLogger.timestamped_print(
+                f"Scan complete: {yes_count} confirmed Y2038 issues"
+            )
+            if abstain_count:
+                StatusLogger.timestamped_print(
+                    f"{abstain_count} candidate findings remain unclassified (LLM disabled)"
+                )
         else:
             StatusLogger.timestamped_print(f"Scan complete: {len(findings)} findings ({yes_count} yes, {no_count} no, {abstain_count} abstain)")
         
         # Log final abstain summary
-        if abstain_count > 0:
+        if abstain_count > 0 and self.llm_type != "none":
             StatusLogger.timestamped_print(f"Final abstain summary: {abstain_count} finding(s) could not be definitively classified")
             abstain_by_pass = {}
             for finding in findings:
@@ -1515,7 +1523,11 @@ class ScanningPipeline:
                     pass_name = finding.final_pass or "unknown"
                     abstain_by_pass[pass_name] = abstain_by_pass.get(pass_name, 0) + 1
             for pass_name, count in sorted(abstain_by_pass.items()):
-                StatusLogger.timestamped_print(f"  - {count} from {pass_name}")
+                StatusLogger.timestamped_debug(f"  - {count} from {pass_name}")
+        elif abstain_count > 0 and self.llm_type == "none":
+            StatusLogger.timestamped_debug(
+                f"Abstain breakdown (LLM disabled): {abstain_count} unclassified candidate(s)"
+            )
         
         # Public findings JSON is written only by save_results(..., --out).
         # Session still keeps an internal copy under results/scans/.../findings/.
