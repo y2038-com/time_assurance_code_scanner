@@ -17,6 +17,7 @@ from typing import Any, Iterable
 from urllib.parse import urlparse
 
 from tacs.core.include_patterns import build_include_patterns
+from tacs.core.status_logger import StatusLogger
 
 
 LOGGER = logging.getLogger("tacs.batch_scan_repos")
@@ -204,6 +205,19 @@ def _parse_findings_summary(findings_path: Path) -> dict[str, int]:
         "no_findings": no,
         "abstain_findings": abstain,
     }
+
+
+def _format_no_llm_repo_summary(repo_key: str, finding_summary: dict[str, int]) -> str:
+    """Build the per-repo INFO summary line when LLM classification is disabled."""
+    total = int(finding_summary.get("total_findings", 0) or 0)
+    if total == 0:
+        return f"{repo_key}: No Y2038 candidate findings detected"
+    yes = int(finding_summary.get("yes_findings", 0) or 0)
+    abstain = int(finding_summary.get("abstain_findings", 0) or 0)
+    return (
+        f"{repo_key}: {yes} confirmed Y2038 issues; "
+        f"{abstain} candidate findings remain unclassified (LLM disabled)"
+    )
 
 
 def _extract_scan_metrics(results_obj: Any) -> dict[str, Any]:
@@ -779,7 +793,18 @@ def main(argv: list[str] | None = None) -> int:
             per_repo_dir = run_dir / "repos" / dry_repo_key
             per_repo_dir.mkdir(parents=True, exist_ok=True)
 
-            LOGGER.info("[%d/%d] %s", idx, len(tasks), dry_repo_key)
+            # Essential progress: visible at every log level (not filtered as INFO).
+            # Omit "@ default" — that token is a resolve instruction, not a Git ref.
+            if requested_ref:
+                StatusLogger.always(
+                    f"[{idx}/{len(tasks)}] {identity.owner}/{identity.repo} "
+                    f"@ {requested_ref} — {task.repo_url}"
+                )
+            else:
+                StatusLogger.always(
+                    f"[{idx}/{len(tasks)}] {identity.owner}/{identity.repo} "
+                    f"— {task.repo_url}"
+                )
             if args.dry_run:
                 stage = "done"
                 status = "skipped"
@@ -798,6 +823,10 @@ def main(argv: list[str] | None = None) -> int:
             _prepare_repo(identity, task.repo_url)
             resolved_ref_input, resolved_sha, resolved_ref = _resolve_ref(repo_dir, requested_ref)
             _checkout_clean(repo_dir, resolved_ref, resolved_sha)
+            if not requested_ref:
+                short_sha = (resolved_sha or "")[:12] or "unknown"
+                branch = resolved_ref or short_sha
+                LOGGER.info("Resolved ref: %s @ %s", branch, short_sha)
 
             resolved_repo_key = _repo_key(identity, resolved_ref or resolved_sha or dry_ref_label)
             if resolved_repo_key != dry_repo_key:
@@ -903,12 +932,7 @@ def main(argv: list[str] | None = None) -> int:
             pipeline.save_results(results_obj, str(scan_out))
             finding_summary = _parse_findings_summary(scan_out)
             if not enable_llm:
-                LOGGER.info(
-                    "%s: %d confirmed Y2038 issues; %d candidate findings remain unclassified (LLM disabled)",
-                    per_repo_dir.name,
-                    finding_summary.get("yes_findings", 0),
-                    finding_summary.get("abstain_findings", 0),
-                )
+                LOGGER.info("%s", _format_no_llm_repo_summary(per_repo_dir.name, finding_summary))
             else:
                 LOGGER.info(
                     "%s: %d findings (%d yes, %d no, %d abstain)",

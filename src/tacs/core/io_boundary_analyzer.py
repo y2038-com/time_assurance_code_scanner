@@ -237,7 +237,7 @@ class IOBoundaryAnalyzer:
         if not files_with_io:
             return []
         
-        StatusLogger.timestamped_print(f"Found {len(files_with_io)} files with I/O function calls")
+        StatusLogger.timestamped_debug(f"Found {len(files_with_io)} files with I/O function calls")
         
         # Step 2: Analyze each file for I/O patterns
         io_candidates = []
@@ -256,7 +256,7 @@ class IOBoundaryAnalyzer:
             if cand.io_score >= self.score_threshold
         ]
         
-        StatusLogger.timestamped_print(
+        StatusLogger.timestamped_debug(
             f"I/O boundary analysis: {len(io_candidates)} candidates found, "
             f"{len(filtered_candidates)} above threshold ({self.score_threshold})"
         )

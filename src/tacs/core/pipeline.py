@@ -24,6 +24,12 @@ from tacs.llm.factory import create_llm_client
 from tacs import __version__ as TACS_VERSION
 
 
+def _format_count(n: int, singular: str, plural: str | None = None) -> str:
+    """Return ``N noun`` with simple English singular/plural."""
+    word = singular if n == 1 else (plural if plural is not None else f"{singular}s")
+    return f"{n} {word}"
+
+
 class ScanningPipeline:
     """Orchestrates the scanning pipeline from metrics to final findings."""
     
@@ -334,7 +340,7 @@ class ScanningPipeline:
         self.session = session
         
         # Stage 1: Calculate metrics
-        StatusLogger.timestamped_print("Stage 1: Code metrics...")
+        StatusLogger.timestamped_debug("Stage 1: Code metrics...")
         session.start_timing("metrics")
         metrics = calculate_metrics(root_path, include_patterns, exclude_patterns)
         StatusLogger.timestamped_print(f"Stage 1: Found {metrics.total_files} files, {metrics.total_lines} lines")
@@ -388,7 +394,7 @@ class ScanningPipeline:
             new_rules = [rule for rule in updated_rules if rule.get('discovered', False)]
             if new_rules:
                 session.save_discovered_rules(new_rules, rules_path)
-                StatusLogger.timestamped_print(f"Saved {len(new_rules)} discovered rules to scan session")
+                StatusLogger.timestamped_debug(f"Saved {len(new_rules)} discovered rules to scan session")
             
             # Update LLM client with discovered time_t aliases (for Stage S1, Pass P1)
             # Store for use in function-first pipeline if Stage S1 is enabled
@@ -396,9 +402,9 @@ class ScanningPipeline:
                 self._time_t_aliases = typedef_aliases
             if hasattr(self, 'llm_client'):
                 self.llm_client.time_t_aliases = typedef_aliases
-                StatusLogger.timestamped_print(f"Passed {len(typedef_aliases)} time_t aliases to LLM client for Stage S1, Pass P1")
+                StatusLogger.timestamped_debug(f"Passed {len(typedef_aliases)} time_t aliases to LLM client for Stage S1, Pass P1")
         else:
-            StatusLogger.timestamped_print("Skipping typedef discovery (disabled)")
+            StatusLogger.timestamped_debug("Skipping typedef discovery (disabled)")
             typedef_aliases, time_macros = {}, {}
             updated_rules_path = rules_path
             session.log_message("INFO", "Skipping typedef discovery (disabled)")
@@ -427,9 +433,9 @@ class ScanningPipeline:
             time_t_aliases=typedef_aliases if self.enable_discovery else {},
             time_functions=time_functions
         )
-        StatusLogger.timestamped_print(f"Found {len(candidates)} candidates")
+        StatusLogger.timestamped_print(f"Found {_format_count(len(candidates), 'candidate')}")
         session.end_timing("ir")
-        session.log_message("INFO", f"IR: Found {len(candidates)} candidates")
+        session.log_message("INFO", f"IR: Found {_format_count(len(candidates), 'candidate')}")
         
         # Store original candidates count for summary
         if not hasattr(session, '_legacy_pipeline_info'):
@@ -451,16 +457,21 @@ class ScanningPipeline:
             )
         
         # Stage 4: Structural filter
-        StatusLogger.timestamped_print("Stage 4: Structural filter...")
+        StatusLogger.timestamped_debug("Stage 4: Structural filter...")
         filtered_candidates = self.struct_filter.filter_candidates(candidates)
-        StatusLogger.timestamped_print(f"Stage 4: After filtering: {len(filtered_candidates)} candidates")
-        session.log_message("INFO", f"Structural filter: {len(filtered_candidates)} candidates")
+        StatusLogger.timestamped_print(
+            f"Stage 4: After filtering: {_format_count(len(filtered_candidates), 'candidate')}"
+        )
+        session.log_message(
+            "INFO",
+            f"Structural filter: {_format_count(len(filtered_candidates), 'candidate')}",
+        )
         
         # Store filtered candidates count
         session._legacy_pipeline_info['filtered_candidates_count'] = len(filtered_candidates)
         
         # Stage 5: I/O Boundary Analysis
-        StatusLogger.timestamped_print("Stage 5: I/O boundary analysis...")
+        StatusLogger.timestamped_debug("Stage 5: I/O boundary analysis...")
         if self.io_analyzer:
             session.start_timing("io_boundary_analysis")
             
@@ -483,7 +494,7 @@ class ScanningPipeline:
                 exclude_patterns=exclude_patterns
             )
             
-            StatusLogger.timestamped_print(f"Found {len(io_candidates)} I/O-boundary candidates")
+            StatusLogger.timestamped_debug(f"Found {len(io_candidates)} I/O-boundary candidates")
             session.end_timing("io_boundary_analysis")
             session.log_message("INFO", f"I/O boundary analysis: {len(io_candidates)} candidates")
             
@@ -506,16 +517,16 @@ class ScanningPipeline:
                 }
                 # Debug: Log I/O candidate metadata storage
                 if self.debug_candidates:
-                    StatusLogger.timestamped_print(f"  I/O candidate stored: {candidate_id} (score={io_cand.io_score:.1f}, {io_cand.io_category.value})")
+                    StatusLogger.timestamped_debug(f"  I/O candidate stored: {candidate_id} (score={io_cand.io_score:.1f}, {io_cand.io_category.value})")
             
             # Update LLM client with I/O metadata map
             if hasattr(self, 'llm_client') and self.llm_client:
                 self.llm_client.io_metadata_map = self.io_metadata_map
         else:
-            StatusLogger.timestamped_print("Stage 5: Skipped (I/O analysis disabled)")
+            StatusLogger.timestamped_debug("Stage 5: Skipped (I/O analysis disabled)")
         
         # Stage 6: Migration Analysis (if migration mode enabled)
-        StatusLogger.timestamped_print("Stage 6: Migration analysis...")
+        StatusLogger.timestamped_debug("Stage 6: Migration analysis...")
         if self.migration_mode and self.migration_from_config and self.migration_to_config:
             session.start_timing("migration_analysis")
             
@@ -595,9 +606,9 @@ class ScanningPipeline:
                 })
         else:
             if not self.migration_mode:
-                StatusLogger.timestamped_print("Stage 6: Skipped (migration mode disabled)")
+                StatusLogger.timestamped_debug("Stage 6: Skipped (migration mode disabled)")
             elif not self.migration_from_config or not self.migration_to_config:
-                StatusLogger.timestamped_print("Stage 6: Skipped (migration config files not provided)")
+                StatusLogger.timestamped_debug("Stage 6: Skipped (migration config files not provided)")
         
         # Debug: Show sample candidates
         if self.debug_candidates and filtered_candidates:
@@ -651,10 +662,10 @@ class ScanningPipeline:
         check_cancelled: Optional[Callable[[], bool]] = None,
     ) -> List[Finding]:
         """Run function-first analysis pipeline."""
-        StatusLogger.timestamped_print("Running function-first analysis...")
+        StatusLogger.timestamped_debug("Running function-first analysis...")
         
         # Stage 7: LLM Pass 1 - Line-level analysis (single-line triage) - OPTIONAL PRE-FILTER
-        StatusLogger.timestamped_print("Stage 7: LLM Pass 1 (line-level analysis)...")
+        StatusLogger.timestamped_debug("Stage 7: LLM Pass 1 (line-level analysis)...")
         if self.enable_pass1 and self.llm_type != "none" and hasattr(self, 'llm_client'):
             session.start_timing("stage_s1_pass_p1")
             
@@ -689,15 +700,15 @@ class ScanningPipeline:
             candidates = filtered_candidates
         else:
             if self.llm_type == "none":
-                StatusLogger.timestamped_print("Stage 7: Skipped (LLM disabled)")
+                StatusLogger.timestamped_debug("Stage 7: Skipped (LLM disabled)")
             elif not self.enable_pass1:
-                StatusLogger.timestamped_print("Stage 7: Skipped (line-level analysis disabled)")
+                StatusLogger.timestamped_debug("Stage 7: Skipped (line-level analysis disabled)")
             else:
-                StatusLogger.timestamped_print("Stage 7: Skipped (line-level analysis disabled)")
+                StatusLogger.timestamped_debug("Stage 7: Skipped (line-level analysis disabled)")
         
         # Functionization (preparation for Stage S2)
         session.start_timing("functionization")
-        StatusLogger.timestamped_print("Functionization - extracting functions with candidates...")
+        StatusLogger.timestamped_debug("Functionization - extracting functions with candidates...")
         functions = self.function_analyzer.extract_functions_with_candidates(candidates)
         StatusLogger.timestamped_print(f"Extracted {len(functions)} functions containing candidates")
         session.end_timing("functionization")
@@ -706,19 +717,19 @@ class ScanningPipeline:
         function_map = {func.function_id: func for func in functions}
         
         # Stage 8: LLM Pass 2 - Function-level analysis, Pass 2a (initial function analysis)
-        StatusLogger.timestamped_print("Stage 8: LLM Pass 2 (function-level analysis), Pass 2a - initial analysis...")
+        StatusLogger.timestamped_debug("Stage 8: LLM Pass 2 (function-level analysis), Pass 2a - initial analysis...")
         session.start_timing("stage_s2_pass_p1")
         findings = self._run_pass_f1(functions, session, check_cancelled=check_cancelled)
         session.end_timing("stage_s2_pass_p1")
         
         # Stage 8: LLM Pass 2 - Function-level analysis, Pass 2b (iterative enrichment)
-        StatusLogger.timestamped_print("Stage 8: LLM Pass 2 (function-level analysis), Pass 2b - iterative enrichment...")
+        StatusLogger.timestamped_debug("Stage 8: LLM Pass 2 (function-level analysis), Pass 2b - iterative enrichment...")
         session.start_timing("stage_s2_pass_p2")
         findings = self._run_pass_f2(findings, function_map, session)
         session.end_timing("stage_s2_pass_p2")
         
         # Stage 9: LLM Pass 3 - File-level analysis, Pass 1 (file-leading context)
-        StatusLogger.timestamped_print("Stage 9: LLM Pass 3 (file-level analysis)...")
+        StatusLogger.timestamped_debug("Stage 9: LLM Pass 3 (file-level analysis)...")
         session.start_timing("stage_s3_pass_p1")
         findings = self._run_pass_f3(findings, function_map, session)
         session.end_timing("stage_s3_pass_p1")
@@ -727,13 +738,13 @@ class ScanningPipeline:
         io_findings_count = sum(1 for f in findings if f.io_category is not None)
         if hasattr(self, 'io_metadata_map') and self.io_metadata_map:
             total_io_candidates = len(self.io_metadata_map)
-            StatusLogger.timestamped_print(
+            StatusLogger.timestamped_debug(
                 f"I/O metadata summary: {total_io_candidates} I/O candidates stored, "
                 f"{io_findings_count} findings with I/O metadata attached"
             )
             if total_io_candidates > io_findings_count:
                 missing = total_io_candidates - io_findings_count
-                StatusLogger.timestamped_print(
+                StatusLogger.timestamped_debug(
                     f"  Note: {missing} I/O candidates did not get metadata attached "
                     f"(may be in functions classified as NO, or path matching issue)"
                 )
@@ -755,7 +766,7 @@ class ScanningPipeline:
         llm_disabled = self.function_llm_client.llm_type == "none"
         
         if llm_disabled:
-            StatusLogger.timestamped_print("Stage 8, Pass 2a: Skipped (LLM disabled)")
+            StatusLogger.timestamped_debug("Stage 8, Pass 2a: Skipped (LLM disabled)")
             # Still create findings from functions with abstain status
             for func in functions:
                 finding = Finding(
@@ -1137,13 +1148,13 @@ class ScanningPipeline:
         ]
         
         if not abstain_findings:
-            StatusLogger.timestamped_print("Stage 8, Pass 2b: Skipped (no abstain findings need iterative enrichment)")
+            StatusLogger.timestamped_debug("Stage 8, Pass 2b: Skipped (no abstain findings need iterative enrichment)")
             return findings
         
-        StatusLogger.timestamped_print(f"Stage 8, Pass 2b: Processing {len(abstain_findings)} abstain findings with iterative enrichment")
+        StatusLogger.timestamped_debug(f"Stage 8, Pass 2b: Processing {len(abstain_findings)} abstain findings with iterative enrichment")
         
         # Log abstain details for debugging
-        StatusLogger.timestamped_print(f"Stage 8, Pass 2b: Abstain findings breakdown:")
+        StatusLogger.timestamped_debug(f"Stage 8, Pass 2b: Abstain findings breakdown:")
         for finding in abstain_findings[:5]:  # Log first 5 for debugging
             StatusLogger.timestamped_debug(f"  - {finding.function_id}: {finding.reason[:80]}")
         if len(abstain_findings) > 5:
@@ -1354,10 +1365,10 @@ class ScanningPipeline:
         ]
         
         if not abstain_findings:
-            StatusLogger.timestamped_print("Stage 9: Skipped (no abstain findings need file context)")
+            StatusLogger.timestamped_debug("Stage 9: Skipped (no abstain findings need file context)")
             return findings
         
-        StatusLogger.timestamped_print(f"Stage 9: Processing {len(abstain_findings)} abstain findings with file context")
+        StatusLogger.timestamped_debug(f"Stage 9: Processing {len(abstain_findings)} abstain findings with file context")
         
         # Group findings by file to avoid reading the same file multiple times
         file_groups = {}
@@ -1367,7 +1378,7 @@ class ScanningPipeline:
                 file_groups[file_path] = []
             file_groups[file_path].append(finding)
         
-        StatusLogger.timestamped_print(f"Stage 9: Grouped into {len(file_groups)} unique files")
+        StatusLogger.timestamped_debug(f"Stage 9: Grouped into {len(file_groups)} unique files")
         
         # Process each file group
         new_findings = []
@@ -1500,15 +1511,22 @@ class ScanningPipeline:
             total_issues = yes_count + y2106_yes - sum(1 for f in findings if f.issue_type == TimeIssueType.BOTH)
             
             StatusLogger.timestamped_print(f"Scan complete: {len(findings)} findings")
-            StatusLogger.timestamped_print(f"  Y2038: {yes_count} yes, {no_count - y2106_yes} no, {abstain_count} abstain")
-            StatusLogger.timestamped_print(f"  Y2106: {y2106_yes} yes, {y2106_no} no, {y2106_abstain} abstain")
-            StatusLogger.timestamped_print(f"  Total issues: {total_issues} ({yes_count} Y2038, {y2106_yes} Y2106)")
-        elif self.llm_type == "none":
-            StatusLogger.timestamped_print(
-                f"Scan complete: {yes_count} confirmed Y2038 issues"
+            StatusLogger.timestamped_debug(
+                f"  Y2038: {yes_count} yes, {no_count - y2106_yes} no, {abstain_count} abstain"
             )
-            if abstain_count:
+            StatusLogger.timestamped_debug(
+                f"  Y2106: {y2106_yes} yes, {y2106_no} no, {y2106_abstain} abstain"
+            )
+            StatusLogger.timestamped_debug(
+                f"  Total issues: {total_issues} ({yes_count} Y2038, {y2106_yes} Y2106)"
+            )
+        elif self.llm_type == "none":
+            if len(findings) == 0:
+                StatusLogger.timestamped_print("No Y2038 candidate findings detected")
+            else:
+                StatusLogger.timestamped_print(f"Scan complete: {len(findings)} findings")
                 StatusLogger.timestamped_print(
+                    f"{yes_count} confirmed Y2038 issues; "
                     f"{abstain_count} candidate findings remain unclassified (LLM disabled)"
                 )
         else:
@@ -2157,7 +2175,7 @@ Timing (ms):
             finding.remediation_class = RemediationClass(metadata['remediation_class'])
             # Debug logging
             if self.debug_candidates:
-                StatusLogger.timestamped_print(f"  I/O metadata attached: {file_path}:{line_num} -> {matched_id} ({metadata['io_category']})")
+                StatusLogger.timestamped_debug(f"  I/O metadata attached: {file_path}:{line_num} -> {matched_id} ({metadata['io_category']})")
             return True
         
         # Also check migration metadata
@@ -2207,11 +2225,11 @@ Timing (ms):
                 for key in self.io_metadata_map.keys()
             )
             if has_io_for_file:
-                StatusLogger.timestamped_print(f"  I/O metadata NOT found for {file_path}:{line_num} (but I/O metadata exists for this file)")
+                StatusLogger.timestamped_debug(f"  I/O metadata NOT found for {file_path}:{line_num} (but I/O metadata exists for this file)")
                 # Show what keys exist for this file
                 matching_keys = [k for k in self.io_metadata_map.keys() if file_basename in k or file_path in k]
                 if matching_keys:
-                    StatusLogger.timestamped_print(f"    Available keys for this file: {matching_keys[:3]}...")
+                    StatusLogger.timestamped_debug(f"    Available keys for this file: {matching_keys[:3]}...")
         
         return False
     

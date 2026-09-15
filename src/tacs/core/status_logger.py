@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import logging
+import sys
+from datetime import datetime
 from typing import Any, Optional
 
 from tacs.core.logging_config import get_logger
@@ -19,6 +21,18 @@ class StatusLogger:
         # ``file`` / ``flush`` from legacy call sites are ignored; diagnostics go to
         # the configured tacs stderr handler.
         cls._logger.log(level, "%s", message)
+
+    @staticmethod
+    def always(message: str) -> None:
+        """
+        Emit a timestamped stderr line that ignores the configured log level.
+
+        Use for essential batch progress (e.g. per-repo headers) that must remain
+        visible at WARNING/ERROR. Format matches diagnostic timestamps without a
+        level name so these are distinct from filtered log records.
+        """
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"{ts} {message}", file=sys.stderr, flush=True)
 
     @staticmethod
     def timestamped_debug(message: str, file: Optional[Any] = None, flush: bool = True) -> None:

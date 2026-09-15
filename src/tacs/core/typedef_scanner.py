@@ -63,7 +63,10 @@ class TypedefScanner:
                 typedef_map.update(file_typedefs)
                 
             except Exception as e:
-                print(f"Warning: Could not read {file_path}: {e}")
+                from tacs.core.status_logger import StatusLogger
+
+                StatusLogger.timestamped_warning(f"Could not read {file_path}: {e}")
+
                 continue
         
         return dict(typedef_map)
@@ -197,7 +200,11 @@ class TypedefScanner:
             
             # Check if we've exceeded the alias limit
             if len(time_aliases) >= self.max_aliases:
-                print(f"Warning: Reached maximum alias limit ({self.max_aliases})")
+                from tacs.core.status_logger import StatusLogger
+
+                StatusLogger.timestamped_warning(
+                    f"Reached maximum alias limit ({self.max_aliases})"
+                )
                 break
         
         return time_aliases
@@ -226,14 +233,15 @@ class TypedefScanner:
         return bool(re.search(pattern, typedef_part))
     
     def print_discovered_aliases(self, aliases: Dict[str, List[str]]):
-        """Print discovered time_t aliases."""
+        """Log discovered time_t aliases (DEBUG)."""
+        from tacs.core.status_logger import StatusLogger
+
         if not aliases:
-            print("No time_t aliases discovered")
+            StatusLogger.timestamped_debug("No time_t aliases discovered")
             return
         
-        print(f"Discovered {len(aliases)} time_t aliases:")
+        StatusLogger.timestamped_debug(f"Discovered {len(aliases)} time_t aliases:")
         for alias_name, definitions in aliases.items():
-            print(f"  {alias_name}:")
+            StatusLogger.timestamped_debug(f"  {alias_name}:")
             for definition in definitions:
-                print(f"    {definition}")
-            print()
+                StatusLogger.timestamped_debug(f"    {definition}")

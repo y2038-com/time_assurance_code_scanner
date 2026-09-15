@@ -65,7 +65,7 @@ class DiscoveryManager:
         time_macros = {}
         
         # Print results
-        StatusLogger.timestamped_print(f"  Found {len(typedef_aliases)} typedef aliases")
+        StatusLogger.timestamped_debug(f"  Found {len(typedef_aliases)} typedef aliases")
         
         if typedef_aliases:
             StatusLogger.timestamped_debug("  Typedef aliases:")
@@ -133,7 +133,7 @@ class DiscoveryManager:
         Returns:
             Path to updated rules file under ``output_dir``
         """
-        StatusLogger.timestamped_print("  Updating rules with discoveries...")
+        StatusLogger.timestamped_debug("  Updating rules with discoveries...")
 
         typedef_aliases = self._relativize_alias_map(typedef_aliases, root_path)
         time_macros = self._relativize_alias_map(time_macros, root_path)
@@ -182,7 +182,7 @@ class DiscoveryManager:
             json.dump(updated_rules, f, indent=2)
         
         StatusLogger.timestamped_debug(f"  Updated rules saved to: {updated_rules_path}")
-        StatusLogger.timestamped_print(
+        StatusLogger.timestamped_debug(
             f"  Added {len(new_rules)} new rules "
             f"({len(typedef_aliases)} typedefs, {len(time_macros)} macros)"
         )

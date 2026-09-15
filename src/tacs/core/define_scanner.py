@@ -286,14 +286,16 @@ class DefineScanner:
         return new_rules
     
     def print_discovered_defines(self, define_matches: List[DefineMatch]):
-        """Print discovered #define matches."""
+        """Log discovered #define matches (DEBUG)."""
         from tacs.core.status_logger import StatusLogger
         
         if not define_matches:
-            StatusLogger.timestamped_print("No Y2038-relevant #define statements discovered")
+            StatusLogger.timestamped_debug("No Y2038-relevant #define statements discovered")
             return
         
-        StatusLogger.timestamped_print(f"Discovered {len(define_matches)} Y2038-relevant #define statements:")
+        StatusLogger.timestamped_debug(
+            f"Discovered {len(define_matches)} Y2038-relevant #define statements:"
+        )
         
         # Group by subcheck type, then by unique macro_name -> macro_value pairs
         by_type = {}
@@ -308,11 +310,13 @@ class DefineScanner:
         
         for subcheck_type, unique_matches in by_type.items():
             total_count = sum(unique_matches.values())
-            print(f"  {subcheck_type}: {total_count} matches")
+            StatusLogger.timestamped_debug(f"  {subcheck_type}: {total_count} matches")
             # Sort by count (descending) then by macro name
             sorted_matches = sorted(unique_matches.items(), key=lambda x: (-x[1], x[0][0]))
             for (macro_name, macro_value), count in sorted_matches:
                 if count > 1:
-                    print(f"    {macro_name} -> {macro_value} ({count} occurrences)")
+                    StatusLogger.timestamped_debug(
+                        f"    {macro_name} -> {macro_value} ({count} occurrences)"
+                    )
                 else:
-                    print(f"    {macro_name} -> {macro_value}")
+                    StatusLogger.timestamped_debug(f"    {macro_name} -> {macro_value}")

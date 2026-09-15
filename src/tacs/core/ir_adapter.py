@@ -209,7 +209,7 @@ class IRAdapter:
             return []
         
         # Get files to scan
-        StatusLogger.timestamped_print("Scanning for #define statements...")
+        StatusLogger.timestamped_debug("Scanning for #define statements...")
         files = self._get_files(root_path, include_patterns or ['**/*.c', '**/*.h'], exclude_patterns or [])
         define_matches = []
         
@@ -280,7 +280,7 @@ class IRAdapter:
         arithmetic_scanner = ArithmeticScanner(time_t_aliases or {})
         
         # Get files to scan
-        StatusLogger.timestamped_print("Scanning for arithmetic operations on time_t...")
+        StatusLogger.timestamped_debug("Scanning for arithmetic operations on time_t...")
         files = self._get_files(root_path, include_patterns or ['**/*.c', '**/*.h'], exclude_patterns or [])
         arithmetic_matches = []
         

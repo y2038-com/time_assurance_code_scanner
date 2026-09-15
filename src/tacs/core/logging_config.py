@@ -6,14 +6,20 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
-from typing import Optional
+from typing import Optional, TextIO
 
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
 DEFAULT_LOG_LEVEL = "INFO"
 
 _TACS_LOGGER_NAME = "tacs"
 _HANDLER_ATTR = "_tacs_console_handler"
+
+# ANSI: yellow WARNING, bright-red ERROR (severity word only).
+_ANSI_YELLOW = "\033[33m"
+_ANSI_BRIGHT_RED = "\033[91m"
+_ANSI_RESET = "\033[0m"
 
 
 def normalize_log_level(value: str) -> str:
@@ -43,6 +49,44 @@ def resolve_log_level(
     return DEFAULT_LOG_LEVEL
 
 
+def stream_supports_color(stream: Optional[TextIO] = None) -> bool:
+    """
+    Conservative color gate for interactive terminals.
+
+    Disabled when ``NO_COLOR`` is set, ``TERM=dumb``, or the stream is not a TTY
+    (redirects, pipes, CliRunner capture).
+    """
+    if os.environ.get("NO_COLOR", ""):
+        return False
+    if os.environ.get("TERM", "") == "dumb":
+        return False
+    target = stream if stream is not None else sys.stderr
+    try:
+        return bool(target.isatty())
+    except Exception:
+        return False
+
+
+class SeverityColorFormatter(logging.Formatter):
+    """Color only the severity token (WARNING/ERROR); leave the rest plain."""
+
+    def __init__(self, *args, use_color: bool = False, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.use_color = use_color
+
+    def format(self, record: logging.LogRecord) -> str:
+        original = record.levelname
+        if self.use_color:
+            if record.levelno == logging.WARNING:
+                record.levelname = f"{_ANSI_YELLOW}{original}{_ANSI_RESET}"
+            elif record.levelno >= logging.ERROR:
+                record.levelname = f"{_ANSI_BRIGHT_RED}{original}{_ANSI_RESET}"
+        try:
+            return super().format(record)
+        finally:
+            record.levelname = original
+
+
 def configure_logging(level: str = DEFAULT_LOG_LEVEL) -> logging.Logger:
     """
     Configure the ``tacs`` logger for stderr diagnostics.
@@ -67,9 +111,10 @@ def configure_logging(level: str = DEFAULT_LOG_LEVEL) -> logging.Logger:
     setattr(handler, _HANDLER_ATTR, True)
     handler.setLevel(numeric)
     handler.setFormatter(
-        logging.Formatter(
+        SeverityColorFormatter(
             fmt="%(asctime)s %(levelname)s %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
+            use_color=stream_supports_color(sys.stderr),
         )
     )
     logger.addHandler(handler)

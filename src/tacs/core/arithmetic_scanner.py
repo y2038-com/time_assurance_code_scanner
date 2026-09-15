@@ -190,7 +190,9 @@ class ArithmeticScanner:
         return ('medium', 0.6)
     
     def print_discovered_arithmetic(self, matches: List[ArithmeticMatch]):
-        """Print summary of discovered arithmetic operations."""
+        """Log summary of discovered arithmetic operations (DEBUG)."""
+        from tacs.core.status_logger import StatusLogger
+
         if not matches:
             return
         
@@ -199,10 +201,12 @@ class ArithmeticScanner:
         low_risk = [m for m in matches if m.risk_level == 'low']
         
         if high_risk or medium_risk:
-            print(f"Discovered {len(matches)} arithmetic operations on time_t:")
+            StatusLogger.timestamped_debug(
+                f"Discovered {len(matches)} arithmetic operations on time_t:"
+            )
             if high_risk:
-                print(f"  High risk: {len(high_risk)} operations")
+                StatusLogger.timestamped_debug(f"  High risk: {len(high_risk)} operations")
             if medium_risk:
-                print(f"  Medium risk: {len(medium_risk)} operations")
+                StatusLogger.timestamped_debug(f"  Medium risk: {len(medium_risk)} operations")
             if low_risk:
-                print(f"  Low risk: {len(low_risk)} operations")
+                StatusLogger.timestamped_debug(f"  Low risk: {len(low_risk)} operations")
