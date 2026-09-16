@@ -6,11 +6,17 @@ from __future__ import annotations
 import json
 import os
 import hashlib
+import re
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union
 from collections import defaultdict
+
+
+# Line-number prefixes used when source is embedded in prompts, e.g. "  12 | code"
+# or "12: code"; stripped before matching so prefixed source lines still redact.
+_SOURCE_LINE_PREFIX = re.compile(r"^\s*\d+\s*[:|]\s?")
 
 
 class ScanSession:
@@ -350,38 +356,120 @@ This scan session contains all data needed for debugging, review, and fine-tunin
             import sys
             print(f"Warning: Failed to save discovered rules to {rules_file}: {e}", file=sys.stderr)
     
+    def _redact_function_batch_prompt(self, prompt: str, functions: List[Any]) -> str:
+        """
+        Remove embedded source from a function-batch prompt.
+
+        Each function body is replaced by a placeholder, then any remaining prompt
+        line that reproduces a source line is dropped. The result is passed through
+        the shared LLM log redaction so paths are hashed and long lines truncated.
+        """
+        from tacs.core.llm_logger import redact_prompt_text
+
+        redacted = prompt
+        source_lines: set[str] = set()
+
+        for func in functions:
+            body = getattr(func, 'body', None)
+            if not body:
+                continue
+            function_id = getattr(func, 'function_id', 'unknown')
+            placeholder = (
+                f"<REDACTED FUNCTION BODY function_id={function_id} "
+                f"lines={len(body.splitlines())} chars={len(body)}>"
+            )
+            redacted = redacted.replace(body, placeholder)
+            for line in body.splitlines():
+                stripped = line.strip()
+                if len(stripped) >= 4:
+                    source_lines.add(stripped)
+
+        if source_lines:
+            kept: List[str] = []
+            for line in redacted.split('\n'):
+                unprefixed = _SOURCE_LINE_PREFIX.sub('', line).strip()
+                if line.strip() in source_lines or unprefixed in source_lines:
+                    kept.append("<REDACTED SOURCE LINE>")
+                else:
+                    kept.append(line)
+            redacted = '\n'.join(kept)
+
+        return redact_prompt_text(redacted)
+
     def save_function_batch(self, pass_name: str, batch_num: int, function_batch: Any, prompt: str, 
                            response: Optional[List[Dict[str, Any]]] = None):
-        """Save function batch with full prompt for review."""
+        """
+        Save a function-batch artifact for audit and debugging.
+
+        The manifest (batch/function ids, relative paths, line ranges, candidate line
+        numbers, prompt size and digest) is always written. Source-bearing content is
+        gated:
+
+        - enable_llm_logging=False: manifest only, no prompt or body text
+        - enable_llm_logging=True: prompt is persisted in redacted form
+        - enable_llm_logging=True and allow_raw_code_logging=True: verbatim prompt
+          and function bodies are persisted
+
+        allow_raw_code_logging is authoritative for verbatim source retention, so
+        redact_prompts=False alone does not permit raw prompt/body persistence.
+        """
         # Create pass directory if it doesn't exist
         # pass_name should be in format like "stage_8_pass_2a" or "stage_8_pass_2b" - use as-is without prefix
         pass_dir = self.llm_dir / pass_name.lower()
         pass_dir.mkdir(exist_ok=True)
         batches_dir = pass_dir / "batches"
         batches_dir.mkdir(exist_ok=True)
-        
-        # Save batch input (functions and prompt)
+
+        functions = list(function_batch.functions) if hasattr(function_batch, 'functions') else []
+        persist_prompt = bool(self.enable_llm_logging)
+        persist_raw_code = bool(self.enable_llm_logging and self.allow_raw_code_logging)
+
+        function_entries: List[Dict[str, Any]] = []
+        for func in functions:
+            body = getattr(func, 'body', None) or ""
+            candidate_lines = getattr(func, 'candidate_lines', None) or []
+            entry: Dict[str, Any] = {
+                "function_id": getattr(func, 'function_id', None),
+                "file_path": self._make_relative_path(func.file_path) if hasattr(func, 'file_path') else None,
+                "start_line": getattr(func, 'start_line', None),
+                "end_line": getattr(func, 'end_line', None),
+                "symbol": getattr(func, 'symbol', None),
+                "candidate_lines": list(candidate_lines),
+                "candidate_count": len(candidate_lines),
+                "body_lines": len(body.splitlines()),
+                "body_chars": len(body),
+            }
+            if persist_raw_code:
+                entry["body"] = body
+            function_entries.append(entry)
+
+        # Save batch manifest (always) plus gated prompt/body content
         batch_input = {
             "batch_id": f"{pass_name}_batch_{batch_num:04d}",
             "pass": pass_name,
             "batch_num": batch_num,
-            "function_count": len(function_batch.functions) if hasattr(function_batch, 'functions') else 0,
-            "functions": [
-                {
-                    "function_id": func.function_id,
-                    "file_path": self._make_relative_path(func.file_path) if hasattr(func, 'file_path') else None,
-                    "start_line": func.start_line if hasattr(func, 'start_line') else None,
-                    "end_line": func.end_line if hasattr(func, 'end_line') else None,
-                    "body": func.body if hasattr(func, 'body') else None,
-                    "candidate_lines": func.candidate_lines if hasattr(func, 'candidate_lines') else None,
-                    "symbol": func.symbol if hasattr(func, 'symbol') else None
-                }
-                for func in (function_batch.functions if hasattr(function_batch, 'functions') else [])
-            ],
-            "full_prompt": prompt,
-            "timestamp": datetime.utcnow().isoformat() + "Z"
+            "function_count": len(functions),
+            "functions": function_entries,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "privacy": {
+                "enable_llm_logging": bool(self.enable_llm_logging),
+                "redact_prompts": bool(self.redact_prompts),
+                "allow_raw_code_logging": bool(self.allow_raw_code_logging),
+                "raw_function_bodies_persisted": persist_raw_code,
+                "prompt_persisted": (
+                    "verbatim" if persist_raw_code else "redacted" if persist_prompt else "none"
+                ),
+            },
         }
-        
+
+        if prompt:
+            batch_input["prompt_chars"] = len(prompt)
+            batch_input["prompt_sha256"] = hashlib.sha256(prompt.encode('utf-8')).hexdigest()
+            if persist_raw_code:
+                batch_input["full_prompt"] = prompt
+            elif persist_prompt:
+                batch_input["prompt_redacted"] = self._redact_function_batch_prompt(prompt, functions)
+
         with open(batches_dir / f"{batch_num:04d}_input.json", 'w', encoding='utf-8') as f:
             json.dump(batch_input, f, indent=2)
         

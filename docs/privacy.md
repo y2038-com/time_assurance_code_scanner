@@ -11,7 +11,7 @@ source trees — external LLM use is therefore **opt-in**.
 | LLM mode | `--llm none` (no external calls) |
 | Persist source trees | Depends on the command — see [Source tree retention](#source-tree-retention) below |
 | Persist findings | Only to paths you pass (`--out`, batch dirs, optional session trees under `results/` when the pipeline writes them) |
-| Log source bodies | No at default verbosity |
+| Log source bodies | No — see [LLM artifact retention](#optional-llm-logging---log-llm) |
 | Third-party sharing | Only the user-selected LLM provider receives source context when LLM mode is enabled |
 
 ## Source tree retention
@@ -58,6 +58,25 @@ rm -rf .repo_cache          # or the path you passed to --cache-dir
 - When enabled, may write prompt/response artifacts under `--log-dir` (default `results/llm_logs`)
 - Prefer `--redact-prompts` (default on) so paths/code spans are minimized in logs
 - Treat log directories as sensitive if the scanned tree was
+
+#### Function-batch artifacts
+
+Each LLM batch writes an artifact under the scan session's `llm/<pass>/batches/`
+directory. What it contains depends on the flags above:
+
+| Flags | Persisted |
+|-------|-----------|
+| default (no `--log-llm`) | Manifest only: batch/function ids, relative paths, line ranges, symbols, candidate line numbers, prompt size and SHA-256. No prompt text, no function bodies. |
+| `--log-llm` | Manifest plus a redacted prompt: function bodies are replaced by placeholders, source lines are removed, paths are hashed. |
+| `--log-llm --allow-raw-code-logging` | Manifest plus the verbatim prompt and verbatim function bodies. |
+
+`--allow-raw-code-logging` is the authoritative switch for verbatim source retention.
+`--no-redact-prompts` on its own does not grant it, and `--allow-raw-code-logging`
+without `--log-llm` persists nothing extra. Each artifact records the flags that
+applied under a `privacy` key, so you can tell what a directory contains.
+
+`tacs repos` runs with the private posture (no LLM logging, no raw code logging) and
+does not expose flags to change it, so batch runs keep manifests only.
 
 ## What leaves the machine
 

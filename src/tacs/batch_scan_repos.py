@@ -385,6 +385,17 @@ def _scan_overrides(overrides: dict[str, Any] | None) -> tuple[dict[str, Any], l
 
 
 def _config_id_to_env_json(config_id: str) -> dict[str, Any]:
+    """
+    Build an environment config payload from a compact config id.
+
+    Every field is derived from the three facts the config id establishes: hardware
+    model, time_t signedness, and time_t width. Platform details the id does not
+    imply (C library, OS/RTOS, _TIME_BITS support) are left unspecified rather than
+    guessed, because this payload is loaded by the pipeline and reaches the I/O
+    analyzer and LLM prompts.
+    """
+    from tacs.core.config_validator import ConfigValidator
+
     parts = config_id.strip().lower().split("_")
     if len(parts) != 3:
         raise ValueError(f"invalid config id: {config_id}")
@@ -396,24 +407,38 @@ def _config_id_to_env_json(config_id: str) -> dict[str, Any]:
     if bits_part not in {"32bit", "64bit"}:
         raise ValueError(f"invalid time_t size in config id: {config_id}")
 
+    normalized_id = f"{model}_{signedness}_{bits_part}"
+    hardware_model = model.upper()
+    time_t_size_bits = 32 if bits_part == "32bit" else 64
+    # A 64-bit time_t means the target's time APIs are 64-bit. A 32-bit time_t says
+    # nothing about whether time64 variants exist, so assume the unmitigated case.
+    time64_available = time_t_size_bits == 64
+
+    config_info = ConfigValidator.get_config_info(normalized_id) or {}
+    description = config_info.get(
+        "description", f"{hardware_model} with {signedness} {time_t_size_bits}-bit time_t"
+    )
+
     return {
-        "hardware_model": model.upper(),
-        "time_t_size_bits": 32 if bits_part == "32bit" else 64,
+        "config_id": normalized_id,
+        "hardware_model": hardware_model,
+        "time_t_size_bits": time_t_size_bits,
         "time_t_signed": signedness,
-        "time64_functions_available": False,
+        "time64_functions_available": time64_available,
         "d_time_bits_supported": False,
         "d_time_bits_setting": "not_available",
-        "c_library": "glibc",
-        "os_or_rtos": "Linux",
-        "notes": f"{model.upper()} {bits_part.replace('bit', '-bit')} {signedness} time_t",
-        "scenario_hint": (
-            "ILP32-32bit-signed-time64_no-N/A"
-            if model == "ilp32" and bits_part == "32bit" and signedness == "signed"
-            else "ILP32-32bit-unsigned-time64_no-N/A"
-            if model == "ilp32" and bits_part == "32bit" and signedness == "unsigned"
-            else "LP64-64bit-signed-time64_yes-N/A"
+        "c_library": "other",
+        "c_library_other_text": "unspecified (derived from config id)",
+        "os_or_rtos": "unspecified",
+        "notes": (
+            f"{description}. Derived from config id {normalized_id}; "
+            "C library, OS/RTOS and _TIME_BITS support are unspecified."
         ),
-        "mitigation_path": "upgrade_env" if bits_part == "32bit" else "none",
+        "scenario_hint": (
+            f"{hardware_model}-{time_t_size_bits}bit-{signedness}"
+            f"-time64_{'yes' if time64_available else 'no'}"
+        ),
+        "mitigation_path": "upgrade_env" if time_t_size_bits == 32 else None,
     }
 
 
@@ -542,7 +567,15 @@ def _build_pipeline(
     detect_y2106: bool,
     confidence_floor: float,
     timeout_sec: int,
+    environment_config_path: str,
 ) -> Any:
+    """
+    Construct the scanning pipeline for one repository.
+
+    ``environment_config_path`` is required: the pipeline loads the environment
+    config in its constructor and hands it to the I/O analyzer and LLM clients, so
+    it cannot be supplied afterwards.
+    """
     # Import lazily so `--dry-run` can work without installing full scanner deps.
     from tacs.core.pipeline import ScanningPipeline
 
@@ -550,6 +583,8 @@ def _build_pipeline(
     scanner_path = Path(__file__).resolve().parent / "python" / "y2038scan_fast_json_group.py"
     if not scanner_path.exists():
         raise FileNotFoundError(f"Scanner script not found: {scanner_path}")
+    if not Path(environment_config_path).is_file():
+        raise FileNotFoundError(f"Environment config not found: {environment_config_path}")
     return ScanningPipeline(
         scanner_path=str(scanner_path),
         llm_type=llm_type if enable_llm else "none",
@@ -567,7 +602,7 @@ def _build_pipeline(
         batch_size_pass2=40,
         batch_size_pass3=20,
         token_budget=250000,
-        environment_config_path=None,
+        environment_config_path=environment_config_path,
         debug_pass2=False,
         debug_candidates=False,
         debug_pass2_detailed=False,
@@ -778,6 +813,11 @@ def main(argv: list[str] | None = None) -> int:
         config_source = "fallback"
         effective_config_id = ""
         config_reason = ""
+        # Defaults so the failure path can report options even if a repo fails
+        # before per-repo overrides are resolved.
+        enable_llm = bool(args.enable_llm)
+        llm_type = str(args.llm_type)
+        model = str(args.model)
         detector_overall_confidence = 0.0
         detector_recommended_id: str | None = None
         detector_top_id: str | None = None
@@ -918,8 +958,8 @@ def main(argv: list[str] | None = None) -> int:
                 detect_y2106=detect_y2106,
                 confidence_floor=confidence_floor,
                 timeout_sec=args.scanner_timeout_sec,
+                environment_config_path=str(env_config_path),
             )
-            pipeline.environment_config_path = str(env_config_path)
 
             rules_path = (Path(__file__).resolve().parent / "rules" / "y2038_sample_rules.json")
             if not rules_path.exists():

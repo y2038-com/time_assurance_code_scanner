@@ -54,9 +54,14 @@ def test_tacs_repos_forwards_argv_to_batch_main(tmp_path: Path) -> None:
     )
 
 
-def test_batch_pipeline_uses_packaged_tacs_scanner() -> None:
+def test_batch_pipeline_uses_packaged_tacs_scanner(tmp_path: Path) -> None:
     """Batch scans must resolve y2038scan from src/tacs/python/, not pre-split src/scanner/."""
-    from tacs.batch_scan_repos import _build_pipeline
+    from tacs.batch_scan_repos import _build_pipeline, _config_id_to_env_json
+
+    env_config = tmp_path / "env_config.json"
+    env_config.write_text(
+        json.dumps(_config_id_to_env_json("ilp32_signed_32bit")), encoding="utf-8"
+    )
 
     pipeline = _build_pipeline(
         include_no_findings=False,
@@ -67,6 +72,7 @@ def test_batch_pipeline_uses_packaged_tacs_scanner() -> None:
         detect_y2106=True,
         confidence_floor=0.85,
         timeout_sec=60,
+        environment_config_path=str(env_config),
     )
     path = Path(pipeline.scanner_path)
     assert path.is_file(), path
