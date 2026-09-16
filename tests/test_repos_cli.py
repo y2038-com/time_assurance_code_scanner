@@ -121,6 +121,27 @@ def test_batch_main_missing_repos_file_system_exit(tmp_path: Path) -> None:
         raise AssertionError("expected SystemExit for missing repos file")
 
 
+def test_repo_cache_dir_is_gitignored() -> None:
+    """tacs repos retains clones in .repo_cache; it must never be committable."""
+    repo_root = Path(__file__).resolve().parents[1]
+    ignore_lines = {
+        line.strip()
+        for line in (repo_root / ".gitignore").read_text(encoding="utf-8").splitlines()
+    }
+    assert ".repo_cache/" in ignore_lines or ".repo_cache" in ignore_lines
+
+
+def test_cache_dir_help_discloses_retention() -> None:
+    """--cache-dir help must state that clones are kept, not treated as ephemeral."""
+    runner = CliRunner()
+    result = runner.invoke(app, ["repos", "--help"])
+    assert result.exit_code == 0, result.output
+    help_text = " ".join(result.output.split())
+    assert "--cache-dir" in help_text
+    assert "retained" in help_text
+    assert ".repo_cache" in help_text
+
+
 def test_batch_default_out_dir_is_results_batch_runs(tmp_path: Path, monkeypatch) -> None:
     """Omitting --out-dir must write under results/batch_runs, not top-level batch_runs/."""
     monkeypatch.chdir(tmp_path)

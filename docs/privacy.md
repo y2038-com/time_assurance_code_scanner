@@ -7,12 +7,35 @@ source trees — external LLM use is therefore **opt-in**.
 
 | Setting | Default |
 |---------|---------|
-| Privacy posture | Ephemeral processing; no private code vault |
+| Privacy posture | No hosted code vault; nothing is uploaded except to the LLM provider you opt into |
 | LLM mode | `--llm none` (no external calls) |
-| Persist source trees | No (scans read files in place) |
+| Persist source trees | Depends on the command — see [Source tree retention](#source-tree-retention) below |
 | Persist findings | Only to paths you pass (`--out`, batch dirs, optional session trees under `results/` when the pipeline writes them) |
 | Log source bodies | No at default verbosity |
 | Third-party sharing | Only the user-selected LLM provider receives source context when LLM mode is enabled |
+
+## Source tree retention
+
+Retention differs by command. This is local-disk behavior only; it is independent of
+whether any code is sent to an LLM.
+
+| Command | Source tree handling |
+|---------|----------------------|
+| `tacs scan` | Reads the tree you pass with `--root` **in place**. No copy of the source is made. |
+| `tacs repos` | **Clones each repository to local disk and keeps it** in `--cache-dir` (default `.repo_cache`) so later runs can reuse it. Clones stay until you delete them. |
+| `tacs render` | Reads existing findings JSON only. |
+
+Notes for `tacs repos`:
+
+- The cache holds a full git working tree per repository, including history.
+- `.repo_cache/` is gitignored, so clones are not committed by accident. If you point
+  `--cache-dir` somewhere else, make sure that path is also ignored or outside the repo.
+- Private repositories are cached the same way as public ones. If that matters for your
+  environment, put `--cache-dir` on appropriate storage and remove it when finished:
+
+```bash
+rm -rf .repo_cache          # or the path you passed to --cache-dir
+```
 
 ## Modes
 
@@ -51,4 +74,6 @@ the file. Treat provider choice as a data-handling decision.
 - Prefer gitignored output paths (`findings.json`, `results/` — including
   `results/scans/` and `results/batch_runs/` — are ignored by default; legacy
   top-level `batch_runs/` is also ignored if present)
+- Remember that `tacs repos` leaves cloned repositories in `--cache-dir`
+  (default `.repo_cache`, gitignored); delete it when you no longer need the clones
 - Debug flags that dump raw prompts (`--debug-llm-raw`, etc.) may expose secrets in the scanned tree — use carefully

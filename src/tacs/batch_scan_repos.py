@@ -673,7 +673,14 @@ def _repo_matches_filters(task: RepoTask, filters: Iterable[str]) -> bool:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Batch scan repositories for Y2038 issues")
     parser.add_argument("--repos-file", required=True, help="Path to JSONL repos file")
-    parser.add_argument("--cache-dir", default=".repo_cache", help="Repo cache directory")
+    parser.add_argument(
+        "--cache-dir",
+        default=".repo_cache",
+        help=(
+            "Directory where cloned repositories are stored and retained for reuse "
+            "across runs (default: .repo_cache; delete it to discard the clones)"
+        ),
+    )
     parser.add_argument(
         "--out-dir",
         default="results/batch_runs",

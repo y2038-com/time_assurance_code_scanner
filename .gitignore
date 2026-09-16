@@ -28,6 +28,9 @@ htmlcov/
 !.env.example
 *.pem
 
+# Cloned repositories retained by `tacs repos` (--cache-dir, default .repo_cache)
+.repo_cache/
+
 # Scan artifacts (user-controlled; never commit by default)
 results/*
 !results/README.md
