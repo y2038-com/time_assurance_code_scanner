@@ -8,7 +8,7 @@ import os
 import time
 from typing import List, Dict, Any, Optional, Tuple
 from tacs.core.schema import Candidate, LLMResponse, Y2038Issue, SeverityLevel
-from tacs.core.status_logger import StatusLogger
+from tacs.core.status_logger import StatusLogger, format_count
 from tacs.llm.env import (
     DEFAULT_MODEL,
     default_model_id,
@@ -154,7 +154,8 @@ class LLMClient:
     
     def _process_batch(self, candidates: List[Candidate], stage_name: str = "S1_P1") -> List[LLMResponse]:
         """Process a batch of candidates."""
-        StatusLogger.timestamped_print(f"Processing batch of {len(candidates)} candidates with {self.llm_type} LLM...")
+        StatusLogger.timestamped_print(f"Processing batch of {format_count(len(candidates), 'candidate')} "
+            f"with {self.llm_type} LLM...")
         
         # Build prompt (uses instance io_metadata_map)
         prompt = self._build_prompt(candidates, self.io_metadata_map)
@@ -205,7 +206,7 @@ class LLMClient:
                     retry_delay *= 2  # Exponential backoff
                     continue
                 else:
-                    StatusLogger.timestamped_error(f"LLM request failed after {attempt} attempt(s): {error_str[:150]}")
+                    StatusLogger.timestamped_error(f"LLM request failed after {format_count(attempt, 'attempt')}: {error_str[:150]}")
                     # Fallback to abstain on error
                     return self._fallback_responses(candidates, error_str[:150])
     
@@ -359,7 +360,7 @@ class LLMClient:
                     retry_delay *= 2  # Exponential backoff
                     continue
                 else:
-                    StatusLogger.timestamped_error(f"Pass 3 LLM request failed after {attempt} attempt(s): {error_str[:150]}")
+                    StatusLogger.timestamped_error(f"Pass 3 LLM request failed after {format_count(attempt, 'attempt')}: {error_str[:150]}")
                     # Fallback to abstain on error
                     return self._fallback_responses_pass3(batch, error_str[:150])
     
@@ -498,7 +499,8 @@ int main() {
     
     def _process_pass2_batch(self, batch: List[tuple]) -> List[LLMResponse]:
         """Process a batch of Pass 2 candidates with widened context."""
-        StatusLogger.timestamped_print(f"Processing Pass 2 batch of {len(batch)} candidates with widened context...")
+        StatusLogger.timestamped_print(f"Processing Pass 2 batch of {format_count(len(batch), 'candidate')} "
+            f"with widened context...")
         
         # Debug: Show detailed batch information
         if self.debug_llm_raw:
@@ -580,7 +582,7 @@ int main() {
                     retry_delay *= 2  # Exponential backoff
                     continue
                 else:
-                    StatusLogger.timestamped_error(f"Pass 2 LLM request failed after {attempt} attempt(s): {error_str[:150]}")
+                    StatusLogger.timestamped_error(f"Pass 2 LLM request failed after {format_count(attempt, 'attempt')}: {error_str[:150]}")
                     # Fallback to abstain on error
                     return self._fallback_responses_pass2(batch, error_str[:150])
     

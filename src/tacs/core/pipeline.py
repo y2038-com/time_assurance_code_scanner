@@ -1918,9 +1918,11 @@ Timing (ms):
                 else:
                     survivors.append(response)
         
-        StatusLogger.timestamped_print(f"Stage S1, Pass P1: {len(survivors)} survivors, {len(dropped)} dropped")
+        StatusLogger.timestamped_print(f"Stage S1, Pass P1: {_format_count(len(survivors), 'survivor')}, "
+            f"{len(dropped)} dropped")
         session.end_timing("stage_s1_pass_p1")
-        session.log_message("INFO", f"Stage S1, Pass P1: {len(survivors)} survivors, {len(dropped)} dropped")
+        session.log_message("INFO", f"Stage S1, Pass P1: {_format_count(len(survivors), 'survivor')}, "
+            f"{len(dropped)} dropped")
         
         # Stage S2: Function-level analysis, Pass P1 (widened region context)
         session.start_timing("stage_s2_pass_p1")
@@ -1981,7 +1983,9 @@ Timing (ms):
             # Convert survivors to findings without additional processing
             return self._convert_responses_to_findings(survivors, candidate_map)
         
-        StatusLogger.timestamped_print(f"Stage S2, Pass P1: Processing {len(abstain_candidates)} abstain candidates with widened context")
+        StatusLogger.timestamped_print(f"Stage S2, Pass P1: Processing "
+            f"{_format_count(len(abstain_candidates), 'abstain candidate')} "
+            f"with widened context")
         
         # Debug: Show detailed candidate information
         if self.debug_pass2_detailed:
@@ -2020,7 +2024,7 @@ Timing (ms):
             StatusLogger.timestamped_print(f"  Sample missing IDs: {missing_ids}")
             StatusLogger.timestamped_print(f"  Sample available keys: {available_keys}")
         if flexible_matches > 0:
-            StatusLogger.timestamped_print(f"Info: {flexible_matches} candidates found using flexible matching")
+            StatusLogger.timestamped_print(f"Info: {_format_count(flexible_matches, 'candidate')} found using flexible matching")
         
         # Process abstain candidates with widened context
         findings = []
@@ -2032,7 +2036,9 @@ Timing (ms):
         for i in range(0, len(abstain_candidates), batch_size):
             batch = abstain_candidates[i:i + batch_size]
             batch_num = (i // batch_size) + 1
-            StatusLogger.timestamped_print(f"Processing Stage S2, Pass P1 batch of {len(batch)} candidates with widened context (batch {batch_num} of {total_batches})...")
+            StatusLogger.timestamped_print(f"Processing Stage S2, Pass P1 batch of "
+                f"{_format_count(len(batch), 'candidate')} with widened context "
+                f"(batch {batch_num} of {total_batches})...")
             batch_findings = self._process_pass2_batch(batch)
             findings.extend(batch_findings)
         
@@ -2103,7 +2109,8 @@ Timing (ms):
         
         # Debug: Show which candidates are missing
         if missing_candidates and self.debug_pass2:
-            StatusLogger.timestamped_print(f"  Batch: {len(missing_candidates)} candidates missing context (IDs: {missing_candidates[:3]}{'...' if len(missing_candidates) > 3 else ''})")
+            StatusLogger.timestamped_print(f"  Batch: {_format_count(len(missing_candidates), 'candidate')} missing context "
+                    f"(IDs: {missing_candidates[:3]}{'...' if len(missing_candidates) > 3 else ''})")
         
         if not context_candidates:
             StatusLogger.timestamped_print(f"  Batch: No valid candidates to process")
@@ -2617,7 +2624,8 @@ Timing (ms):
             StatusLogger.timestamped_print("Stage S3, Pass P1: No abstain findings need file context")
             return unresolved
         
-        StatusLogger.timestamped_print(f"Stage S3, Pass P1: Processing {len(abstain_findings)} abstain findings with file context")
+        StatusLogger.timestamped_print(f"Stage S3, Pass P1: Processing "
+            f"{_format_count(len(abstain_findings), 'abstain finding')} with file context")
         
         # Group findings by file to avoid reading the same file multiple times
         file_groups = {}
@@ -2628,7 +2636,7 @@ Timing (ms):
                 file_groups[file_path] = []
             file_groups[file_path].append(finding)
         
-        StatusLogger.timestamped_print(f"Stage S3, Pass P1: Grouped into {len(file_groups)} unique files")
+        StatusLogger.timestamped_print(f"Stage S3, Pass P1: Grouped into {_format_count(len(file_groups), 'unique file')}")
         
         # Process each file group
         all_findings = []
