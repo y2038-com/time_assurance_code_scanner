@@ -220,6 +220,38 @@ def _format_no_llm_repo_summary(repo_key: str, finding_summary: dict[str, int]) 
     )
 
 
+def _format_llm_repo_summary(
+    repo_key: str,
+    finding_summary: dict[str, int],
+    classification: dict[str, int] | None,
+) -> str:
+    """Build the per-repo INFO summary line when LLM classification ran.
+
+    Safe ("no") verdicts are dropped before findings are persisted, so verdict
+    counts are reported separately from the retained record count. Reporting only
+    the retained set would show "0 no" for a repo where many functions were in
+    fact classified safe.
+    """
+    retained = int(finding_summary.get("total_findings", 0) or 0)
+    retained_text = f"{retained} {'finding' if retained == 1 else 'findings'} retained"
+    if not classification:
+        return f"{repo_key}: {retained_text}"
+    return (
+        f"{repo_key}: {int(classification.get('yes', 0) or 0)} yes, "
+        f"{int(classification.get('no', 0) or 0)} no, "
+        f"{int(classification.get('abstain', 0) or 0)} abstain; "
+        f"{retained_text}"
+    )
+
+
+def _classification_counts_payload(pipeline: Any) -> dict[str, int] | None:
+    """Read verdict counts recorded by the pipeline before output filtering."""
+    counts = getattr(pipeline, "last_classification_counts", None)
+    if not isinstance(counts, dict):
+        return None
+    return {k: int(v) for k, v in counts.items() if isinstance(v, int)}
+
+
 def _extract_scan_metrics(results_obj: Any) -> dict[str, Any]:
     """Extract metrics from ScanResults in a JSON-safe form."""
     default_metrics: dict[str, Any] = {
@@ -984,16 +1016,15 @@ def main(argv: list[str] | None = None) -> int:
                 os.chdir(original_cwd)
             pipeline.save_results(results_obj, str(scan_out))
             finding_summary = _parse_findings_summary(scan_out)
+            classification_counts = _classification_counts_payload(pipeline)
             if not enable_llm:
                 LOGGER.info("%s", _format_no_llm_repo_summary(per_repo_dir.name, finding_summary))
             else:
                 LOGGER.info(
-                    "%s: %d findings (%d yes, %d no, %d abstain)",
-                    per_repo_dir.name,
-                    finding_summary.get("total_findings", 0),
-                    finding_summary.get("yes_findings", 0),
-                    finding_summary.get("no_findings", 0),
-                    finding_summary.get("abstain_findings", 0),
+                    "%s",
+                    _format_llm_repo_summary(
+                        per_repo_dir.name, finding_summary, classification_counts
+                    ),
                 )
             repo_metrics = _extract_scan_metrics(results_obj)
             stage_stats = _extract_stage_stats(scan_out.parent)
@@ -1059,6 +1090,8 @@ def main(argv: list[str] | None = None) -> int:
                     "effective_config_id": effective_config_id or None,
                     "warnings": repo_warnings,
                     "findings_summary": finding_summary,
+                    # Verdicts before safe findings were dropped from findings.json.
+                    "classification_counts": classification_counts,
                     "scan_metrics": repo_metrics,
                     "stage_stats": stage_stats,
                 },
@@ -1072,6 +1105,7 @@ def main(argv: list[str] | None = None) -> int:
                     "config_source": config_source,
                     "effective_config_id": effective_config_id,
                     "findings_summary": finding_summary,
+                    "classification_counts": classification_counts,
                     "scan_metrics": repo_metrics,
                     "stage_stats": stage_stats,
                 }

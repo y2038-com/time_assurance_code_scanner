@@ -332,6 +332,152 @@ def test_format_no_llm_repo_summary_wording() -> None:
     )
 
 
+def test_format_llm_repo_summary_separates_verdicts_from_retained() -> None:
+    """Dropped "no" findings must not be reported as a "0 no" verdict count."""
+    from tacs.batch_scan_repos import _format_llm_repo_summary
+
+    assert (
+        _format_llm_repo_summary(
+            "github__evalEmpire__y2038__master",
+            {"total_findings": 12, "yes_findings": 12, "no_findings": 0, "abstain_findings": 0},
+            {"yes": 12, "no": 32, "abstain": 0, "total": 44},
+        )
+        == "github__evalEmpire__y2038__master: 12 yes, 32 no, 0 abstain; 12 findings retained"
+    )
+    assert (
+        _format_llm_repo_summary(
+            "repo_b",
+            {"total_findings": 1, "yes_findings": 1, "no_findings": 0, "abstain_findings": 0},
+            {"yes": 1, "no": 3, "abstain": 0, "total": 4},
+        )
+        == "repo_b: 1 yes, 3 no, 0 abstain; 1 finding retained"
+    )
+
+
+def test_format_llm_repo_summary_without_verdict_counts() -> None:
+    """Without verdict counts, claim only what the persisted findings support."""
+    from tacs.batch_scan_repos import _format_llm_repo_summary
+
+    assert (
+        _format_llm_repo_summary(
+            "repo_c",
+            {"total_findings": 11, "yes_findings": 11, "no_findings": 0, "abstain_findings": 0},
+            None,
+        )
+        == "repo_c: 11 findings retained"
+    )
+
+
+def _scan_results_pipeline(tmp_path: Path, **kwargs):
+    from tacs.core.pipeline import ScanningPipeline
+
+    scanner_path = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "tacs"
+        / "python"
+        / "y2038scan_fast_json_group.py"
+    )
+    return ScanningPipeline(
+        scanner_path=str(scanner_path),
+        llm_type="ollama",
+        model="none",
+        function_first=True,
+        **kwargs,
+    )
+
+
+def _finding(issue: str):
+    from tacs.core.schema import Finding, Y2038Issue
+
+    return Finding(
+        file="t.c",
+        region={"start_line": 1, "end_line": 2},
+        lines=[1],
+        symbol="main",
+        confidence=0.9,
+        reason="test",
+        source_snippet="time_t t = time(NULL);",
+        y2038_issue=Y2038Issue(issue),
+    )
+
+
+def _metrics():
+    from tacs.core.schema import Metrics
+
+    return Metrics(
+        total_files=1,
+        total_lines=2,
+        total_chars=40,
+        total_words=8,
+        max_line_length=20,
+        avg_line_length=20.0,
+        max_file_length=2,
+        avg_file_length=2.0,
+    )
+
+
+def test_scan_complete_reports_verdicts_and_retained(tmp_path: Path, monkeypatch, capsys) -> None:
+    """The final line must not present dropped "no" findings as a "0 no" verdict."""
+    from tacs.core.scan_session import ScanSession
+
+    monkeypatch.chdir(tmp_path)
+    configure_logging("INFO")
+    pipeline = _scan_results_pipeline(tmp_path)
+
+    classified = [_finding("yes")] * 12 + [_finding("no")] * 32
+    pipeline.last_classification_counts = pipeline._classification_counts(classified)
+    retained = pipeline._filter_findings_for_output(classified)
+    assert len(retained) == 12
+
+    session = ScanSession(root_path=str(tmp_path), output_base=str(tmp_path))
+    pipeline._create_scan_results(retained, _metrics(), session, str(tmp_path), "rules.json")
+
+    err = capsys.readouterr().err
+    assert "Scan complete: 12 yes, 32 no, 0 abstain; 12 findings retained" in err
+    assert "12 findings (12 yes, 0 no, 0 abstain)" not in err
+
+
+def test_scan_complete_retained_is_singular_for_one(tmp_path: Path, monkeypatch, capsys) -> None:
+    from tacs.core.scan_session import ScanSession
+
+    monkeypatch.chdir(tmp_path)
+    configure_logging("INFO")
+    pipeline = _scan_results_pipeline(tmp_path)
+
+    classified = [_finding("yes"), _finding("no"), _finding("no")]
+    pipeline.last_classification_counts = pipeline._classification_counts(classified)
+    retained = pipeline._filter_findings_for_output(classified)
+
+    session = ScanSession(root_path=str(tmp_path), output_base=str(tmp_path))
+    pipeline._create_scan_results(retained, _metrics(), session, str(tmp_path), "rules.json")
+
+    err = capsys.readouterr().err
+    assert "Scan complete: 1 yes, 2 no, 0 abstain; 1 finding retained" in err
+
+
+def test_session_summary_separates_classified_and_retained(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The persisted summary must show verdicts as well as retained records."""
+    from tacs.core.scan_session import ScanSession
+
+    monkeypatch.chdir(tmp_path)
+    configure_logging("ERROR")
+    pipeline = _scan_results_pipeline(tmp_path)
+
+    classified = [_finding("yes")] * 2 + [_finding("no")] * 5
+    pipeline.last_classification_counts = pipeline._classification_counts(classified)
+    retained = pipeline._filter_findings_for_output(classified)
+
+    session = ScanSession(root_path=str(tmp_path), output_base=str(tmp_path))
+    pipeline._create_scan_results(retained, _metrics(), session, str(tmp_path), "rules.json")
+
+    summary = (session.findings_dir / "summary.txt").read_text(encoding="utf-8")
+    assert "- Classified: 2 yes, 5 no, 0 abstain" in summary
+    assert "- Retained findings: 2" in summary
+
+
 def test_scan_debug_shows_debug_lines(tmp_path: Path) -> None:
     rules, out = _write_time_sample(tmp_path)
     runner = CliRunner()

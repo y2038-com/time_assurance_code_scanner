@@ -136,6 +136,10 @@ class ScanningPipeline:
         # Migration mode
         self.migration_mode = migration_mode
         self.include_no_findings = include_no_findings
+        # Y2038 classification counts from the last scan, taken before output
+        # filtering drops safe ("no") findings. Summary lines and the batch runner
+        # read this so a dropped "no" is not reported as a "no" verdict count.
+        self.last_classification_counts: Optional[Dict[str, int]] = None
         self.migration_from_config = None
         self.migration_to_config = None
         
@@ -627,11 +631,24 @@ class ScanningPipeline:
         else:
             findings = self._run_legacy_analysis(filtered_candidates, session)
 
+        # Record verdicts before filtering; "no" findings are dropped below.
+        self.last_classification_counts = self._classification_counts(findings)
+        
         # Default behavior: do not save "no"/safe findings unless explicitly requested.
         findings = self._filter_findings_for_output(findings)
         
         # Convert findings to scan results
         return self._create_scan_results(findings, metrics, session, root_path, rules_path)
+
+    @staticmethod
+    def _classification_counts(findings: List[Finding]) -> Dict[str, int]:
+        """Count Y2038 verdicts across findings."""
+        return {
+            "yes": sum(1 for f in findings if f.y2038_issue == Y2038Issue.YES),
+            "no": sum(1 for f in findings if f.y2038_issue == Y2038Issue.NO),
+            "abstain": sum(1 for f in findings if f.y2038_issue == Y2038Issue.ABSTAIN),
+            "total": len(findings),
+        }
 
     def _filter_findings_for_output(self, findings: List[Finding]) -> List[Finding]:
         """Filter findings before saving/output.
@@ -1512,6 +1529,9 @@ class ScanningPipeline:
         no_count = sum(1 for f in findings if f.y2038_issue == Y2038Issue.NO)
         abstain_count = sum(1 for f in findings if f.y2038_issue == Y2038Issue.ABSTAIN)
         
+        # Verdict counts from before "no" findings were dropped from the output set.
+        classified = self.last_classification_counts or self._classification_counts(findings)
+        
         if self.detect_y2106:
             # Count Y2106 findings
             y2106_yes = sum(1 for f in findings if f.issue_type in [TimeIssueType.Y2106, TimeIssueType.BOTH])
@@ -1523,7 +1543,8 @@ class ScanningPipeline:
             
             StatusLogger.timestamped_print(f"Scan complete: {len(findings)} findings")
             StatusLogger.timestamped_debug(
-                f"  Y2038: {yes_count} yes, {no_count - y2106_yes} no, {abstain_count} abstain"
+                f"  Y2038: {classified['yes']} yes, {classified['no']} no, "
+                f"{classified['abstain']} abstain"
             )
             StatusLogger.timestamped_debug(
                 f"  Y2106: {y2106_yes} yes, {y2106_no} no, {y2106_abstain} abstain"
@@ -1541,7 +1562,14 @@ class ScanningPipeline:
                     f"{abstain_count} candidate findings remain unclassified (LLM disabled)"
                 )
         else:
-            StatusLogger.timestamped_print(f"Scan complete: {len(findings)} findings ({yes_count} yes, {no_count} no, {abstain_count} abstain)")
+            # Report verdicts and retained records separately: safe ("no") findings
+            # are dropped from the output set, so a "0 no" in the retained set would
+            # otherwise read as "nothing was classified safe".
+            StatusLogger.timestamped_print(
+                f"Scan complete: {classified['yes']} yes, {classified['no']} no, "
+                f"{classified['abstain']} abstain; "
+                f"{_format_count(len(findings), 'finding')} retained"
+            )
         
         # Log final abstain summary
         if abstain_count > 0 and self.llm_type != "none":
@@ -1616,7 +1644,8 @@ Metrics:
 - Characters: {metrics.total_chars}
 
 Pipeline Results:
-- Final findings: {len(findings)}
+- Classified: {classified['yes']} yes, {classified['no']} no, {classified['abstain']} abstain
+- Retained findings: {len(findings)}
   - Yes: {yes_count}
   - No: {no_count}
   - Abstain: {abstain_count}"""

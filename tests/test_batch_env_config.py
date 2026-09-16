@@ -170,6 +170,13 @@ def test_batch_run_records_env_config_in_findings_meta(
     meta = json.loads(meta_files[0].read_text(encoding="utf-8"))
     assert meta["effective_config_id"] == "ilp32_signed_32bit"
 
+    status_files = list(out_dir.glob("*/repos/*/status.json"))
+    status = json.loads(status_files[0].read_text(encoding="utf-8"))
+    counts = status["classification_counts"]
+    assert counts is not None, "verdict counts must survive output filtering"
+    assert counts["total"] == counts["yes"] + counts["no"] + counts["abstain"]
+    assert counts["total"] >= status["findings_summary"]["total_findings"]
+
     findings_files = list(out_dir.glob("*/repos/*/scan/findings.json"))
     assert findings_files, "expected per-repo findings.json"
     scan_meta = json.loads(findings_files[0].read_text(encoding="utf-8"))["meta"]
