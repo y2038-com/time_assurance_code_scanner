@@ -97,7 +97,7 @@ Then open `findings.json`. For providers, troubleshooting, and batch/render, see
 | `tests/patterns/` | Bundled example C patterns for local smoke scans |
 | `tests/` | Unit and pattern tests |
 | `inputs/` | Optional local run inputs (contents gitignored) |
-| `results/` | Generated scan/batch output (`scans/`, `batch_runs/`; contents gitignored) |
+| `results/` | Generated scan/batch output (`scans/`, `batch_runs/`, each with a `latest` symlink; contents gitignored) |
 
 ## Docs
 

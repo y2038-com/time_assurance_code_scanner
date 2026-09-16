@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Union
 from collections import defaultdict
 
-from tacs.core.path_utils import repo_relative_path
+from tacs.core.path_utils import repo_relative_path, update_latest_symlink
 
 
 # Line-number prefixes used when source is embedded in prompts, e.g. "  12 | code"
@@ -321,15 +321,12 @@ This scan session contains all data needed for debugging, review, and fine-tunin
         return repo_relative_path(path, self.root_path)
     
     def create_latest_symlink(self):
-        """Create symlink to latest scan."""
+        """Point results/scans/latest at this session's folder."""
         if self._output_base is not None:
-            latest_path = (self._output_base / "results" / "scans" / "latest").resolve()
+            latest_path = self._output_base / "results" / "scans" / "latest"
         else:
             latest_path = Path("results/scans/latest")
-        latest_path.parent.mkdir(parents=True, exist_ok=True)
-        if latest_path.exists():
-            latest_path.unlink()
-        latest_path.symlink_to(self.scan_folder.name)
+        update_latest_symlink(latest_path, self.scan_folder)
     
     def save_discovered_rules(self, new_rules: List[Dict[str, Any]], original_rules_path: str):
         """Save discovered rules to scan session folder."""

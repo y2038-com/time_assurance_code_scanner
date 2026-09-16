@@ -11,8 +11,9 @@ tacs render --help
 tacs render path/to/findings.json --format text
 tacs render path/to/findings.json --format html --out report.html
 
-# Batch run directory (default tacs repos out-dir is results/batch_runs):
-tacs render results/batch_runs/<run_id> --format text
+# Batch run directory (default tacs repos out-dir is results/batch_runs;
+# "latest" is a symlink to the newest run):
+tacs render results/batch_runs/latest --format text
 tacs render results/batch_runs/<run_id> --format html --out-dir results/reports/
 ```
 

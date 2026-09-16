@@ -17,6 +17,7 @@ from typing import Any, Iterable
 from urllib.parse import urlparse
 
 from tacs.core.include_patterns import build_include_patterns
+from tacs.core.path_utils import update_latest_symlink
 from tacs.core.status_logger import StatusLogger
 
 
@@ -804,6 +805,16 @@ def main(argv: list[str] | None = None) -> int:
     out_root = Path(args.out_dir).resolve()
     run_dir = out_root / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
+
+    # Point <out-dir>/latest at this run now rather than on completion, so the
+    # link is usable while the batch is running and still resolves to the run
+    # that failed if one does. A dry run is not a result worth pointing at.
+    if not args.dry_run:
+        latest_link = out_root / "latest"
+        if update_latest_symlink(latest_link, run_dir):
+            LOGGER.debug("latest link: %s -> %s", latest_link, run_id)
+        else:
+            LOGGER.warning("could not update latest link: %s", latest_link)
 
     all_tasks, parse_warnings = _load_repo_tasks(repos_file)
     tasks = [t for t in all_tasks if t.enabled and _repo_matches_filters(t, args.repo)]
