@@ -10,12 +10,24 @@ import logging
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from click.testing import CliRunner
 
 from tacs.batch_scan_repos import main as batch_main
 from tacs.cli import app
 from tacs.core.logging_config import configure_logging, get_logger, resolve_log_level
 from tacs.core.status_logger import StatusLogger
+
+
+@pytest.fixture(autouse=True)
+def _scan_from_tmp_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep session artifacts out of the checkout's own results/ tree.
+
+    A standalone scan writes results/scans/<session-id>/ relative to the working
+    directory and takes no option to move it, so the working directory is the
+    only lever these tests have.
+    """
+    monkeypatch.chdir(tmp_path)
 
 
 def test_resolve_log_level_verbose_and_precedence() -> None:
@@ -427,11 +439,10 @@ def _metrics():
     )
 
 
-def test_scan_complete_reports_verdicts_and_retained(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_scan_complete_reports_verdicts_and_retained(tmp_path: Path, capsys) -> None:
     """The final line must not present dropped "no" findings as a "0 no" verdict."""
     from tacs.core.scan_session import ScanSession
 
-    monkeypatch.chdir(tmp_path)
     configure_logging("INFO")
     pipeline = _scan_results_pipeline(tmp_path)
 
@@ -448,10 +459,9 @@ def test_scan_complete_reports_verdicts_and_retained(tmp_path: Path, monkeypatch
     assert "12 findings (12 yes, 0 no, 0 abstain)" not in err
 
 
-def test_scan_complete_retained_is_singular_for_one(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_scan_complete_retained_is_singular_for_one(tmp_path: Path, capsys) -> None:
     from tacs.core.scan_session import ScanSession
 
-    monkeypatch.chdir(tmp_path)
     configure_logging("INFO")
     pipeline = _scan_results_pipeline(tmp_path)
 
@@ -467,12 +477,11 @@ def test_scan_complete_retained_is_singular_for_one(tmp_path: Path, monkeypatch,
 
 
 def test_session_summary_separates_classified_and_retained(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path,
 ) -> None:
     """The persisted summary must show verdicts as well as retained records."""
     from tacs.core.scan_session import ScanSession
 
-    monkeypatch.chdir(tmp_path)
     configure_logging("ERROR")
     pipeline = _scan_results_pipeline(tmp_path)
 

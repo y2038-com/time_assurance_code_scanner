@@ -15,6 +15,18 @@ from tacs.core.logging_config import configure_logging
 from tacs.core.schema import Finding, Y2038Issue
 from tacs.core.scan_session import ScanSession
 
+
+@pytest.fixture(autouse=True)
+def _scan_from_tmp_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep session artifacts out of the checkout's own results/ tree.
+
+    A standalone scan writes results/scans/<session-id>/ relative to the working
+    directory and takes no option to move it, so the working directory is the
+    only lever these tests have.
+    """
+    monkeypatch.chdir(tmp_path)
+
+
 SOURCE = """#include <time.h>
 #include "benchmark.h"
 
