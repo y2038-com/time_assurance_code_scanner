@@ -25,6 +25,10 @@ from tacs.llm.factory import create_llm_client
 from tacs import __version__ as TACS_VERSION
 
 
+class EnvironmentConfigError(RuntimeError):
+    """An environment config was requested but cannot be used as given."""
+
+
 def _format_count(n: int, singular: str, plural: str | None = None) -> str:
     """Return ``N noun`` with simple English singular/plural."""
     word = singular if n == 1 else (plural if plural is not None else f"{singular}s")
@@ -124,15 +128,18 @@ class ScanningPipeline:
         # Load environment configuration
         self.environment_config = self._load_environment_config()
         
-        # Validate and normalize config
+        # Validate and normalize config. A config the caller asked for and that
+        # describes no recognized target is an error, not a warning to scroll past.
         if self.environment_config:
             from tacs.core.config_validator import ConfigValidator
             is_valid, config_id, error = ConfigValidator.validate_config(self.environment_config)
-            if is_valid and config_id:
-                self.environment_config['config_id'] = config_id
-                StatusLogger.timestamped_print(f"Validated config: {config_id}")
-            elif error:
-                StatusLogger.timestamped_warning(f"Config validation warning: {error}")
+            if not is_valid or not config_id:
+                raise EnvironmentConfigError(
+                    f"Environment config {self.environment_config_path} is invalid: "
+                    f"{error or 'unrecognized target environment'}"
+                )
+            self.environment_config['config_id'] = config_id
+            StatusLogger.timestamped_print(f"Validated config: {config_id}")
         
         # Scan root, set by scan(). Persisted source identifiers and diagnostics are
         # named relative to it so they do not carry the host filesystem layout.
@@ -239,16 +246,34 @@ class ScanningPipeline:
             self._time_t_aliases = {}
     
     def _load_environment_config(self) -> Optional[Dict[str, Any]]:
-        """Load environment configuration from file."""
+        """
+        Load the environment configuration, when one was requested.
+
+        A config that was explicitly supplied must load. Target ``time_t`` width and
+        signedness decide whether a given expression overflows at all, so scanning
+        without the environment the caller named would silently answer a different
+        question than the one asked. Supplying no config stays valid.
+        """
         if not self.environment_config_path:
             return None
-        
+
+        path = self.environment_config_path
         try:
-            with open(self.environment_config_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            StatusLogger.timestamped_warning(f"Failed to load environment config from {self.environment_config_path}: {e}")
-            return None
+            with open(path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+        except OSError as e:
+            raise EnvironmentConfigError(f"Cannot read environment config {path}: {e}") from e
+        except json.JSONDecodeError as e:
+            raise EnvironmentConfigError(
+                f"Environment config {path} is not valid JSON: {e}"
+            ) from e
+
+        if not isinstance(config, dict):
+            raise EnvironmentConfigError(
+                f"Environment config {path} must hold a JSON object, "
+                f"found {type(config).__name__}"
+            )
+        return config
     
     def _collect_token_stats(self) -> Optional[Dict[str, Any]]:
         """Collect token usage statistics from LLM clients."""

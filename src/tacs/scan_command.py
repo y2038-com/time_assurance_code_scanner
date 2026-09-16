@@ -50,7 +50,10 @@ def _default_model() -> str:
 @click.option('--debug-stage2-prompt', is_flag=True, default=False, help='Show complete LLM Stage S2 prompt for debugging (default: disabled)')
 @click.option('--detect-y2106', is_flag=True, default=False, help='Enable Y2106 detection for 32-bit unsigned time_t overflow in 2106 (default: disabled)')
 @click.option('--disable-stage1', is_flag=True, default=False, help='Disable Stage S1 line-level pre-filter (default: enabled)')
-@click.option('--env-config', help='Environment configuration JSON file path (optional)')
+@click.option(
+    '--env-config',
+    help='Environment configuration JSON file path (optional; must be valid if given)',
+)
 @click.option('--exclude', multiple=True, default=['**/tests/**'], help='Exclude glob patterns (default: **/tests/**)')
 @click.option('--include-no-findings', is_flag=True, default=False, help='Include findings classified as NO (safe) in output (default: disabled)')
 @click.option('--function-first/--no-function-first', default=True, help='Use function-first pipeline (default: enabled)')

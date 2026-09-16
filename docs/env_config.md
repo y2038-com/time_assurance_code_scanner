@@ -182,3 +182,17 @@ The scanner reads the environment configuration and:
 5. **Stage 8-11**: Uses scenario context for final assessment
 
 This ensures that Y2038 detection is accurate and actionable for the specific target environment.
+
+## Failure behavior
+
+`--env-config` is optional to supply, but not optional to get right. A config that
+cannot be read, is not valid JSON, or does not describe one of the supported target
+environments fails the scan with a message naming the file. No findings are written.
+
+The alternative would be worse: since `time_t` width and signedness decide whether an
+expression overflows at all, continuing without the requested environment would report
+findings for a different target than the one asked for. Omitting `--env-config`
+entirely remains valid and scans with no declared environment.
+
+`tacs repos` resolves a config per repository and records it in the run's
+`env_config.json`, so the same contract applies there.
