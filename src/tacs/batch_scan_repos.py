@@ -652,7 +652,10 @@ def _build_pipeline(
         bypass_pass1=False,
         bypass_pass3=False,
         function_first=True,
-        enable_pass1=(enable_llm and not disable_stage1),
+        # Stage S1 needs an LLM, but the pipeline already skips it when llm_type is
+        # "none", so this stays a plain read of the flag and keeps
+        # --no-disable-stage1 meaning the same thing it means for tacs scan.
+        enable_pass1=not disable_stage1,
         detect_y2106=detect_y2106,
         max_function_iters=2,
         batch_size_func=15,
@@ -746,7 +749,14 @@ def _repo_matches_filters(task: RepoTask, filters: Iterable[str]) -> bool:
     return any(term in hay for term in terms)
 
 
-def main(argv: list[str] | None = None) -> int:
+def _build_parser() -> argparse.ArgumentParser:
+    """
+    Build the ``tacs repos`` parser.
+
+    Kept separate from ``main()`` so tests can read the batch defaults and compare
+    them against ``tacs scan``: the two commands drive one scanning engine and
+    drifted apart once already.
+    """
     parser = argparse.ArgumentParser(description="Batch scan repositories for Y2038 issues")
     parser.add_argument("--repos-file", required=True, help="Path to JSONL repos file")
     parser.add_argument(
@@ -784,13 +794,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--llm-type", choices=["ollama", "openai", "anthropic", "gemini"], default="ollama", help="LLM provider when --enable-llm is set (default: ollama)")
     parser.add_argument("--model", default="gpt-oss:120b-cloud", help="Model name when --enable-llm is set (or TACS_MODEL)")
     parser.add_argument("--disable-stage1", action=argparse.BooleanOptionalAction, default=True, help="Disable Stage 1 line-level pass (default: disabled)")
-    parser.add_argument("--detect-y2106", action=argparse.BooleanOptionalAction, default=True, help="Enable Y2106 detection (default: enabled)")
+    parser.add_argument("--detect-y2106", action=argparse.BooleanOptionalAction, default=False, help="Enable Y2106 detection (default: disabled, matching tacs scan)")
     parser.add_argument("--confidence-floor", type=float, default=0.85, help="Confidence floor for classifications (default: 0.85)")
     parser.add_argument("--fallback-config", default=DEFAULT_FALLBACK_CONFIG_ID, help=f"Fallback config id when detection is uncertain (default: {DEFAULT_FALLBACK_CONFIG_ID})")
     parser.add_argument("--config-min-confidence", type=float, default=0.70, help="Minimum detection confidence to accept recommended config (default: 0.70)")
     parser.add_argument("--include-no-findings", action=argparse.BooleanOptionalAction, default=False, help="Include NO findings in output (default: disabled)")
     parser.add_argument("--verbose", action="store_true", help="Verbose logging")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _build_parser().parse_args(argv)
 
     from tacs.core.logging_config import configure_logging, resolve_log_level
 

@@ -181,6 +181,13 @@ tacs repos --repos-file src/tacs/fixtures/repo_lists/test_repos.jsonl --dry-run
 # Note: tacs repos clones each repo into --cache-dir (default .repo_cache,
 # gitignored) and keeps it for reuse. Delete that directory to discard the clones.
 
+# Analysis defaults match tacs scan, so a batch result is comparable with a
+# standalone one on the same source, env config, and model. Both default to
+# Y2106 detection off and the Stage S1 pre-filter off; to change that, pass the
+# same flag to either command:
+#   --detect-y2106        also assess 32-bit unsigned time_t overflow in 2106
+#   --no-disable-stage1   restore the line-level LLM pre-filter (drops candidates)
+
 tacs render --help
 
 # Single findings JSON (e.g. from tacs scan --out):

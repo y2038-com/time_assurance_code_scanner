@@ -65,7 +65,9 @@ class ScanningPipeline:
         bypass_pass1: bool = False,
         bypass_pass3: bool = False,
         function_first: bool = True,
-        enable_pass1: bool = True,
+        # Stage S1 is an opt-in pre-filter: it drops candidates on line-level LLM
+        # triage before the function-level passes, which see far more context.
+        enable_pass1: bool = False,
         detect_y2106: bool = False,
         max_function_iters: int = 2,
         batch_size_func: int = 15,
@@ -213,7 +215,11 @@ class ScanningPipeline:
             from tacs.core.function_llm_client import FunctionLLMClient
             self.function_llm_client = FunctionLLMClient(
                 llm_type, model, self.environment_config, timeout_sec, 
-                batch_size_func, confidence_floor, debug_llm_raw
+                batch_size_func, confidence_floor, debug_llm_raw,
+                # Without this the client keeps its default of False, and the
+                # Y2106 prompt and response handling never run, so --detect-y2106
+                # would change only finding retention and the summary counts.
+                detect_y2106=detect_y2106,
             )
             # Set migration mode configs if enabled
             if self.migration_mode:

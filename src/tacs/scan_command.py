@@ -49,7 +49,13 @@ def _default_model() -> str:
 @click.option('--debug-stage2-detailed', is_flag=True, default=False, help='Show ALL candidates and LLM responses for Stage S2 (default: disabled)')
 @click.option('--debug-stage2-prompt', is_flag=True, default=False, help='Show complete LLM Stage S2 prompt for debugging (default: disabled)')
 @click.option('--detect-y2106', is_flag=True, default=False, help='Enable Y2106 detection for 32-bit unsigned time_t overflow in 2106 (default: disabled)')
-@click.option('--disable-stage1', is_flag=True, default=False, help='Disable Stage S1 line-level pre-filter (default: enabled)')
+@click.option(
+    '--disable-stage1/--no-disable-stage1',
+    default=True,
+    help='Disable the Stage S1 line-level pre-filter (default: disabled). '
+         'Stage S1 drops candidates from a line-level LLM triage before the '
+         'function-level passes see them; --no-disable-stage1 restores it.',
+)
 @click.option(
     '--env-config',
     help='Environment configuration JSON file path (optional; must be valid if given)',
