@@ -177,7 +177,7 @@ def test_batch_run_records_env_config_in_findings_meta(
     assert counts["total"] == counts["yes"] + counts["no"] + counts["abstain"]
     assert counts["total"] >= status["findings_summary"]["total_findings"]
 
-    findings_files = list(out_dir.glob("*/repos/*/scan/findings.json"))
+    findings_files = list(out_dir.glob("*/repos/*/findings.json"))
     assert findings_files, "expected per-repo findings.json"
     scan_meta = json.loads(findings_files[0].read_text(encoding="utf-8"))["meta"]
     env_config = scan_meta["environment_config"]

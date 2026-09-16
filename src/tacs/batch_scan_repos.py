@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
 import re
 import subprocess
 import time
@@ -288,30 +287,12 @@ def _extract_scan_metrics(results_obj: Any) -> dict[str, Any]:
         return default_metrics
 
 
-def _count_lines(path: Path) -> int:
-    if not path.exists():
-        return 0
-    count = 0
-    with path.open("r", encoding="utf-8", errors="ignore") as fh:
-        for _ in fh:
-            count += 1
-    return count
-
-
-def _latest_scan_dir(scan_root: Path) -> Path | None:
-    scans_root = scan_root / "results" / "scans"
-    if not scans_root.exists():
-        return None
-    candidates = [p for p in scans_root.iterdir() if p.is_dir()]
-    if not candidates:
-        return None
-    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    return candidates[0]
-
-
-def _extract_stage_stats(scan_root: Path) -> dict[str, Any]:
+def _extract_stage_stats(repo_dir: Path) -> dict[str, Any]:
     """
-    Best-effort stage stats from persisted scan artifacts.
+    Read per-stage counters from the scan's stage_stats.json.
+
+    Returns zeroed defaults when the file is missing or unreadable, so a repo that
+    failed before the scan finished still aggregates cleanly.
     """
     stats: dict[str, Any] = {
         "prescan": {"time_t_aliases": 0},
@@ -325,69 +306,22 @@ def _extract_stage_stats(scan_root: Path) -> dict[str, Any]:
             "by_pass": {},
         },
     }
-    scan_dir = _latest_scan_dir(scan_root)
-    if scan_dir is None:
+
+    stats_path = repo_dir / "stage_stats.json"
+    if not stats_path.is_file():
         return stats
 
-    # Prescan aliases (if persisted)
-    stats["prescan"]["time_t_aliases"] = _count_lines(scan_dir / "prescan" / "typedefs.jsonl")
+    try:
+        persisted = json.loads(stats_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return stats
+    if not isinstance(persisted, dict):
+        return stats
 
-    # IR candidate volume
-    stats["ir"]["candidates"] = _count_lines(scan_dir / "ir" / "candidates.jsonl")
-
-    summary_path = scan_dir / "findings" / "summary.txt"
-    if summary_path.exists():
-        text = summary_path.read_text(encoding="utf-8", errors="ignore")
-
-        def _int_from(pattern: str) -> int | None:
-            m = re.search(pattern, text, re.IGNORECASE)
-            if not m:
-                return None
-            try:
-                return int(m.group(1).replace(",", ""))
-            except Exception:
-                return None
-
-        sf = _int_from(r"After structural filter:\s*([0-9,]+)")
-        if sf is not None:
-            stats["ir"]["after_structural_filter"] = sf
-
-        total_tokens = _int_from(r"Total tokens:\s*([0-9,]+)")
-        prompt_tokens = _int_from(r"Prompt tokens:\s*([0-9,]+)")
-        completion_tokens = _int_from(r"Completion tokens:\s*([0-9,]+)")
-        reqs = _int_from(r"Total LLM requests:\s*([0-9,]+)")
-        if total_tokens is not None:
-            stats["llm"]["total_tokens"] = total_tokens
-        if prompt_tokens is not None:
-            stats["llm"]["prompt_tokens"] = prompt_tokens
-        if completion_tokens is not None:
-            stats["llm"]["completion_tokens"] = completion_tokens
-        if reqs is not None:
-            stats["llm"]["requests"] = reqs
-
-        for m in re.finditer(
-            r"-\s*(S\d+_P\d+):\s*([0-9,]+)\s*tokens\s*\(([0-9,]+)\s*prompt\s*\+\s*([0-9,]+)\s*completion\)\s*in\s*([0-9,]+)\s*request",
-            text,
-            re.IGNORECASE,
-        ):
-            pass_name = m.group(1).upper()
-            stats["llm"]["by_pass"][pass_name] = {
-                "total_tokens": int(m.group(2).replace(",", "")),
-                "prompt_tokens": int(m.group(3).replace(",", "")),
-                "completion_tokens": int(m.group(4).replace(",", "")),
-                "requests": int(m.group(5).replace(",", "")),
-            }
-
-    # I/O candidate count is not always in summary artifacts; try run log as fallback.
-    run_log = scan_dir / "logs" / "run.log"
-    if run_log.exists():
-        run_text = run_log.read_text(encoding="utf-8", errors="ignore")
-        m_io = re.search(r"I/O boundary analysis:\s*([0-9,]+)\s*candidates found", run_text, re.IGNORECASE)
-        if m_io:
-            try:
-                stats["io_boundary"]["candidates"] = int(m_io.group(1).replace(",", ""))
-            except Exception:
-                pass
+    for section, defaults in stats.items():
+        values = persisted.get(section)
+        if isinstance(values, dict):
+            defaults.update({k: v for k, v in values.items() if k in defaults})
 
     return stats
 
@@ -1008,23 +942,18 @@ def main(argv: list[str] | None = None) -> int:
             if not rules_path.exists():
                 raise FileNotFoundError(f"rules path not found: {rules_path}")
 
-            scan_out = per_repo_dir / "scan" / "findings.json"
-            scan_out.parent.mkdir(parents=True, exist_ok=True)
-            # Run scan with cwd scoped to this repo's scan folder so legacy
-            # relative writes (e.g., findings.json) do not land in project root.
-            original_cwd = Path.cwd()
-            os.chdir(scan_out.parent)
-            try:
-                results_obj = pipeline.scan(
-                    root_path=str(repo_dir),
-                    rules_path=str(rules_path),
-                    include_patterns=include_patterns,
-                    exclude_patterns=exclude_patterns,
-                    min_risk="medium",
-                    output_base=str(scan_out.parent.resolve()),
-                )
-            finally:
-                os.chdir(original_cwd)
+            # The per-repo directory is the scan's artifact root: the batch run id
+            # and repo key already identify this scan, so no session-history
+            # folder is nested inside it.
+            scan_out = per_repo_dir / "findings.json"
+            results_obj = pipeline.scan(
+                root_path=str(repo_dir),
+                rules_path=str(rules_path),
+                include_patterns=include_patterns,
+                exclude_patterns=exclude_patterns,
+                min_risk="medium",
+                session_dir=str(per_repo_dir.resolve()),
+            )
             pipeline.save_results(results_obj, str(scan_out))
             finding_summary = _parse_findings_summary(scan_out)
             classification_counts = _classification_counts_payload(pipeline)
@@ -1038,7 +967,7 @@ def main(argv: list[str] | None = None) -> int:
                     ),
                 )
             repo_metrics = _extract_scan_metrics(results_obj)
-            stage_stats = _extract_stage_stats(scan_out.parent)
+            stage_stats = _extract_stage_stats(per_repo_dir)
             if repo_metrics.get("total_files", 0) > 0 or repo_metrics.get("total_lines", 0) > 0:
                 aggregate_metrics["repos_with_metrics"] += 1
             aggregate_metrics["total_files_scanned"] += int(repo_metrics.get("total_files", 0) or 0)

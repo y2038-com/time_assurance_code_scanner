@@ -35,7 +35,15 @@ def _repo_dirs(batch_run_dir: Path) -> list[Path]:
 
 
 def _findings_path(repo_dir: Path) -> Path:
-    return repo_dir / "scan" / "findings.json"
+    """Locate a batch repo's canonical findings document."""
+    canonical = repo_dir / "findings.json"
+    if canonical.is_file():
+        return canonical
+    # Runs produced before the per-repo layout was flattened.
+    legacy = repo_dir / "scan" / "findings.json"
+    if legacy.is_file():
+        return legacy
+    return canonical
 
 
 def _resolve_input_path(args: argparse.Namespace) -> Path:

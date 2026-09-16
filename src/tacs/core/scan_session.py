@@ -31,6 +31,7 @@ class ScanSession:
         redact_prompts: bool = True,
         allow_raw_code_logging: bool = False,
         output_base: Optional[Union[str, Path]] = None,
+        session_dir: Optional[Union[str, Path]] = None,
     ):
         """
         Initialize a scan session.
@@ -42,7 +43,14 @@ class ScanSession:
             allow_raw_code_logging: Whether to allow raw code snippets
             output_base: If set, scan folder is created under this path (absolute).
                         Use this when running under a job working dir so paths don't depend on process cwd.
+            session_dir: If set, this directory *is* the artifact root; no
+                        results/scans/<session-id>/ folder is created beneath it.
+                        Used by ``tacs repos``, where the batch run id and repo key
+                        already identify the scan.
         """
+        if session_dir is not None and output_base is not None:
+            raise ValueError("pass either session_dir or output_base, not both")
+
         self.root_path = Path(root_path).resolve()
         self.enable_llm_logging = enable_llm_logging
         self.redact_prompts = redact_prompts
@@ -53,15 +61,28 @@ class ScanSession:
         self.scan_id = self._generate_scan_id()
         self.created_utc = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%SZ")
         
-        # Create scan folder (absolute when output_base set, so concurrent jobs don't clash on cwd)
-        rel_folder = f"results/scans/{self.created_utc}_scan-{self.scan_id}"
-        if self._output_base is not None:
-            self.scan_folder = (self._output_base / rel_folder).resolve()
+        # A batch run already identifies each scan by run id and repo key, so the
+        # supplied directory is the artifact root: no session-history folder, index,
+        # or latest link belongs inside it.
+        self.batch_mode = session_dir is not None
+        if self.batch_mode:
+            self.scan_folder = Path(session_dir).resolve()
         else:
-            self.scan_folder = Path(rel_folder)
+            # Absolute when output_base is set, so concurrent jobs don't clash on cwd.
+            rel_folder = f"results/scans/{self.created_utc}_scan-{self.scan_id}"
+            if self._output_base is not None:
+                self.scan_folder = (self._output_base / rel_folder).resolve()
+            else:
+                self.scan_folder = Path(rel_folder)
         self.scan_folder.mkdir(parents=True, exist_ok=True)
         
-        # Create subdirectories
+        # Batch output keeps the scanner's own metadata under a distinct name; the
+        # per-repo meta.json written by tacs repos records repository identity.
+        self.metadata_filename = "scan_meta.json" if self.batch_mode else "meta.json"
+        
+        # Subdirectory layout. These are created on first write rather than up
+        # front, so a run that never used the LLM or never logged raw snippets
+        # does not leave empty llm/ and artifacts/ directories behind.
         self.prescan_dir = self.scan_folder / "prescan"
         self.ir_dir = self.scan_folder / "ir"
         self.llm_dir = self.scan_folder / "llm"
@@ -69,27 +90,25 @@ class ScanSession:
         self.artifacts_dir = self.scan_folder / "artifacts"
         self.logs_dir = self.scan_folder / "logs"
         
-        for dir_path in [self.prescan_dir, self.ir_dir, self.llm_dir, self.findings_dir, 
-                        self.artifacts_dir, self.logs_dir]:
-            dir_path.mkdir(exist_ok=True)
-        
-        # Create LLM pass subdirectories
-        if self.enable_llm_logging:
-            for pass_num in [1, 2, 3]:
-                pass_dir = self.llm_dir / f"pass{pass_num}"
-                pass_dir.mkdir(exist_ok=True)
-                (pass_dir / "batches").mkdir(exist_ok=True)
-        
         # Initialize tracking
         self.timing = {}
         self.id_mappings = defaultdict(dict)
         self.batch_counters = {1: 0, 2: 0, 3: 0}
+        self.stage_counts = {"time_t_aliases": 0, "ir_candidates": 0}
         
         # Start timing
         self.start_time = time.time()
         
-        # Create README
-        self._create_readme()
+        # The batch run carries its own documentation and metadata; a per-repo
+        # README restating the session layout would only add noise there.
+        if not self.batch_mode:
+            self._create_readme()
+    
+    @staticmethod
+    def _ensure_dir(dir_path: Path) -> Path:
+        """Create an artifact subdirectory on first use."""
+        dir_path.mkdir(parents=True, exist_ok=True)
+        return dir_path
     
     def _generate_scan_id(self) -> str:
         """Generate a short unique scan ID."""
@@ -109,6 +128,7 @@ Folder Structure:
 - meta.json: Scan metadata and timing
 - config.snapshot.json: CLI args and resolved config
 - metrics.json: Stage 1 code metrics
+- stage_stats.json: Per-stage counters and LLM token usage
 - ids.json: Stable ID mappings across passes
 - prescan/: Typedef and macro discovery results
 - ir/: Token inverted index results
@@ -144,7 +164,8 @@ This scan session contains all data needed for debugging, review, and fine-tunin
             "line": line
         }
         
-        typedef_file = self.prescan_dir / "typedefs.jsonl"
+        self.stage_counts["time_t_aliases"] += 1
+        typedef_file = self._ensure_dir(self.prescan_dir) / "typedefs.jsonl"
         try:
             with open(typedef_file, 'a', encoding='utf-8') as f:
                 f.write(json.dumps(entry) + '\n')
@@ -163,7 +184,7 @@ This scan session contains all data needed for debugging, review, and fine-tunin
             "line": line
         }
         
-        with open(self.prescan_dir / "defines.jsonl", 'a') as f:
+        with open(self._ensure_dir(self.prescan_dir) / "defines.jsonl", 'a') as f:
             f.write(json.dumps(entry) + '\n')
     
     def log_candidate(self, candidate_id: str, file: str, line: int, col_start: int, col_end: int, 
@@ -180,7 +201,8 @@ This scan session contains all data needed for debugging, review, and fine-tunin
             "one_line_snippet": snippet
         }
         
-        with open(self.ir_dir / "candidates.jsonl", 'a') as f:
+        self.stage_counts["ir_candidates"] += 1
+        with open(self._ensure_dir(self.ir_dir) / "candidates.jsonl", 'a') as f:
             f.write(json.dumps(entry) + '\n')
     
     def log_llm_input(self, pass_num: int, batch_items: List[Dict[str, Any]], preamble_hash: str, model: str):
@@ -204,7 +226,8 @@ This scan session contains all data needed for debugging, review, and fine-tunin
                 "timestamp": timestamp
             }
             
-            with open(self.llm_dir / f"pass{pass_num}" / "batches" / f"{batch_num}_input.jsonl", 'a') as f:
+            batches_dir = self._ensure_dir(self.llm_dir / f"pass{pass_num}" / "batches")
+            with open(batches_dir / f"{batch_num}_input.jsonl", 'a') as f:
                 f.write(json.dumps(entry) + '\n')
     
     def log_llm_output(self, pass_num: int, batch_results: List[Dict[str, Any]], model: str, 
@@ -229,7 +252,8 @@ This scan session contains all data needed for debugging, review, and fine-tunin
                 **result
             }
             
-            with open(self.llm_dir / f"pass{pass_num}" / "batches" / f"{batch_num}_output.jsonl", 'a') as f:
+            batches_dir = self._ensure_dir(self.llm_dir / f"pass{pass_num}" / "batches")
+            with open(batches_dir / f"{batch_num}_output.jsonl", 'a') as f:
                 f.write(json.dumps(entry) + '\n')
     
     def log_id_mapping(self, pass_from: str, pass_to: str, mappings: Dict[str, str]):
@@ -277,7 +301,7 @@ This scan session contains all data needed for debugging, review, and fine-tunin
             }
         }
         
-        with open(self.scan_folder / "meta.json", 'w') as f:
+        with open(self.scan_folder / self.metadata_filename, 'w') as f:
             json.dump(meta, f, indent=2)
         
         # Save config snapshot
@@ -288,23 +312,45 @@ This scan session contains all data needed for debugging, review, and fine-tunin
         with open(self.scan_folder / "metrics.json", 'w') as f:
             json.dump(metrics, f, indent=2)
         
-        # Save ID mappings
-        with open(self.scan_folder / "ids.json", 'w') as f:
-            json.dump(dict(self.id_mappings), f, indent=2)
+        # Save ID mappings. Batch output omits the file when nothing recorded a
+        # mapping rather than publishing an empty document per repository.
+        if self.id_mappings or not self.batch_mode:
+            with open(self.scan_folder / "ids.json", 'w') as f:
+                json.dump(dict(self.id_mappings), f, indent=2)
+    
+    def save_stage_stats(self, stage_stats: Dict[str, Any]):
+        """
+        Save per-stage counters and token usage in machine-readable form.
+
+        Batch aggregation reads this rather than parsing summary.txt, so reworded
+        summary text cannot silently zero out a run's reported stage statistics.
+        """
+        with open(self.scan_folder / "stage_stats.json", 'w') as f:
+            json.dump(stage_stats, f, indent=2)
     
     def save_findings(self, findings: List[Dict[str, Any]], summary: str):
-        """Save final findings and summary."""
-        with open(self.findings_dir / "findings.json", 'w') as f:
-            json.dump(findings, f, indent=2)
+        """
+        Save the scan summary, plus a session copy of the findings.
+
+        Batch mode writes only summary.txt: ``tacs repos`` publishes the canonical
+        findings.json at the same root, and that document ({meta, findings}) is a
+        superset of the bare findings array kept for standalone sessions.
+        """
+        if self.batch_mode:
+            summary_path = self.scan_folder / "summary.txt"
+        else:
+            findings_dir = self._ensure_dir(self.findings_dir)
+            with open(findings_dir / "findings.json", 'w') as f:
+                json.dump(findings, f, indent=2)
+            summary_path = findings_dir / "summary.txt"
         
-        with open(self.findings_dir / "summary.txt", 'w') as f:
+        with open(summary_path, 'w') as f:
             f.write(summary)
     
     def save_snippet(self, item_id: str, snippet: str):
         """Save raw code snippet if allowed."""
         if self.allow_raw_code_logging:
-            snippet_file = self.artifacts_dir / "snippets" / f"{item_id}.txt"
-            snippet_file.parent.mkdir(exist_ok=True)
+            snippet_file = self._ensure_dir(self.artifacts_dir / "snippets") / f"{item_id}.txt"
             with open(snippet_file, 'w') as f:
                 f.write(snippet)
     
@@ -313,7 +359,7 @@ This scan session contains all data needed for debugging, review, and fine-tunin
         timestamp = datetime.utcnow().isoformat()
         log_entry = f"[{timestamp}] {level.upper()}: {message}\n"
         
-        with open(self.logs_dir / "run.log", 'a') as f:
+        with open(self._ensure_dir(self.logs_dir) / "run.log", 'a') as f:
             f.write(log_entry)
     
     def relative_path(self, path: str) -> str:
@@ -322,6 +368,10 @@ This scan session contains all data needed for debugging, review, and fine-tunin
     
     def create_latest_symlink(self):
         """Point results/scans/latest at this session's folder."""
+        if self.batch_mode:
+            # The batch run's own results/batch_runs/latest covers this; a link
+            # inside a per-repo bundle would point at the bundle itself.
+            return
         if self._output_base is not None:
             latest_path = self._output_base / "results" / "scans" / "latest"
         else:
@@ -339,8 +389,7 @@ This scan session contains all data needed for debugging, review, and fine-tunin
         
         rules_file = self.prescan_dir / "discovered_rules.json"
         try:
-            # Ensure directory exists
-            self.prescan_dir.mkdir(parents=True, exist_ok=True)
+            self._ensure_dir(self.prescan_dir)
             with open(rules_file, 'w', encoding='utf-8') as f:
                 json.dump(rules_data, f, indent=2)
                 f.flush()  # Ensure data is written immediately
@@ -406,12 +455,8 @@ This scan session contains all data needed for debugging, review, and fine-tunin
         allow_raw_code_logging is authoritative for verbatim source retention, so
         redact_prompts=False alone does not permit raw prompt/body persistence.
         """
-        # Create pass directory if it doesn't exist
         # pass_name should be in format like "stage_8_pass_2a" or "stage_8_pass_2b" - use as-is without prefix
-        pass_dir = self.llm_dir / pass_name.lower()
-        pass_dir.mkdir(exist_ok=True)
-        batches_dir = pass_dir / "batches"
-        batches_dir.mkdir(exist_ok=True)
+        batches_dir = self._ensure_dir(self.llm_dir / pass_name.lower() / "batches")
 
         functions = list(function_batch.functions) if hasattr(function_batch, 'functions') else []
         persist_prompt = bool(self.enable_llm_logging)
@@ -481,6 +526,11 @@ This scan session contains all data needed for debugging, review, and fine-tunin
     
     def update_index(self):
         """Update the scans index."""
+        if self.batch_mode:
+            # Scan history is a standalone concept; inside a batch run the repo
+            # bundle is the only scan, and an index here would just record a path
+            # that breaks as soon as the run directory moves.
+            return
         index_path = Path("results/index.json")
         
         # Load existing index

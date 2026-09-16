@@ -20,6 +20,10 @@ tacs render results/batch_runs/<run_id> --format html --out-dir results/reports/
 `tacs render` auto-detects a findings JSON file vs a batch run directory
 (with `repos/`). `--batch-run-dir` remains as a deprecated alias for batch input.
 
+In batch mode each repository's canonical findings document is
+`repos/<repo-key>/findings.json`. Runs produced before the per-repo layout was
+flattened kept it at `repos/<repo-key>/scan/findings.json`; both still render.
+
 ## Source paths
 
 Findings name each source file relative to the scanned repository root, so a

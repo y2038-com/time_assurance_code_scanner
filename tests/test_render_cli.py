@@ -41,7 +41,7 @@ def test_detect_render_mode_file_and_batch(tmp_path: Path) -> None:
     assert target == findings.resolve() or target == findings
 
     batch = tmp_path / "run"
-    (batch / "repos" / "r1" / "scan").mkdir(parents=True)
+    (batch / "repos" / "r1").mkdir(parents=True)
     mode, target = detect_render_mode(batch)
     assert mode == "batch"
     assert target == batch.resolve() or target == batch
@@ -80,9 +80,8 @@ def test_tacs_render_single_html_writes_default(tmp_path: Path) -> None:
 def test_tacs_render_batch_compat_alias(tmp_path: Path) -> None:
     batch = tmp_path / "20260101T000000Z"
     repo = batch / "repos" / "github__acme__demo__main"
-    scan = repo / "scan"
-    scan.mkdir(parents=True)
-    (scan / "findings.json").write_text(json.dumps(_minimal_findings()), encoding="utf-8")
+    repo.mkdir(parents=True)
+    (repo / "findings.json").write_text(json.dumps(_minimal_findings()), encoding="utf-8")
     out_dir = tmp_path / "reports"
     code = render_main(
         [
@@ -105,9 +104,9 @@ def test_tacs_render_batch_progress_headers_always_visible(tmp_path: Path, capsy
     """Per-repo render headers must appear even at ERROR log level."""
     batch = tmp_path / "run"
     for name in ("repo_a", "repo_b"):
-        scan = batch / "repos" / name / "scan"
-        scan.mkdir(parents=True)
-        (scan / "findings.json").write_text(
+        repo = batch / "repos" / name
+        repo.mkdir(parents=True)
+        (repo / "findings.json").write_text(
             json.dumps(_minimal_findings()), encoding="utf-8"
         )
     code = render_main(
@@ -124,14 +123,28 @@ def test_tacs_render_batch_progress_headers_always_visible(tmp_path: Path, capsy
         assert ln.lstrip()[:4].isdigit()
     batch = tmp_path / "runid"
     repo = batch / "repos" / "r1"
-    (repo / "scan").mkdir(parents=True)
-    (repo / "scan" / "findings.json").write_text(
+    repo.mkdir(parents=True)
+    (repo / "findings.json").write_text(
         json.dumps(_minimal_findings()), encoding="utf-8"
     )
     code = render_main([str(batch), "--format", "text", "--log-level", "ERROR"])
     assert code == 0
     reports = batch / "reports" / "text"
     assert (reports / "index.json").is_file()
+
+
+def test_tacs_render_batch_reads_pre_flattening_layout(tmp_path: Path) -> None:
+    """Batch runs recorded before the per-repo flattening still render."""
+    batch = tmp_path / "legacy_run"
+    scan = batch / "repos" / "r1" / "scan"
+    scan.mkdir(parents=True)
+    (scan / "findings.json").write_text(
+        json.dumps(_minimal_findings()), encoding="utf-8"
+    )
+    code = render_main([str(batch), "--format", "text", "--log-level", "ERROR"])
+    assert code == 0
+    reports = batch / "reports" / "text"
+    assert (reports / "r1.txt").is_file()
 
 
 def test_tacs_render_rejects_out_dir_on_single(tmp_path: Path) -> None:
@@ -147,8 +160,8 @@ def test_tacs_render_rejects_out_dir_on_single(tmp_path: Path) -> None:
 
 def test_tacs_render_rejects_finding_on_batch(tmp_path: Path) -> None:
     batch = tmp_path / "run"
-    (batch / "repos" / "r1" / "scan").mkdir(parents=True)
-    (batch / "repos" / "r1" / "scan" / "findings.json").write_text(
+    (batch / "repos" / "r1").mkdir(parents=True)
+    (batch / "repos" / "r1" / "findings.json").write_text(
         json.dumps(_minimal_findings()), encoding="utf-8"
     )
     try:

@@ -444,7 +444,7 @@ def test_batch_run_findings_are_repo_relative(
         == 0
     )
 
-    findings_files = list(out_dir.glob("*/repos/*/scan/findings.json"))
+    findings_files = list(out_dir.glob("*/repos/*/findings.json"))
     assert findings_files, "expected per-repo findings.json"
     payload = json.loads(findings_files[0].read_text(encoding="utf-8"))
     assert payload["findings"], "expected at least one finding"
@@ -453,9 +453,7 @@ def test_batch_run_findings_are_repo_relative(
         assert str(cache_dir) not in finding["file"]
         assert ".." not in finding["file"]
 
-    candidate_files = list(
-        out_dir.glob("*/repos/*/scan/results/scans/*/ir/candidates.jsonl")
-    )
+    candidate_files = list(out_dir.glob("*/repos/*/ir/candidates.jsonl"))
     assert candidate_files, "expected session candidate artifacts"
     text = candidate_files[0].read_text(encoding="utf-8")
     assert str(cache_dir) not in text

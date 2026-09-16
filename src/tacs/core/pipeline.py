@@ -309,6 +309,46 @@ class ScanningPipeline:
         
         return stats
     
+    @staticmethod
+    def _build_stage_stats(
+        session: ScanSession, token_stats: Optional[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Assemble the machine-readable per-stage counters persisted with a scan.
+
+        ``io_boundary.candidates`` stays None when I/O boundary analysis did not
+        run, so aggregation can tell "not measured" apart from "measured zero".
+        """
+        info = getattr(session, '_legacy_pipeline_info', None) or {}
+        by_pass: Dict[str, Any] = {}
+        for stage_name, stage in (token_stats or {}).get("by_stage", {}).items():
+            prompt_tokens = int(stage.get("prompt_tokens", 0) or 0)
+            completion_tokens = int(stage.get("completion_tokens", 0) or 0)
+            by_pass[str(stage_name).upper()] = {
+                "total_tokens": prompt_tokens + completion_tokens,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "requests": int(stage.get("requests", 0) or 0),
+            }
+
+        return {
+            "prescan": {"time_t_aliases": session.stage_counts.get("time_t_aliases", 0)},
+            "ir": {
+                "candidates": session.stage_counts.get("ir_candidates", 0),
+                "after_structural_filter": info.get('filtered_candidates_count'),
+            },
+            "io_boundary": {"candidates": info.get('io_boundary_candidates')},
+            "llm": {
+                "total_tokens": int((token_stats or {}).get("total_tokens", 0) or 0),
+                "prompt_tokens": int((token_stats or {}).get("total_prompt_tokens", 0) or 0),
+                "completion_tokens": int(
+                    (token_stats or {}).get("total_completion_tokens", 0) or 0
+                ),
+                "requests": int((token_stats or {}).get("total_requests", 0) or 0),
+                "by_pass": by_pass,
+            },
+        }
+    
     def scan(
         self,
         root_path: str,
@@ -318,6 +358,7 @@ class ScanningPipeline:
         min_risk: str = "medium",
         check_cancelled: Optional[Callable[[], bool]] = None,
         output_base: Optional[str] = None,
+        session_dir: Optional[str] = None,
     ) -> ScanResults:
         """
         Run the complete scanning pipeline.
@@ -330,6 +371,9 @@ class ScanningPipeline:
             min_risk: Minimum risk level
             output_base: If set, session output (results/scans/...) is under this path (absolute).
                         Use when running under a job working dir so paths don't depend on cwd.
+            session_dir: If set, this directory is the session artifact root itself,
+                        with no results/scans/<session-id>/ nesting beneath it.
+                        Used by ``tacs repos`` for its per-repo output directory.
             
         Returns:
             Complete scan results
@@ -346,6 +390,7 @@ class ScanningPipeline:
             redact_prompts=self.redact_prompts,
             allow_raw_code_logging=self.allow_raw_code_logging,
             output_base=output_base,
+            session_dir=session_dir,
         )
         
         session.log_message("INFO", f"Starting scan {session.scan_id}")
@@ -511,6 +556,7 @@ class ScanningPipeline:
             StatusLogger.timestamped_debug(f"Found {len(io_candidates)} I/O-boundary candidates")
             session.end_timing("io_boundary_analysis")
             session.log_message("INFO", f"I/O boundary analysis: {len(io_candidates)} candidates")
+            session._legacy_pipeline_info['io_boundary_candidates'] = len(io_candidates)
             
             # Merge I/O candidates with regular candidates
             # Convert IOCandidate to Candidate and store metadata in mapping
@@ -1608,8 +1654,9 @@ class ScanningPipeline:
                 f"Abstain breakdown (LLM disabled): {abstain_count} unclassified candidate(s)"
             )
         
-        # Public findings JSON is written only by save_results(..., --out).
-        # Session still keeps an internal copy under results/scans/.../findings/.
+        # Public findings JSON is written only by save_results(..., --out). A
+        # standalone session also keeps a bare-array copy under findings/; batch
+        # mode does not, since the published findings.json is a superset.
         
         # Save session metadata and findings (for function-first path)
         # Legacy path does this in _run_legacy_analysis, but function-first needs it here
@@ -1725,6 +1772,7 @@ Timing (ms):
             summary += f"- Stage 8, Pass 2a: {session.timing.get('stage_s2_pass_p1_ms', 0)}\n"
             summary += f"- Stage 9, Pass 1: {session.timing.get('stage_s3_pass_p1_ms', 0)}\n"
         
+        session.save_stage_stats(self._build_stage_stats(session, token_stats))
         session.save_findings([f.dict() for f in findings], summary)
         session.create_latest_symlink()
         session.update_index()

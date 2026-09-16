@@ -61,8 +61,9 @@ rm -rf .repo_cache          # or the path you passed to --cache-dir
 
 #### Function-batch artifacts
 
-Each LLM batch writes an artifact under the scan session's `llm/<pass>/batches/`
-directory. What it contains depends on the flags above:
+Each LLM batch writes an artifact under `llm/<pass>/batches/` — inside the scan
+session for `tacs scan`, and directly under `repos/<repo-key>/` for `tacs repos`.
+What it contains depends on the flags above:
 
 | Flags | Persisted |
 |-------|-----------|
