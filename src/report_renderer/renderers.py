@@ -39,12 +39,32 @@ def render_text(findings: list[NormalizedFinding], *, list_mode: bool = False) -
     return "\n\n".join(blocks)
 
 
+def _json_for_script(data: object) -> str:
+    """
+    Serialize data for embedding inside an HTML ``<script>`` element.
+
+    A findings file describes an untrusted repository: file paths, rule ids, and
+    model-written reasons all originate outside TACS. JSON escaping alone does
+    not neutralize ``</script>``, which would end the element early and let the
+    rest of the string be parsed as markup. HTML entities are no help either,
+    since a script element's content is raw text and entities are not decoded
+    there. ``<``, ``>``, and ``&`` are therefore written as JSON ``\\u`` escapes,
+    which parse back to exactly the same string.
+    """
+    return (
+        json.dumps(data)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
+
+
 def render_html(findings: list[NormalizedFinding], *, title: str, group_by: str) -> str:
     """Render findings as a standalone HTML report."""
     stats = Counter(f.issue_class for f in findings)
     risk_stats = Counter(f.risk for f in findings)
     grouped = _group_findings(findings, group_by)
-    payload = json.dumps([_finding_to_json(f) for f in findings])
+    payload = _json_for_script([_finding_to_json(f) for f in findings])
 
     sections = []
     for group_name, group_items in grouped:
@@ -137,8 +157,11 @@ def render_html(findings: list[NormalizedFinding], *, title: str, group_by: str)
     {''.join(sections)}
   </div>
 </main>
+<script id="findings-data" type="application/json">{payload}</script>
 <script>
-const data = {payload};
+// Findings data is held in a non-executable element and parsed, so the report
+// never evaluates values that came from the scanned repository.
+const data = JSON.parse(document.getElementById('findings-data').textContent);
 const cards = [...document.querySelectorAll('.card')];
 let currentIdx = 0;
 function applyFilter() {{
