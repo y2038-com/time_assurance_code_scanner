@@ -17,10 +17,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit
 
 DEFAULT_CLOUD_HOST = "https://ollama.com"
 DEFAULT_LOCAL_HOST = "http://127.0.0.1:11434"
 DEFAULT_MODEL = "gpt-oss:120b-cloud"
+CLOUD_HOSTNAME = "ollama.com"
 
 
 def load_dotenv(path: Optional[Path] = None) -> None:
@@ -84,9 +86,40 @@ def ollama_host() -> str:
     return raw.rstrip("/")
 
 
+def hostname_of(host: str) -> str:
+    """
+    Extract the lowercase hostname from a base URL or a bare ``host[:port]``.
+
+    ``OLLAMA_HOST`` is conventionally a URL but is also accepted without a
+    scheme, so an authority prefix is added when one is missing: urlsplit would
+    otherwise read ``ollama.com:443`` as the scheme ``ollama.com`` and
+    ``127.0.0.1:11434`` as a path, leaving the hostname empty either way.
+    """
+    text = (host or "").strip()
+    if not text:
+        return ""
+    if "//" not in text:
+        text = "//" + text
+    try:
+        hostname = urlsplit(text).hostname or ""
+    except ValueError:
+        return ""
+    # A trailing dot is the fully qualified form of the same name.
+    return hostname.rstrip(".").lower()
+
+
 def ollama_is_cloud_host(host: Optional[str] = None) -> bool:
-    """True when the resolved host targets Ollama Cloud."""
-    return "ollama.com" in (host or ollama_host()).lower()
+    """
+    True when the resolved host is Ollama Cloud.
+
+    The hostname must be exactly ``ollama.com`` or a subdomain of it. This
+    decides whether ``OLLAMA_API_KEY`` is attached to the request, so it is
+    matched structurally rather than as a substring: ``evilollama.com``,
+    ``ollama.com.evil.example``, and ``https://ollama.com@evil.example`` all
+    contain the string ``ollama.com`` but are not Ollama Cloud.
+    """
+    hostname = hostname_of(host or ollama_host())
+    return hostname == CLOUD_HOSTNAME or hostname.endswith("." + CLOUD_HOSTNAME)
 
 
 def looks_like_cloud_model(model: str) -> bool:

@@ -1212,22 +1212,22 @@ Classification in migration mode:
     def _is_ollama_cloud_model(model: str) -> bool:
         return looks_like_cloud_model(model)
 
-    def _ollama_request_target(self) -> tuple[str, dict[str, str] | None, str]:
+    def _ollama_request_target(self) -> tuple[str, dict[str, str] | None, str, bool]:
         """
-        Resolve Ollama base URL, optional auth headers, and model id.
+        Resolve Ollama base URL, optional auth headers, model id, and cloud flag.
 
         ``OLLAMA_HOST`` unset → Ollama Cloud (``https://ollama.com``) with API key.
         Local daemon: set ``OLLAMA_HOST=http://127.0.0.1:11434``.
         """
-        url, headers, api_model, _is_cloud = resolve_ollama_request_target(self.model)
-        return url, headers, api_model
+        return resolve_ollama_request_target(self.model)
 
     def _make_local_request(self, prompt: str) -> Dict[str, Any]:
         """Make request to local Ollama or Ollama Cloud (direct)."""
         import requests
 
-        url, headers, model = self._ollama_request_target()
-        using_cloud_api = "ollama.com" in url
+        # Carry the resolved cloud flag rather than re-deriving it from the URL:
+        # a substring test would call any host containing "ollama.com" cloud.
+        url, headers, model, using_cloud_api = self._ollama_request_target()
 
         data = {
             "model": model,

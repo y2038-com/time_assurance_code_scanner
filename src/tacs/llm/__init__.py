@@ -11,10 +11,12 @@ registry can be added later without changing adapter call sites.
 from __future__ import annotations
 
 from tacs.llm.env import (
+    CLOUD_HOSTNAME,
     DEFAULT_CLOUD_HOST,
     DEFAULT_LOCAL_HOST,
     DEFAULT_MODEL,
     env_first,
+    hostname_of,
     load_dotenv,
     ollama_api_key,
     ollama_is_cloud_host,
@@ -25,6 +27,7 @@ from tacs.llm.env import (
 from tacs.llm.factory import create_llm_client
 
 __all__ = [
+    "CLOUD_HOSTNAME",
     "DEFAULT_CLOUD_HOST",
     "DEFAULT_LOCAL_HOST",
     "DEFAULT_MODEL",
@@ -32,6 +35,7 @@ __all__ = [
     "default_llm_type",
     "default_model_id",
     "env_first",
+    "hostname_of",
     "load_dotenv",
     "ollama_api_key",
     "ollama_is_cloud_host",

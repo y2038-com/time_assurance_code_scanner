@@ -14,10 +14,24 @@ from tacs.llm.env import (
     api_model_for_ollama,
     default_llm_type,
     default_model_id,
+    hostname_of,
     ollama_host,
     ollama_is_cloud_host,
     resolve_ollama_request_target,
 )
+
+# Hosts that contain the string "ollama.com" but are not Ollama Cloud. A
+# substring test would classify each as cloud and attach OLLAMA_API_KEY.
+IMPOSTOR_HOSTS = [
+    "https://evilollama.com",
+    "https://notollama.com/api",
+    "https://ollama.com.evil.example",
+    "https://ollama.compute.example",
+    "https://ollama.com@evil.example",
+    "https://evil.example/?upstream=https://ollama.com",
+    "https://evil.example/ollama.com",
+    "http://127.0.0.1:11434/?proxy=ollama.com",
+]
 
 
 def test_default_llm_type_is_none(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -92,3 +106,130 @@ def test_legacy_cloud_token_alias(monkeypatch: pytest.MonkeyPatch) -> None:
     _url, headers, _model, is_cloud = resolve_ollama_request_target("gpt-oss:120b-cloud")
     assert is_cloud
     assert headers["Authorization"] == "Bearer legacy-token"
+
+
+# --- cloud host identification ----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("https://ollama.com", "ollama.com"),
+        ("https://OLLAMA.COM/api/generate", "ollama.com"),
+        ("https://ollama.com.", "ollama.com"),
+        ("ollama.com", "ollama.com"),
+        ("ollama.com:443", "ollama.com"),
+        ("http://127.0.0.1:11434", "127.0.0.1"),
+        ("127.0.0.1:11434", "127.0.0.1"),
+        ("https://ollama.com@evil.example", "evil.example"),
+        ("", ""),
+        ("   ", ""),
+    ],
+)
+def test_hostname_of_reads_the_authority(value: str, expected: str) -> None:
+    """Hostnames come from the URL authority, with or without a scheme."""
+    assert hostname_of(value) == expected
+
+
+@pytest.mark.parametrize("host", ["https://ollama.com", "https://api.ollama.com"])
+def test_cloud_host_accepts_ollama_com_and_subdomains(host: str) -> None:
+    assert ollama_is_cloud_host(host)
+
+
+@pytest.mark.parametrize("host", IMPOSTOR_HOSTS)
+def test_cloud_host_rejects_lookalike_hosts(host: str) -> None:
+    """A host that merely contains "ollama.com" must not be treated as cloud."""
+    assert not ollama_is_cloud_host(host)
+
+
+@pytest.mark.parametrize("host", IMPOSTOR_HOSTS)
+def test_api_key_is_never_sent_to_a_lookalike_host(
+    host: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The API key must not leave the machine for a host that is not the cloud."""
+    monkeypatch.setenv("OLLAMA_HOST", host)
+    monkeypatch.setenv("OLLAMA_API_KEY", "secret-key")
+
+    _url, headers, _model, is_cloud = resolve_ollama_request_target("gpt-oss:120b-cloud")
+
+    assert not is_cloud
+    assert headers is None
+
+
+def test_local_host_named_ollama_com_subdomain_is_cloud(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A real cloud subdomain still authenticates."""
+    monkeypatch.setenv("OLLAMA_HOST", "https://api.ollama.com")
+    monkeypatch.setenv("OLLAMA_API_KEY", "secret-key")
+
+    _url, headers, _model, is_cloud = resolve_ollama_request_target("gpt-oss:120b-cloud")
+
+    assert is_cloud
+    assert headers is not None
+    assert headers["Authorization"] == "Bearer secret-key"
+
+
+# --- the request the client actually sends ----------------------------------
+
+
+class _CapturedPost:
+    """Records the outgoing request instead of performing it."""
+
+    def __init__(self) -> None:
+        self.kwargs: dict = {}
+
+    def __call__(self, url, **kwargs):  # noqa: ANN001
+        self.kwargs = {"url": url, **kwargs}
+
+        class _Response:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return {"response": "ok", "prompt_eval_count": 1, "eval_count": 1}
+
+        return _Response()
+
+
+def _post_to_ollama(monkeypatch: pytest.MonkeyPatch, host: str) -> dict:
+    """Run one Ollama request against ``host`` and return the captured call.
+
+    A plain model id is used so the request timeout reflects the resolved cloud
+    flag alone; a ``-cloud`` model id doubles the timeout on its own.
+    """
+    import requests
+
+    from tacs.core.llm_client import LLMClient
+
+    monkeypatch.setenv("OLLAMA_HOST", host)
+    monkeypatch.setenv("OLLAMA_API_KEY", "secret-key")
+    captured = _CapturedPost()
+    monkeypatch.setattr(requests, "post", captured)
+
+    client = LLMClient(llm_type="ollama", model="llama3.1", timeout_sec=30)
+    client._make_local_request("prompt")
+    return captured.kwargs
+
+
+@pytest.mark.parametrize("host", IMPOSTOR_HOSTS)
+def test_client_sends_no_credentials_to_a_lookalike_host(
+    host: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The client must not authenticate to a host that only looks like the cloud."""
+    call = _post_to_ollama(monkeypatch, host)
+
+    assert call["headers"] is None
+    assert "secret-key" not in str(call)
+    # Treated as local throughout, including the timeout allowance.
+    assert call["timeout"] == 30
+
+
+def test_client_authenticates_to_the_real_cloud(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    call = _post_to_ollama(monkeypatch, "https://ollama.com")
+
+    assert call["headers"]["Authorization"] == "Bearer secret-key"
+    assert call["url"] == "https://ollama.com/api/generate"
+    assert call["timeout"] == 60
