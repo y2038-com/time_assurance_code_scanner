@@ -337,7 +337,8 @@ def detect_time_t_casts(cleaned: str, original: str, time_t_aliases: List[str],
 
 # ============================== Directory walk ==============================
 
-def iter_source_files(root: str, include_patterns: List[str] = None, exclude_patterns: List[str] = None):
+def iter_source_files(root: str, include_patterns: List[str] = None, exclude_patterns: List[str] = None,
+                      max_file_size: int = None):
     """
     Iterate over source files in the directory tree, respecting include/exclude patterns.
     
@@ -345,6 +346,9 @@ def iter_source_files(root: str, include_patterns: List[str] = None, exclude_pat
         root: Root directory to scan
         include_patterns: List of glob patterns to include (e.g., ['**/*.c', 'test_*.c'])
         exclude_patterns: List of glob patterns to exclude (e.g., ['**/tests/**'])
+        max_file_size: Optional per-file byte limit; larger files are not yielded.
+            A file exactly at the threshold is yielded, and a file whose size
+            cannot be read is yielded rather than dropped silently.
     
     Yields:
         File paths matching the patterns
@@ -396,6 +400,12 @@ def iter_source_files(root: str, include_patterns: List[str] = None, exclude_pat
     
     # Yield files in sorted order for consistent output
     for file_path in sorted(all_files):
+        if max_file_size is not None:
+            try:
+                if os.path.getsize(file_path) > max_file_size:
+                    continue
+            except OSError:
+                pass
         yield file_path
 
 
@@ -519,6 +529,7 @@ def main():
     ap.add_argument('--time-functions', help='JSON file with time function names for cast detection')
     ap.add_argument('--include', action='append', default=None, help='Include glob patterns (can be specified multiple times)')
     ap.add_argument('--exclude', action='append', default=None, help='Exclude glob patterns (can be specified multiple times)')
+    ap.add_argument('--max-file-size', type=int, default=None, help='Skip source files larger than this many bytes (default: no limit)')
     args = ap.parse_args()
 
     tok_idx, min_rank = load_rules(args.rules, args.min_risk)
@@ -554,7 +565,7 @@ def main():
     per_symbol_total = Counter()
 
     # Count total files first for progress tracking
-    file_list = list(iter_source_files(args.directory, args.include, args.exclude))
+    file_list = list(iter_source_files(args.directory, args.include, args.exclude, args.max_file_size))
     total_files = len(file_list)
     files_processed = 0
     last_progress = 0

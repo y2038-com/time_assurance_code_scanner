@@ -12,6 +12,7 @@ from tacs.core.schema import (
     Candidate, Finding, LLMResponse, ScanResults, ScanMetadata, Metrics,
     Y2038Issue, SeverityLevel, IOCandidate
 )
+from tacs.core.file_limits import is_within_size_limit, validate_max_file_size
 from tacs.core.metrics import calculate_metrics
 from tacs.core.path_utils import repo_relative_path
 from tacs.core.discovery_manager import DiscoveryManager
@@ -69,6 +70,7 @@ class ScanningPipeline:
         # triage before the function-level passes, which see far more context.
         enable_pass1: bool = False,
         detect_y2106: bool = False,
+        max_file_size: Optional[int] = None,
         max_function_iters: int = 2,
         batch_size_func: int = 15,
         max_function_lines: int = 10000,
@@ -116,6 +118,7 @@ class ScanningPipeline:
         self.function_first = function_first
         self.enable_pass1 = enable_pass1
         self.detect_y2106 = detect_y2106
+        self.max_file_size = validate_max_file_size(max_file_size)
         self.max_function_iters = max_function_iters
         self.batch_size_func = batch_size_func
         self.max_function_lines = max_function_lines
@@ -184,9 +187,13 @@ class ScanningPipeline:
                     StatusLogger.timestamped_error(f"Failed to load migration configs: {e}")
                     self.migration_mode = False
         
-        # Initialize components
-        self.discovery_manager = DiscoveryManager(max_typedef_hops, max_aliases)
-        self.ir_adapter = IRAdapter(scanner_path)
+        # Initialize components. Each file-reading component gets max_file_size, so
+        # an oversized file is skipped by every enumeration layer rather than by
+        # whichever one happened to be filtered.
+        self.discovery_manager = DiscoveryManager(
+            max_typedef_hops, max_aliases, max_file_size=self.max_file_size
+        )
+        self.ir_adapter = IRAdapter(scanner_path, max_file_size=self.max_file_size)
         self.struct_filter = StructuralFilter()
         
         # Initialize I/O boundary analyzer (will be updated with aliases after discovery)
@@ -199,7 +206,8 @@ class ScanningPipeline:
                 enable_io_analysis=self.enable_io_analysis,
                 score_threshold=self.io_score_threshold,
                 check_literal_widths=self.io_check_literal_widths,
-                score_weights=self.io_score_weights
+                score_weights=self.io_score_weights,
+                max_file_size=self.max_file_size
             )
         else:
             self.io_analyzer = None
@@ -363,6 +371,10 @@ class ScanningPipeline:
             }
 
         return {
+            "files": {
+                "max_file_size": info.get('max_file_size'),
+                "files_skipped_too_large": info.get('files_skipped_too_large', 0),
+            },
             "prescan": {"time_t_aliases": session.stage_counts.get("time_t_aliases", 0)},
             "ir": {
                 "candidates": session.stage_counts.get("ir_candidates", 0),
@@ -432,7 +444,23 @@ class ScanningPipeline:
         # Stage 1: Calculate metrics
         StatusLogger.timestamped_debug("Stage 1: Code metrics...")
         session.start_timing("metrics")
-        metrics = calculate_metrics(root_path, include_patterns, exclude_patterns)
+        metrics = calculate_metrics(
+            root_path, include_patterns, exclude_patterns, self.max_file_size
+        )
+        if metrics.files_skipped_too_large:
+            StatusLogger.timestamped_print(
+                f"Stage 1: Skipped "
+                f"{_format_count(metrics.files_skipped_too_large, 'file')} "
+                f"over the {self.max_file_size} byte max_file_size"
+            )
+        # Carried into stage_stats.json so a run records the limit it applied and
+        # what the limit cost, rather than leaving the gap unexplained.
+        if not hasattr(session, '_legacy_pipeline_info'):
+            session._legacy_pipeline_info = {}
+        session._legacy_pipeline_info['max_file_size'] = self.max_file_size
+        session._legacy_pipeline_info['files_skipped_too_large'] = (
+            metrics.files_skipped_too_large
+        )
         StatusLogger.timestamped_print(f"Stage 1: Found {metrics.total_files} files, {metrics.total_lines} lines")
         session.end_timing("metrics")
         session.log_message("INFO", f"Metrics: {metrics.total_files} files, {metrics.total_lines} lines")
@@ -2246,7 +2274,7 @@ Timing (ms):
         all_files = []
         for pattern in include_patterns or ['**/*.c', '**/*.h']:
             for file_path in root.rglob(pattern.replace('**/', '')):
-                if file_path.is_file():
+                if file_path.is_file() and is_within_size_limit(file_path, self.max_file_size):
                     all_files.append(file_path)
         
         # Filter by exclude patterns
@@ -2440,7 +2468,7 @@ Timing (ms):
         all_files = []
         for pattern in include_patterns or ['**/*.c', '**/*.h']:
             for file_path in root.rglob(pattern.replace('**/', '')):
-                if file_path.is_file():
+                if file_path.is_file() and is_within_size_limit(file_path, self.max_file_size):
                     all_files.append(file_path)
         
         # Filter by exclude patterns

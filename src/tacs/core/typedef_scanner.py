@@ -9,20 +9,29 @@ from pathlib import Path
 from typing import Dict, List, Set, Tuple, Optional
 from collections import defaultdict
 
+from tacs.core.file_limits import is_within_size_limit
+
 
 class TypedefScanner:
     """Scanner for typedef statements that create time_t aliases."""
     
-    def __init__(self, max_hops: int = 5, max_aliases: int = 64):
+    def __init__(
+        self,
+        max_hops: int = 5,
+        max_aliases: int = 64,
+        max_file_size: Optional[int] = None,
+    ):
         """
         Initialize the typedef scanner.
         
         Args:
             max_hops: Maximum number of hops to follow typedef chains
             max_aliases: Maximum number of aliases to discover
+            max_file_size: Optional per-file byte limit; larger files are not read
         """
         self.max_hops = max_hops
         self.max_aliases = max_aliases
+        self.max_file_size = max_file_size
         
         # Patterns for typedef parsing
         self.typedef_pattern = re.compile(
@@ -100,7 +109,13 @@ class TypedefScanner:
             excluded_files.update(matches)
         
         # Return only included files that are not excluded
-        return [Path(f) for f in all_files if f not in excluded_files and Path(f).is_file()]
+        return [
+            Path(f)
+            for f in all_files
+            if f not in excluded_files
+            and Path(f).is_file()
+            and is_within_size_limit(f, self.max_file_size)
+        ]
     
     def _find_typedefs(self, content: str, file_path: str) -> Dict[str, List[str]]:
         """Find typedef statements in file content."""

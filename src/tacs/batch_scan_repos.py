@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import urlparse
 
+from tacs.core.file_limits import validate_max_file_size
 from tacs.core.include_patterns import build_include_patterns
 from tacs.core.path_utils import update_latest_symlink
 from tacs.core.status_logger import StatusLogger
@@ -400,19 +401,31 @@ def _extract_stage_stats(repo_dir: Path) -> dict[str, Any]:
     return stats
 
 
+#: Per-repository ``scan_overrides`` keys a repos file may set. Every key here is
+#: read when the repository is scanned; anything else is reported and dropped.
+#: ``confidence_threshold`` is an alias for ``confidence_floor``, which wins when
+#: both appear.
+SUPPORTED_SCAN_OVERRIDES = (
+    "file_extensions",
+    "exclude_patterns",
+    "max_file_size",
+    "enable_llm",
+    "llm_type",
+    "model",
+    "disable_stage1",
+    "detect_y2106",
+    "confidence_threshold",
+    "confidence_floor",
+    "include_no_findings",
+    "config_override",
+)
+
+#: Providers a per-repository ``llm_type`` may name, matching ``--llm-type``.
+SUPPORTED_LLM_TYPES = ("ollama", "openai", "anthropic", "gemini")
+
+
 def _scan_overrides(overrides: dict[str, Any] | None) -> tuple[dict[str, Any], list[str]]:
-    allowed = {
-        "file_extensions",
-        "exclude_patterns",
-        "max_file_size",
-        "enable_llm",
-        "disable_stage1",
-        "detect_y2106",
-        "confidence_threshold",
-        "confidence_floor",
-        "include_no_findings",
-        "config_override",
-    }
+    allowed = set(SUPPORTED_SCAN_OVERRIDES)
     cleaned: dict[str, Any] = {}
     warnings: list[str] = []
     if not overrides:
@@ -609,6 +622,7 @@ def _build_pipeline(
     confidence_floor: float,
     timeout_sec: int,
     environment_config_path: str,
+    max_file_size: int | None = None,
 ) -> Any:
     """
     Construct the scanning pipeline for one repository.
@@ -657,6 +671,7 @@ def _build_pipeline(
         # --no-disable-stage1 meaning the same thing it means for tacs scan.
         enable_pass1=not disable_stage1,
         detect_y2106=detect_y2106,
+        max_file_size=max_file_size,
         max_function_iters=2,
         batch_size_func=15,
         max_function_lines=10000,
@@ -987,6 +1002,9 @@ def main(argv: list[str] | None = None) -> int:
             env_config_path = per_repo_dir / "env_config.json"
             _write_json(env_config_path, _config_id_to_env_json(effective_config_id))
 
+            # Own stage so a rejected override is not reported as a config-detection
+            # failure, which is what the caller would go looking at.
+            stage = "scan_overrides"
             include_patterns = build_include_patterns(
                 overrides.get("file_extensions")
                 if isinstance(overrides.get("file_extensions"), list)
@@ -1000,10 +1018,19 @@ def main(argv: list[str] | None = None) -> int:
             )
             include_no_findings = bool(overrides.get("include_no_findings", args.include_no_findings))
             enable_llm = bool(overrides.get("enable_llm", args.enable_llm))
+            # Per-repo provider/model win over the batch-wide CLI defaults. Both are
+            # validated here so a bad value fails this repository with a clear
+            # message instead of reaching a provider call.
             llm_type = str(overrides.get("llm_type", args.llm_type)).strip().lower()
+            if llm_type not in SUPPORTED_LLM_TYPES:
+                raise ValueError(
+                    f"invalid llm_type override: {overrides.get('llm_type')!r} "
+                    f"(supported: {', '.join(SUPPORTED_LLM_TYPES)})"
+                )
             model = str(overrides.get("model", args.model)).strip()
-            if llm_type not in {"ollama", "openai", "anthropic", "gemini"}:
-                raise ValueError(f"invalid llm_type override: {llm_type}")
+            if not model:
+                raise ValueError("model override must not be empty")
+            max_file_size = validate_max_file_size(overrides.get("max_file_size"))
             disable_stage1 = bool(overrides.get("disable_stage1", args.disable_stage1))
             detect_y2106 = bool(overrides.get("detect_y2106", args.detect_y2106))
             confidence_floor_raw = overrides.get("confidence_floor", overrides.get("confidence_threshold", args.confidence_floor))
@@ -1024,6 +1051,7 @@ def main(argv: list[str] | None = None) -> int:
                 confidence_floor=confidence_floor,
                 timeout_sec=args.scanner_timeout_sec,
                 environment_config_path=str(env_config_path),
+                max_file_size=max_file_size,
             )
 
             rules_path = (Path(__file__).resolve().parent / "rules" / "y2038_sample_rules.json")
@@ -1093,6 +1121,14 @@ def main(argv: list[str] | None = None) -> int:
                     "detector_top_likelihood_config_id": detector_top_id,
                     "effective_options": {
                         "enable_llm": enable_llm,
+                        # Provider and model are recorded either way so the run is
+                        # reproducible, with enable_llm saying whether they ran.
+                        # llm_executed keeps that unambiguous for a no-LLM repo,
+                        # where these name what would have been used.
+                        "llm_type": llm_type,
+                        "model": model,
+                        "llm_executed": enable_llm,
+                        "max_file_size": max_file_size,
                         "disable_stage1": disable_stage1,
                         "detect_y2106": detect_y2106,
                         "confidence_floor": confidence_floor,
@@ -1165,6 +1201,8 @@ def main(argv: list[str] | None = None) -> int:
             status = "failed"
             if stage == "config_detect":
                 error_code = "CONFIG_DETECT_FAILED"
+            elif stage == "scan_overrides":
+                error_code = "INVALID_SCAN_OVERRIDE"
             else:
                 error_code = "INTERNAL_ERROR"
             error_message = str(e)

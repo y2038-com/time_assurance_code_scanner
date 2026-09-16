@@ -6,11 +6,18 @@ from __future__ import annotations
 import os
 import glob
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+from tacs.core.file_limits import MAX_RECORDED_SKIPS, is_within_size_limit
+from tacs.core.path_utils import repo_relative_path
 from tacs.core.schema import Metrics
 
 
-def calculate_metrics(root_path: str, include_patterns: List[str], exclude_patterns: List[str]) -> Metrics:
+def calculate_metrics(
+    root_path: str,
+    include_patterns: List[str],
+    exclude_patterns: List[str],
+    max_file_size: Optional[int] = None,
+) -> Metrics:
     """
     Calculate code metrics for the given root path with include/exclude patterns.
     
@@ -18,10 +25,17 @@ def calculate_metrics(root_path: str, include_patterns: List[str], exclude_patte
         root_path: Root directory to scan
         include_patterns: List of glob patterns to include
         exclude_patterns: List of glob patterns to exclude
+        max_file_size: Optional per-file byte limit; larger files are skipped
         
     Returns:
         Metrics object with calculated values
+
+    This pass already visits every file the scan will consider, so it also serves
+    as the audit of what ``max_file_size`` excluded. Metrics then describe the
+    files that were actually scanned.
     """
+    skipped_count = 0
+    skipped_detail: List[Dict[str, Any]] = []
     total_files = 0
     total_lines = 0
     total_chars = 0
@@ -64,7 +78,22 @@ def calculate_metrics(root_path: str, include_patterns: List[str], exclude_patte
             
         if not os.path.isfile(file_path):
             continue
-            
+
+        if not is_within_size_limit(file_path, max_file_size):
+            skipped_count += 1
+            if len(skipped_detail) < MAX_RECORDED_SKIPS:
+                try:
+                    size_bytes = os.path.getsize(file_path)
+                except OSError:
+                    size_bytes = None
+                skipped_detail.append(
+                    {
+                        "path": repo_relative_path(file_path, root),
+                        "size_bytes": size_bytes,
+                    }
+                )
+            continue
+
         try:
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 file_lines = 0
@@ -103,5 +132,8 @@ def calculate_metrics(root_path: str, include_patterns: List[str], exclude_patte
         max_line_length=max_line_length,
         avg_line_length=avg_line_length,
         max_file_length=max_file_length,
-        avg_file_length=avg_file_length
+        avg_file_length=avg_file_length,
+        max_file_size=max_file_size,
+        files_skipped_too_large=skipped_count,
+        skipped_too_large=sorted(skipped_detail, key=lambda entry: entry["path"]),
     )

@@ -14,15 +14,24 @@ from tacs.core.status_logger import StatusLogger
 class DiscoveryManager:
     """Manages the discovery of typedefs and macros for time_t aliases."""
     
-    def __init__(self, max_typedef_hops: int = 5, max_aliases: int = 64):
+    def __init__(
+        self,
+        max_typedef_hops: int = 5,
+        max_aliases: int = 64,
+        max_file_size: Optional[int] = None,
+    ):
         """
         Initialize the discovery manager.
         
         Args:
             max_typedef_hops: Maximum number of hops to follow typedef chains
             max_aliases: Maximum number of typedef aliases to discover
+            max_file_size: Optional per-file byte limit; larger files are not read
         """
-        self.typedef_scanner = TypedefScanner(max_typedef_hops, max_aliases)
+        self.max_file_size = max_file_size
+        self.typedef_scanner = TypedefScanner(
+            max_typedef_hops, max_aliases, max_file_size=max_file_size
+        )
         
         # Seed types for typedef discovery
         self.seed_types = {

@@ -6,6 +6,7 @@
 import re
 from pathlib import Path
 from typing import List, Dict, Set, Optional, Any, Tuple
+from tacs.core.file_limits import is_within_size_limit
 from tacs.core.schema import Candidate, IOCandidate, IOCandidateType, RemediationClass
 from tacs.core.io_format_parser import FormatSpecifierParser, FormatSpec
 from tacs.core.status_logger import StatusLogger
@@ -155,7 +156,8 @@ class IOBoundaryAnalyzer:
         enable_io_analysis: bool = True,
         score_threshold: float = 6.0,
         check_literal_widths: bool = True,
-        score_weights: Optional[Dict[str, float]] = None
+        score_weights: Optional[Dict[str, float]] = None,
+        max_file_size: Optional[int] = None
     ):
         """
         Initialize I/O boundary analyzer.
@@ -168,7 +170,9 @@ class IOBoundaryAnalyzer:
             score_threshold: Minimum score to escalate to LLM
             check_literal_widths: Check for suspicious literal widths (4/8)
             score_weights: Custom scoring weights
+            max_file_size: Optional per-file byte limit; larger files are not read
         """
+        self.max_file_size = max_file_size
         self.time_t_aliases = time_t_aliases
         self.time_bearing_symbols = set(time_bearing_symbols)
         self.environment_config = environment_config or {}
@@ -296,7 +300,7 @@ class IOBoundaryAnalyzer:
         all_files = []
         for pattern in include_patterns or ['**/*.c', '**/*.h']:
             for file_path in root.rglob(pattern.replace('**/', '')):
-                if file_path.is_file():
+                if file_path.is_file() and is_within_size_limit(file_path, self.max_file_size):
                     all_files.append(file_path)
         
         # Filter by exclude patterns

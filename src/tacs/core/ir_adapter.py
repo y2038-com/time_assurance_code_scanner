@@ -8,7 +8,8 @@ import re
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import List, Dict, Any, Set
+from typing import List, Dict, Any, Optional, Set
+from tacs.core.file_limits import is_within_size_limit
 from tacs.core.schema import Candidate
 from tacs.core.status_logger import StatusLogger
 from tacs.core.define_scanner import DefineScanner, DefineMatch
@@ -18,13 +19,16 @@ from tacs.core.arithmetic_scanner import ArithmeticScanner, ArithmeticMatch
 class IRAdapter:
     """Adapter for the fast token inverted index scanner."""
     
-    def __init__(self, scanner_path: str):
+    def __init__(self, scanner_path: str, max_file_size: Optional[int] = None):
         """
         Initialize the IR adapter.
         
         Args:
             scanner_path: Path to the y2038scan_fast_json_group.py script
+            max_file_size: Optional per-file byte limit; larger files are not read,
+                and the limit is handed to the scanner subprocess as well
         """
+        self.max_file_size = max_file_size
         self.scanner_path = Path(scanner_path)
         if not self.scanner_path.exists():
             raise FileNotFoundError(f"Scanner script not found: {scanner_path}")
@@ -100,6 +104,8 @@ class IRAdapter:
             if exclude_patterns:
                 for pattern in exclude_patterns:
                     cmd.extend(['--exclude', pattern])
+            if self.max_file_size is not None:
+                cmd.extend(['--max-file-size', str(self.max_file_size)])
             
             # Add time_t cast detection arguments if available
             if time_t_aliases_path:
@@ -210,7 +216,12 @@ class IRAdapter:
         
         # Get files to scan
         StatusLogger.timestamped_debug("Scanning for #define statements...")
-        files = self._get_files(root_path, include_patterns or ['**/*.c', '**/*.h'], exclude_patterns or [])
+        files = self._get_files(
+            root_path,
+            include_patterns or ['**/*.c', '**/*.h'],
+            exclude_patterns or [],
+            self.max_file_size,
+        )
         define_matches = []
         
         # Scan each file for #define statements
@@ -243,8 +254,14 @@ class IRAdapter:
         
         return candidates
     
-    def _get_files(self, root_path: str, include_patterns: List[str], exclude_patterns: List[str]) -> List[Path]:
-        """Get list of files matching include/exclude patterns."""
+    def _get_files(
+        self,
+        root_path: str,
+        include_patterns: List[str],
+        exclude_patterns: List[str],
+        max_file_size: Optional[int] = None,
+    ) -> List[Path]:
+        """Get list of files matching include/exclude patterns, within the size limit."""
         import glob
         
         root = Path(root_path).resolve()
@@ -270,7 +287,13 @@ class IRAdapter:
             excluded_files.update(matches)
         
         # Return only included files that are not excluded
-        return [Path(f) for f in all_files if f not in excluded_files and Path(f).is_file()]
+        return [
+            Path(f)
+            for f in all_files
+            if f not in excluded_files
+            and Path(f).is_file()
+            and is_within_size_limit(f, max_file_size)
+        ]
     
     def _scan_for_arithmetic(self, root_path: str, include_patterns: List[str] = None, 
                              exclude_patterns: List[str] = None, 
@@ -281,7 +304,12 @@ class IRAdapter:
         
         # Get files to scan
         StatusLogger.timestamped_debug("Scanning for arithmetic operations on time_t...")
-        files = self._get_files(root_path, include_patterns or ['**/*.c', '**/*.h'], exclude_patterns or [])
+        files = self._get_files(
+            root_path,
+            include_patterns or ['**/*.c', '**/*.h'],
+            exclude_patterns or [],
+            self.max_file_size,
+        )
         arithmetic_matches = []
         
         # Track declared time_t variables per file

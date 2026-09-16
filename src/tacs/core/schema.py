@@ -160,6 +160,20 @@ class Metrics(BaseModel):
     avg_line_length: float = Field(..., description="Average line length")
     max_file_length: int = Field(..., description="Maximum file length")
     avg_file_length: float = Field(..., description="Average file length")
+    max_file_size: Optional[int] = Field(
+        default=None,
+        description="Effective per-file size limit in bytes (null when unlimited)",
+    )
+    files_skipped_too_large: int = Field(
+        default=0, description="Files skipped for exceeding max_file_size"
+    )
+    skipped_too_large: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "Repo-relative path and size of skipped files, capped at "
+            "file_limits.MAX_RECORDED_SKIPS entries; files_skipped_too_large is exact"
+        ),
+    )
 
 
 class ScanMetadata(BaseModel):
