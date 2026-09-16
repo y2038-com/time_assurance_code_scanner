@@ -11,6 +11,18 @@ from typing import Any, Optional
 from tacs.core.logging_config import get_logger
 
 
+def format_count(n: int, singular: str, plural: Optional[str] = None) -> str:
+    """
+    Return ``N noun`` with simple English singular/plural.
+
+    Lives here so the scan pipeline and the batch runner phrase a count the same
+    way. The batch runner imports the pipeline lazily, to keep ``--dry-run`` free
+    of scanner dependencies, so it cannot borrow a helper from there.
+    """
+    word = singular if n == 1 else (plural if plural is not None else f"{singular}s")
+    return f"{n} {word}"
+
+
 class StatusLogger:
     """Compatibility adapter: timestamped_* helpers over standard logging."""
 

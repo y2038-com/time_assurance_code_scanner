@@ -178,10 +178,12 @@ def test_scan_default_info_shows_stages(tmp_path: Path) -> None:
     assert "Stage 3: IR candidate discovery" in err
     assert "Found" in err and "candidates" in err
     assert "Stage 4: After filtering:" in err
-    assert "Extracted" in err and "functions containing candidates" in err
+    # Count nouns are pluralized, so match the part that does not vary with N.
+    assert "Extracted" in err and "containing candidates" in err
     assert "Scan complete:" in err
     assert "confirmed Y2038 issues" in err
-    assert "remain unclassified (LLM disabled)" in err
+    # "remains"/"remain" agrees with the count, so match the invariant tail.
+    assert "unclassified (LLM disabled)" in err
     # Singular candidate wording for count==1
     assert "Found 1 candidate" in err
     assert "After filtering: 1 candidate" in err
@@ -257,7 +259,7 @@ def test_scan_zero_candidates_uses_clean_wording(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.stderr
     err = result.stderr or ""
     assert "No Y2038 candidate findings detected" in err
-    assert "remain unclassified (LLM disabled)" not in err
+    assert "unclassified (LLM disabled)" not in err
 
 
 def test_scan_y2106_breakdown_is_debug_only(tmp_path: Path) -> None:
@@ -329,6 +331,14 @@ def test_format_no_llm_repo_summary_wording() -> None:
             {"total_findings": 44, "yes_findings": 0, "abstain_findings": 44},
         )
         == "repo_b: 0 confirmed Y2038 issues; 44 candidate findings remain unclassified (LLM disabled)"
+    )
+    # One candidate takes the singular noun and the verb that agrees with it.
+    assert (
+        _format_no_llm_repo_summary(
+            "repo_c",
+            {"total_findings": 1, "yes_findings": 0, "abstain_findings": 1},
+        )
+        == "repo_c: 0 confirmed Y2038 issues; 1 candidate finding remains unclassified (LLM disabled)"
     )
 
 

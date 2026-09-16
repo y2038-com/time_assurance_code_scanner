@@ -18,7 +18,7 @@ from tacs.core.path_utils import repo_relative_path
 from tacs.core.discovery_manager import DiscoveryManager
 from tacs.core.ir_adapter import IRAdapter
 from tacs.core.struct_filter import StructuralFilter
-from tacs.core.status_logger import StatusLogger
+from tacs.core.status_logger import StatusLogger, format_count
 from tacs.core.scan_session import ScanSession
 from tacs.core.function_schemas import FunctionBody, FunctionAnalysis
 from tacs.llm.env import DEFAULT_MODEL
@@ -30,10 +30,8 @@ class EnvironmentConfigError(RuntimeError):
     """An environment config was requested but cannot be used as given."""
 
 
-def _format_count(n: int, singular: str, plural: str | None = None) -> str:
-    """Return ``N noun`` with simple English singular/plural."""
-    word = singular if n == 1 else (plural if plural is not None else f"{singular}s")
-    return f"{n} {word}"
+#: Shared with the batch runner so both phrase counts identically.
+_format_count = format_count
 
 
 class ScanningPipeline:
@@ -461,9 +459,16 @@ class ScanningPipeline:
         session._legacy_pipeline_info['files_skipped_too_large'] = (
             metrics.files_skipped_too_large
         )
-        StatusLogger.timestamped_print(f"Stage 1: Found {metrics.total_files} files, {metrics.total_lines} lines")
+        StatusLogger.timestamped_print(
+            f"Stage 1: Found {_format_count(metrics.total_files, 'file')}, "
+            f"{_format_count(metrics.total_lines, 'line')}"
+        )
         session.end_timing("metrics")
-        session.log_message("INFO", f"Metrics: {metrics.total_files} files, {metrics.total_lines} lines")
+        session.log_message(
+            "INFO",
+            f"Metrics: {_format_count(metrics.total_files, 'file')}, "
+            f"{_format_count(metrics.total_lines, 'line')}",
+        )
         
         # Stage 2: Typedef discovery (using iterative typedef scanner)
         if self.enable_discovery:
@@ -848,7 +853,9 @@ class ScanningPipeline:
         session.start_timing("functionization")
         StatusLogger.timestamped_debug("Functionization - extracting functions with candidates...")
         functions = self.function_analyzer.extract_functions_with_candidates(candidates)
-        StatusLogger.timestamped_print(f"Extracted {len(functions)} functions containing candidates")
+        StatusLogger.timestamped_print(
+            f"Extracted {_format_count(len(functions), 'function')} containing candidates"
+        )
         session.end_timing("functionization")
         
         # Create mapping from function_id to FunctionBody for later passes
@@ -1668,7 +1675,9 @@ class ScanningPipeline:
             # Count total issues (Y2038 + Y2106, avoiding double-counting BOTH)
             total_issues = yes_count + y2106_yes - sum(1 for f in findings if f.issue_type == TimeIssueType.BOTH)
             
-            StatusLogger.timestamped_print(f"Scan complete: {len(findings)} findings")
+            StatusLogger.timestamped_print(
+                f"Scan complete: {_format_count(len(findings), 'finding')}"
+            )
             StatusLogger.timestamped_debug(
                 f"  Y2038: {classified['yes']} yes, {classified['no']} no, "
                 f"{classified['abstain']} abstain"
@@ -1683,10 +1692,14 @@ class ScanningPipeline:
             if len(findings) == 0:
                 StatusLogger.timestamped_print("No Y2038 candidate findings detected")
             else:
-                StatusLogger.timestamped_print(f"Scan complete: {len(findings)} findings")
+                StatusLogger.timestamped_print(
+                f"Scan complete: {_format_count(len(findings), 'finding')}"
+            )
                 StatusLogger.timestamped_print(
                     f"{yes_count} confirmed Y2038 issues; "
-                    f"{abstain_count} candidate findings remain unclassified (LLM disabled)"
+                    f"{_format_count(abstain_count, 'candidate finding')} "
+                    f"{'remains' if abstain_count == 1 else 'remain'} "
+                    f"unclassified (LLM disabled)"
                 )
         else:
             # Report verdicts and retained records separately: safe ("no") findings
@@ -1700,7 +1713,8 @@ class ScanningPipeline:
         
         # Log final abstain summary
         if abstain_count > 0 and self.llm_type != "none":
-            StatusLogger.timestamped_print(f"Final abstain summary: {abstain_count} finding(s) could not be definitively classified")
+            StatusLogger.timestamped_print(f"Final abstain summary: {_format_count(abstain_count, 'finding')} "
+                f"could not be definitively classified")
             abstain_by_pass = {}
             for finding in findings:
                 if finding.y2038_issue == Y2038Issue.ABSTAIN:
@@ -1710,7 +1724,7 @@ class ScanningPipeline:
                 StatusLogger.timestamped_debug(f"  - {count} from {pass_name}")
         elif abstain_count > 0 and self.llm_type == "none":
             StatusLogger.timestamped_debug(
-                f"Abstain breakdown (LLM disabled): {abstain_count} unclassified candidate(s)"
+                f"Abstain breakdown (LLM disabled): {_format_count(abstain_count, 'unclassified candidate')}"
             )
         
         # Public findings JSON is written only by save_results(..., --out). A

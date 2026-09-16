@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 from tacs.core.file_limits import validate_max_file_size
 from tacs.core.include_patterns import build_include_patterns
 from tacs.core.path_utils import update_latest_symlink
-from tacs.core.status_logger import StatusLogger
+from tacs.core.status_logger import StatusLogger, format_count
 
 
 LOGGER = logging.getLogger("tacs.batch_scan_repos")
@@ -291,7 +291,8 @@ def _format_no_llm_repo_summary(repo_key: str, finding_summary: dict[str, int]) 
     abstain = int(finding_summary.get("abstain_findings", 0) or 0)
     return (
         f"{repo_key}: {yes} confirmed Y2038 issues; "
-        f"{abstain} candidate findings remain unclassified (LLM disabled)"
+        f"{format_count(abstain, 'candidate finding')} "
+        f"{'remains' if abstain == 1 else 'remain'} unclassified (LLM disabled)"
     )
 
 
@@ -308,7 +309,7 @@ def _format_llm_repo_summary(
     fact classified safe.
     """
     retained = int(finding_summary.get("total_findings", 0) or 0)
-    retained_text = f"{retained} {'finding' if retained == 1 else 'findings'} retained"
+    retained_text = f"{format_count(retained, 'finding')} retained"
     if not classification:
         return f"{repo_key}: {retained_text}"
     return (
