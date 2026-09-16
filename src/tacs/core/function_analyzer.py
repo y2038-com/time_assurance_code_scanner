@@ -10,6 +10,7 @@ import hashlib
 from pathlib import Path
 from typing import List, Dict, Set, Optional, Tuple, Any
 from tacs.core.function_schemas import FunctionBody, FunctionAnalysis, ContextNeed
+from tacs.core.path_utils import repo_relative_path
 from tacs.core.schema import Candidate
 from tacs.core.status_logger import StatusLogger
 
@@ -17,22 +18,36 @@ from tacs.core.status_logger import StatusLogger
 class FunctionAnalyzer:
     """Analyzes source code to extract functions containing Y2038 candidates."""
     
-    def __init__(self, max_function_lines: int = 10000, max_function_chars: int = 20000):
+    def __init__(
+        self,
+        max_function_lines: int = 10000,
+        max_function_chars: int = 20000,
+        root_path: Optional[str] = None,
+    ):
         """
         Initialize the function analyzer.
         
         Args:
             max_function_lines: Maximum function lines before splitting (default: 10000)
             max_function_chars: Maximum function characters before splitting (default: 20000)
+            root_path: Scan root that function IDs are named relative to. Without it,
+                       IDs fall back to being relative to the current directory.
         """
         self.max_function_lines = max_function_lines
         self.max_function_chars = max_function_chars
+        self.root_path = root_path
         self.tree_sitter_available = self._check_tree_sitter()
         if not self.tree_sitter_available:
             # Tree-sitter is optional - this is just informational, not an error
             # The scanner will use a fallback function extraction method
             pass  # Removed warning - it's expected if tree-sitter isn't installed
     
+    def _identifier_path(self, file_path: str) -> str:
+        """Name a source file the way function IDs and diagnostics should show it."""
+        if self.root_path:
+            return repo_relative_path(file_path, self.root_path)
+        return os.path.relpath(file_path)
+
     def _check_tree_sitter(self) -> bool:
         """Check if tree-sitter is available."""
         try:
@@ -133,7 +148,7 @@ class FunctionAnalyzer:
                     function_body = ''.join(function_body_lines)
                     
                     # Create function ID
-                    rel_path = os.path.relpath(file_path)
+                    rel_path = self._identifier_path(file_path)
                     function_id = f"{rel_path}@{function_name}:{function_start + 1}-{function_end + 1}"
                     
                     function_body_obj = FunctionBody(
@@ -218,7 +233,7 @@ class FunctionAnalyzer:
                 ]
                 
                 # Create part function ID
-                rel_path = os.path.relpath(func.file_path)
+                rel_path = self._identifier_path(func.file_path)
                 part_function_id = f"{rel_path}@{func.symbol}:{current_start + 1}-{part_end + 1}:part{part_number}"
                 
                 part_func = FunctionBody(
@@ -257,7 +272,7 @@ class FunctionAnalyzer:
             ]
             
             # Create part function ID
-            rel_path = os.path.relpath(func.file_path)
+            rel_path = self._identifier_path(func.file_path)
             part_function_id = f"{rel_path}@{func.symbol}:{current_start + 1}-{part_end + 1}:part{part_number}"
             
             part_func = FunctionBody(

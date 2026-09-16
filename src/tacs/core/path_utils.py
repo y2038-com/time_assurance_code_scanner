@@ -1,0 +1,47 @@
+# Copyright (c) 2026 Y2038.com LLC
+# SPDX-License-Identifier: Apache-2.0
+
+"""
+Shared path normalization for persisted artifacts and console diagnostics.
+
+Scanning reads absolute paths (``tacs repos`` works out of a clone under
+``--cache-dir``), but the identifiers TACS persists and prints should name files
+the way the repository does: ``benchmark/timezone_gmt_time.c`` rather than a
+path rooted in the cache or the host filesystem.
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from typing import Optional, Union
+
+PathInput = Union[str, os.PathLike]
+
+
+def repo_relative_path(path: Optional[PathInput], root: Optional[PathInput]) -> str:
+    """
+    Express ``path`` relative to the scan root ``root``.
+
+    Returns a POSIX-style relative path when ``path`` is inside ``root``. A path
+    outside the root is returned unchanged rather than reached with ``..``, so an
+    unrelated file is never presented as if it belonged to the repository. Paths
+    that are already repository-relative are left alone for the same reason.
+    """
+    if path is None:
+        return ""
+
+    text = os.fspath(path)
+    if not text or root is None:
+        return text
+
+    root_text = os.fspath(root)
+    if not root_text:
+        return text
+
+    try:
+        relative = Path(text).resolve().relative_to(Path(root_text).resolve())
+    except (ValueError, OSError):
+        return text
+
+    return relative.as_posix() or "."

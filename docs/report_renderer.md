@@ -19,6 +19,15 @@ tacs render results/batch_runs/<run_id> --format html --out-dir results/reports/
 `tacs render` auto-detects a findings JSON file vs a batch run directory
 (with `repos/`). `--batch-run-dir` remains as a deprecated alias for batch input.
 
+## Source paths
+
+Findings name each source file relative to the scanned repository root, so a
+report reads `benchmark/timezone_gmt_time.c` whether the tree was scanned in
+place by `tacs scan` or from a clone under the `tacs repos` cache. The absolute
+root is recorded once per scan under `meta.root` in `findings.json`. A file
+outside the scan root keeps its original path, since it is not part of the
+repository.
+
 ## Module usage
 
 Run from repository root (with the package installed editable):
@@ -32,7 +41,7 @@ python -m report_renderer <path-to-findings.json> --format html --out report.htm
 
 - `--only yes|no|abstain`
 - `--min-confidence 0.80`
-- `--file-glob "src/**/*.c"` (repeatable)
+- `--file-glob "src/*.c"` (repeatable; matched against repository-relative paths)
 - `--rule TIME_T_TRUNCATION` (repeatable)
 - `--sort file|line|risk|confidence`
 - `--strict`

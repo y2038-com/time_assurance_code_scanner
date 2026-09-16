@@ -13,6 +13,7 @@ from tacs.core.schema import (
     Y2038Issue, SeverityLevel, IOCandidate
 )
 from tacs.core.metrics import calculate_metrics
+from tacs.core.path_utils import repo_relative_path
 from tacs.core.discovery_manager import DiscoveryManager
 from tacs.core.ir_adapter import IRAdapter
 from tacs.core.struct_filter import StructuralFilter
@@ -133,6 +134,10 @@ class ScanningPipeline:
             elif error:
                 StatusLogger.timestamped_warning(f"Config validation warning: {error}")
         
+        # Scan root, set by scan(). Persisted source identifiers and diagnostics are
+        # named relative to it so they do not carry the host filesystem layout.
+        self.root_path: Optional[str] = None
+
         # Migration mode
         self.migration_mode = migration_mode
         self.include_no_findings = include_no_findings
@@ -329,6 +334,11 @@ class ScanningPipeline:
         Returns:
             Complete scan results
         """
+        # Name persisted source paths and diagnostics relative to this root.
+        self.root_path = str(Path(root_path).resolve())
+        if hasattr(self, 'function_analyzer'):
+            self.function_analyzer.root_path = self.root_path
+
         # Initialize scan session
         session = ScanSession(
             root_path=root_path,
@@ -448,7 +458,7 @@ class ScanningPipeline:
         
         # Log candidates to session
         for candidate in candidates:
-            candidate_id = f"{candidate.file}:{candidate.line}"
+            candidate_id = f"{session.relative_path(candidate.file)}:{candidate.line}"
             session.log_candidate(
                 candidate_id=candidate_id,
                 file=candidate.file,
@@ -618,7 +628,9 @@ class ScanningPipeline:
         if self.debug_candidates and filtered_candidates:
             StatusLogger.timestamped_print(f"Sample candidates being sent to Stage S1, Pass P1:")
             for i, candidate in enumerate(filtered_candidates[:5]):
-                StatusLogger.timestamped_print(f"  {i+1}. {candidate.file}:{candidate.line} - {candidate.symbol}")
+                StatusLogger.timestamped_print(
+                    f"  {i+1}. {self._display_path(candidate.file)}:{candidate.line} - {candidate.symbol}"
+                )
                 StatusLogger.timestamped_print(f"     Code: {candidate.one_line_snippet}")
                 if candidate.symbol_role:
                     StatusLogger.timestamped_print(f"     Role: {candidate.symbol_role}")
@@ -639,6 +651,10 @@ class ScanningPipeline:
         
         # Convert findings to scan results
         return self._create_scan_results(findings, metrics, session, root_path, rules_path)
+
+    def _display_path(self, path: str) -> str:
+        """Name a scanned file relative to the scan root for output and diagnostics."""
+        return repo_relative_path(path, self.root_path)
 
     @staticmethod
     def _classification_counts(findings: List[Finding]) -> Dict[str, int]:
@@ -1442,7 +1458,8 @@ class ScanningPipeline:
                 total_batches = (len(functions_for_file) + batch_size - 1) // batch_size
                 cand_total, cand_max, cand_zero = self._function_batch_candidate_stats(batch_functions)
                 StatusLogger.timestamped_debug(
-                    f"Stage 9: Processing batch {batch_num} of {total_batches} from {file_path}: "
+                    f"Stage 9: Processing batch {batch_num} of {total_batches} "
+                    f"from {self._display_path(file_path)}: "
                     f"{len(batch_functions)} functions, {cand_total} candidate lines, "
                     f"max {cand_max} per function, {cand_zero} func(s) with no candidate_lines"
                 )
@@ -1522,6 +1539,11 @@ class ScanningPipeline:
     def _create_scan_results(self, findings: List[Finding], metrics: Metrics, session: ScanSession, root_path: str, rules_path: str) -> ScanResults:
         """Create scan results from findings."""
         from tacs.core.schema import ScanResults
+        
+        # Findings are carried with absolute paths so earlier stages can read the
+        # files; the ones we persist name the file as the repository does.
+        for finding in findings:
+            finding.file = repo_relative_path(finding.file, root_path)
         
         # Count findings by type
         from tacs.core.schema import TimeIssueType
@@ -1846,7 +1868,9 @@ Timing (ms):
             for i, (response, candidate) in enumerate(abstain_candidates):
                 StatusLogger.timestamped_print(f"Candidate {i+1}/{len(abstain_candidates)}:")
                 StatusLogger.timestamped_print(f"  ID: {response.id}")
-                StatusLogger.timestamped_print(f"  File: {candidate.file if candidate else 'MISSING'}")
+                StatusLogger.timestamped_print(
+                    f"  File: {self._display_path(candidate.file) if candidate else 'MISSING'}"
+                )
                 StatusLogger.timestamped_print(f"  Line: {candidate.line if candidate else 'MISSING'}")
                 StatusLogger.timestamped_print(f"  Symbol: {candidate.symbol if candidate else 'MISSING'}")
                 if candidate:
@@ -1924,7 +1948,7 @@ Timing (ms):
                     file_part.replace('\\', '/'),
                     file_part.replace('/', '\\'),
                     os.path.basename(file_part),
-                    os.path.relpath(file_part, self.root) if file_part.startswith(self.root) else file_part
+                    repo_relative_path(file_part, self.root_path),
                 ]
                 
                 for variation in variations:
@@ -2516,7 +2540,10 @@ Timing (ms):
             # Limit file size to prevent token overflow (practical limit)
             max_file_size = 200000  # ~200KB (increased from 50KB)
             if len(file_content) > max_file_size:
-                StatusLogger.timestamped_print(f"  File {file_path} too large ({len(file_content)} chars), truncating to {max_file_size}")
+                StatusLogger.timestamped_print(
+                    f"  File {self._display_path(file_path)} too large "
+                    f"({len(file_content)} chars), truncating to {max_file_size}"
+                )
                 file_content = file_content[:max_file_size] + "\n... [truncated]"
             
             # Prepare candidates with file content
@@ -2540,7 +2567,9 @@ Timing (ms):
                     file_candidates.append((mock_response, candidate, file_content))
             
             if not file_candidates:
-                StatusLogger.timestamped_print(f"  No valid candidates found for file {file_path}")
+                StatusLogger.timestamped_print(
+                    f"  No valid candidates found for file {self._display_path(file_path)}"
+                )
                 return findings_in_file
             
             # Use LLM to re-evaluate with full file context
@@ -2561,7 +2590,9 @@ Timing (ms):
                 return findings
                 
             except Exception as e:
-                StatusLogger.timestamped_error(f"  Stage S3, Pass P1 LLM processing failed for {file_path}: {e}")
+                StatusLogger.timestamped_error(
+                    f"  Stage S3, Pass P1 LLM processing failed for {self._display_path(file_path)}: {e}"
+                )
                 return findings_in_file
                 
         except Exception as e:

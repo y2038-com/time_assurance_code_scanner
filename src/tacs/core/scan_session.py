@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Union
 from collections import defaultdict
 
+from tacs.core.path_utils import repo_relative_path
+
 
 # Line-number prefixes used when source is embedded in prompts, e.g. "  12 | code"
 # or "12: code"; stripped before matching so prefixed source lines still redact.
@@ -138,7 +140,7 @@ This scan session contains all data needed for debugging, review, and fine-tunin
             "alias": alias,
             "resolves_to": resolves_to,
             "depth": depth,
-            "defined_in": self._make_relative_path(defined_in),
+            "defined_in": self.relative_path(defined_in),
             "line": line
         }
         
@@ -157,7 +159,7 @@ This scan session contains all data needed for debugging, review, and fine-tunin
         entry = {
             "macro": macro,
             "value": value,
-            "defined_in": self._make_relative_path(defined_in),
+            "defined_in": self.relative_path(defined_in),
             "line": line
         }
         
@@ -169,7 +171,7 @@ This scan session contains all data needed for debugging, review, and fine-tunin
         """Log an IR candidate."""
         entry = {
             "id": candidate_id,
-            "file": self._make_relative_path(file),
+            "file": self.relative_path(file),
             "line": line,
             "col_start": col_start,
             "col_end": col_end,
@@ -314,15 +316,9 @@ This scan session contains all data needed for debugging, review, and fine-tunin
         with open(self.logs_dir / "run.log", 'a') as f:
             f.write(log_entry)
     
-    def _make_relative_path(self, path: str) -> str:
-        """Convert absolute path to relative path."""
-        try:
-            abs_path = Path(path).resolve()
-            rel_path = abs_path.relative_to(self.root_path)
-            return str(rel_path)
-        except ValueError:
-            # Path is not under root, return as-is
-            return path
+    def relative_path(self, path: str) -> str:
+        """Name a scanned file relative to the scan root."""
+        return repo_relative_path(path, self.root_path)
     
     def create_latest_symlink(self):
         """Create symlink to latest scan."""
@@ -430,7 +426,7 @@ This scan session contains all data needed for debugging, review, and fine-tunin
             candidate_lines = getattr(func, 'candidate_lines', None) or []
             entry: Dict[str, Any] = {
                 "function_id": getattr(func, 'function_id', None),
-                "file_path": self._make_relative_path(func.file_path) if hasattr(func, 'file_path') else None,
+                "file_path": self.relative_path(func.file_path) if hasattr(func, 'file_path') else None,
                 "start_line": getattr(func, 'start_line', None),
                 "end_line": getattr(func, 'end_line', None),
                 "symbol": getattr(func, 'symbol', None),
