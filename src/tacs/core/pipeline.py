@@ -864,19 +864,21 @@ class ScanningPipeline:
         yes_count = sum(1 for f in findings if f.y2038_issue == Y2038Issue.YES)
         no_count = sum(1 for f in findings if f.y2038_issue == Y2038Issue.NO)
         abstain_count = sum(1 for f in findings if f.y2038_issue == Y2038Issue.ABSTAIN)
-        StatusLogger.timestamped_print(f"Stage 8, Pass 2a: Summary - {yes_count} yes, {no_count} no, {abstain_count} abstain")
+        StatusLogger.timestamped_print(
+            f"Stage 8, Pass 2a results: {yes_count} yes, {no_count} no, {abstain_count} abstain"
+        )
         
         # Log abstain details
         if abstain_count > 0:
-            StatusLogger.timestamped_print(f"Stage 8, Pass 2a: {abstain_count} abstain(s) requiring additional passes:")
+            StatusLogger.timestamped_debug(f"Stage 8, Pass 2a: {abstain_count} abstain(s) requiring additional passes:")
             for finding in findings[:10]:  # Log first 10 abstains
                 if finding.y2038_issue == Y2038Issue.ABSTAIN:
                     needs_info = ""
                     if "needs more context:" in finding.reason:
                         needs_info = " (" + finding.reason.split("needs more context:")[-1].strip() + ")"
-                    StatusLogger.timestamped_print(f"  - {finding.function_id}: confidence={finding.confidence:.2f}{needs_info}")
+                    StatusLogger.timestamped_debug(f"  - {finding.function_id}: confidence={finding.confidence:.2f}{needs_info}")
             if abstain_count > 10:
-                StatusLogger.timestamped_print(f"  ... and {abstain_count - 10} more")
+                StatusLogger.timestamped_debug(f"  ... and {abstain_count - 10} more")
         
         return findings
     
@@ -1208,7 +1210,7 @@ class ScanningPipeline:
             # Log what context we're requesting
             if unique_needs:
                 needs_str = ', '.join([n.value for n in unique_needs])
-                StatusLogger.timestamped_print(f"Stage 8, Pass 2b: Function {function_id} needs: {needs_str}")
+                StatusLogger.timestamped_debug(f"Stage 8, Pass 2b: Function {function_id} needs: {needs_str}")
             
             # Extract context additions
             context_additions = self.function_analyzer.extract_context_items(original_function, unique_needs)
@@ -1218,13 +1220,13 @@ class ScanningPipeline:
                 for key, value in context_additions.items():
                     if value:
                         count = len(value) if isinstance(value, list) else 1
-                        StatusLogger.timestamped_print(f"Stage 8, Pass 2b: Extracted {count} {key} for {function_id}")
+                        StatusLogger.timestamped_debug(f"Stage 8, Pass 2b: Extracted {count} {key} for {function_id}")
                         # Show first few items
                         if isinstance(value, list):
                             for item in value[:3]:
-                                StatusLogger.timestamped_print(f"  - {item[:80]}")
+                                StatusLogger.timestamped_debug(f"  - {item[:80]}")
                             if len(value) > 3:
-                                StatusLogger.timestamped_print(f"  ... and {len(value) - 3} more")
+                                StatusLogger.timestamped_debug(f"  ... and {len(value) - 3} more")
             else:
                 StatusLogger.timestamped_warning(f"Stage 8, Pass 2b: No context extracted for {function_id} (needs: {[n.value for n in unique_needs]})")
             
@@ -1243,8 +1245,13 @@ class ScanningPipeline:
             function_to_findings[function_id] = func_findings
         
         if not enriched_functions:
-            StatusLogger.timestamped_print("Pass F2: No functions found for enrichment")
+            StatusLogger.timestamped_debug("Stage 8, Pass 2b: No functions found for enrichment")
             return findings
+        
+        StatusLogger.timestamped_print(
+            f"Stage 8, Pass 2b: enriching "
+            f"{_format_count(len(enriched_functions), 'abstained function')}"
+        )
         
         # Process in batches
         batch_size = self.batch_size_func
@@ -1256,8 +1263,8 @@ class ScanningPipeline:
             batch_num = (i // batch_size) + 1
             total_batches = (len(enriched_functions) + batch_size - 1) // batch_size
             cand_total, cand_max, cand_zero = self._function_batch_candidate_stats(batch_functions)
-            StatusLogger.timestamped_print(
-                f"Processing Pass F2 batch (batch {batch_num} of {total_batches}): "
+            StatusLogger.timestamped_debug(
+                f"Stage 8, Pass 2b: Processing batch {batch_num} of {total_batches}: "
                 f"{len(batch_functions)} functions, {cand_total} candidate lines, "
                 f"max {cand_max} per function, {cand_zero} func(s) with no candidate_lines"
             )
@@ -1343,14 +1350,16 @@ class ScanningPipeline:
         yes_count = sum(1 for f in new_findings if f.y2038_issue == Y2038Issue.YES)
         no_count = sum(1 for f in new_findings if f.y2038_issue == Y2038Issue.NO)
         abstain_count = sum(1 for f in new_findings if f.y2038_issue == Y2038Issue.ABSTAIN)
-        StatusLogger.timestamped_print(f"Pass F2: {yes_count} yes, {no_count} no, {abstain_count} abstain")
+        StatusLogger.timestamped_print(
+            f"Stage 8, Pass 2b results: {yes_count} yes, {no_count} no, {abstain_count} abstain"
+        )
         
         # Log abstain details if any remain
         if abstain_count > 0:
-            StatusLogger.timestamped_print(f"Pass F2: {abstain_count} abstain(s) remaining after enrichment:")
+            StatusLogger.timestamped_debug(f"Stage 8, Pass 2b: {abstain_count} abstain(s) remaining after enrichment:")
             for finding in new_findings:
                 if finding.y2038_issue == Y2038Issue.ABSTAIN:
-                    StatusLogger.timestamped_print(f"  - {finding.function_id}: confidence={finding.confidence:.2f}, reason={finding.reason[:80]}")
+                    StatusLogger.timestamped_debug(f"  - {finding.function_id}: confidence={finding.confidence:.2f}, reason={finding.reason[:80]}")
         
         return final_findings
     
@@ -1415,7 +1424,7 @@ class ScanningPipeline:
                 batch_num = (i // batch_size) + 1
                 total_batches = (len(functions_for_file) + batch_size - 1) // batch_size
                 cand_total, cand_max, cand_zero = self._function_batch_candidate_stats(batch_functions)
-                StatusLogger.timestamped_print(
+                StatusLogger.timestamped_debug(
                     f"Stage 9: Processing batch {batch_num} of {total_batches} from {file_path}: "
                     f"{len(batch_functions)} functions, {cand_total} candidate lines, "
                     f"max {cand_max} per function, {cand_zero} func(s) with no candidate_lines"
@@ -1480,14 +1489,16 @@ class ScanningPipeline:
         yes_count = sum(1 for f in new_findings if f.y2038_issue == Y2038Issue.YES)
         no_count = sum(1 for f in new_findings if f.y2038_issue == Y2038Issue.NO)
         abstain_count = sum(1 for f in new_findings if f.y2038_issue == Y2038Issue.ABSTAIN)
-        StatusLogger.timestamped_print(f"Pass F3: {yes_count} yes, {no_count} no, {abstain_count} abstain")
+        StatusLogger.timestamped_print(
+            f"Stage 9 results: {yes_count} yes, {no_count} no, {abstain_count} abstain"
+        )
         
         # Log abstain details if any remain (these are final)
         if abstain_count > 0:
-            StatusLogger.timestamped_print(f"Pass F3: {abstain_count} final abstain(s) after file context:")
+            StatusLogger.timestamped_debug(f"Stage 9: {abstain_count} final abstain(s) after file context:")
             for finding in new_findings:
                 if finding.y2038_issue == Y2038Issue.ABSTAIN:
-                    StatusLogger.timestamped_print(f"  - {finding.function_id}: confidence={finding.confidence:.2f}, reason={finding.reason[:80]}")
+                    StatusLogger.timestamped_debug(f"  - {finding.function_id}: confidence={finding.confidence:.2f}, reason={finding.reason[:80]}")
         
         return final_findings
     
