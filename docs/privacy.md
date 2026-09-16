@@ -37,6 +37,18 @@ Notes for `tacs repos`:
 rm -rf .repo_cache          # or the path you passed to --cache-dir
 ```
 
+### Repository credentials
+
+A `repo_url` that embeds credentials — `https://user:TOKEN@host/org/repo.git`, or a
+token supplied as the username — is rejected with a warning and the repository is
+skipped. Such a URL would otherwise be printed in the repo header and stored in the
+run's `meta.json`, `status.json`, and `summary.json`, and `git clone` would record it
+in the cache clone's `.git/config`.
+
+Authenticate outside the URL: a git credential helper, or an SSH remote such as
+`ssh://git@host/org/repo.git`. Any credential URL that still reaches a log line or
+error message is redacted to `https://***@host/...` before it is printed or written.
+
 ## Modes
 
 ### Discovery-only (`--llm none`)

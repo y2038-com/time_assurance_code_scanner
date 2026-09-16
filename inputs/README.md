@@ -18,3 +18,15 @@ tacs repos --repos-file inputs/my_repos.jsonl --dry-run
 ```
 
 Contents of this folder are gitignored (except this README).
+
+## Private repositories
+
+Do not put credentials in a `repo_url`. An entry such as
+`https://user:TOKEN@github.com/org/private.git` is skipped with a warning,
+because the URL would otherwise be printed in the repo header, stored in the
+run's `meta.json`, `status.json`, and `summary.json`, and written into the cache
+clone's `.git/config`.
+
+Authenticate outside the URL instead — a git credential helper, or an SSH remote
+such as `ssh://git@github.com/org/private.git`. Both leave nothing for TACS to
+record.

@@ -44,6 +44,11 @@ class RepoTask:
     scan_overrides: dict[str, Any] | None = None
     source_line: int = 0
 
+    @property
+    def safe_url(self) -> str:
+        """The repo URL with embedded credentials removed, for output and artifacts."""
+        return redact_url_credentials(self.repo_url)
+
 
 @dataclass
 class RepoIdentity:
@@ -63,6 +68,56 @@ def _run_id_now() -> str:
 
 def _sanitize_token(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9._-]+", "_", value).strip("_") or "unknown"
+
+
+# Userinfo in a URL: the "user" or "user:password" between the scheme and the
+# host. The character class stops at the authority so an "@" later in the path
+# is not mistaken for a credential separator.
+_URL_USERINFO = re.compile(
+    r"(?P<scheme>[a-zA-Z][a-zA-Z0-9+.-]*)://(?P<userinfo>[^/?#@\s]*)@"
+)
+_SECRET_SCHEMES = {"http", "https"}
+
+
+def url_carries_credentials(url: str) -> bool:
+    """
+    True when a repository URL embeds a credential.
+
+    Over http(s) any userinfo counts: an access token is conventionally passed as
+    the username with no password at all, so ``https://TOKEN@host/repo.git`` is
+    the common shape. Other transports use a bare username routinely -- nothing
+    is secret about ``ssh://git@host/repo.git`` -- so there only an embedded
+    password counts.
+    """
+    match = _URL_USERINFO.match((url or "").strip())
+    if not match:
+        return False
+    if match.group("scheme").lower() in _SECRET_SCHEMES:
+        return True
+    return ":" in match.group("userinfo")
+
+
+def redact_url_credentials(text: str) -> str:
+    """
+    Remove credentials from any URL appearing in ``text``.
+
+    Applied to console output, persisted artifacts, and error messages. Credential
+    URLs are rejected when the repo list is read, so this mainly guards text TACS
+    did not compose itself -- notably git's stderr, which echoes the remote URL
+    recorded in a clone's config.
+    """
+
+    def _replace(match: re.Match[str]) -> str:
+        scheme = match.group("scheme")
+        userinfo = match.group("userinfo")
+        if scheme.lower() in _SECRET_SCHEMES:
+            return f"{scheme}://***@"
+        if ":" in userinfo:
+            # Keep the username: on these transports it is a routine identity.
+            return f"{scheme}://{userinfo.split(':', 1)[0]}:***@"
+        return match.group(0)
+
+    return _URL_USERINFO.sub(_replace, text or "")
 
 
 def _parse_repo_identity(repo_url: str, cache_dir: Path) -> RepoIdentity:
@@ -92,7 +147,11 @@ def _parse_repo_identity(repo_url: str, cache_dir: Path) -> RepoIdentity:
 
     repo = repo.removesuffix(".git")
     if not host or not owner or not repo:
-        raise ValueError(f"could not parse repo identity from URL: {repo_url}")
+        # Message becomes error_message in status.json and summary.json.
+        raise ValueError(
+            "could not parse repo identity from URL: "
+            f"{redact_url_credentials(repo_url)}"
+        )
 
     host_s = _sanitize_token(host.lower())
     owner_s = _sanitize_token(owner)
@@ -137,7 +196,13 @@ def _git(args: list[str], cwd: Path | None = None, timeout: int = 300) -> str:
     if proc.returncode != 0:
         stderr = (proc.stderr or "").strip()
         stdout = (proc.stdout or "").strip()
-        raise RuntimeError(f"git {' '.join(args)} failed: {stderr or stdout or 'unknown error'}")
+        # The message reaches the console, status.json, and summary.json. Both the
+        # arguments (a clone URL) and git's own output can name a remote.
+        raise RuntimeError(
+            redact_url_credentials(
+                f"git {' '.join(args)} failed: {stderr or stdout or 'unknown error'}"
+            )
+        )
     return (proc.stdout or "").strip()
 
 
@@ -163,6 +228,15 @@ def _load_repo_tasks(repos_file: Path) -> tuple[list[RepoTask], list[str]]:
             repo_url = payload.get("repo_url")
             if not isinstance(repo_url, str) or not repo_url.strip():
                 warnings.append(f"line {idx}: missing/invalid repo_url")
+                continue
+            if url_carries_credentials(repo_url):
+                # The URL itself is never quoted back: the warning is persisted in
+                # summary.json, which is exactly where the token must not land.
+                # Cloning would also write it into the cache clone's .git/config.
+                warnings.append(
+                    f"line {idx}: repo_url embeds credentials; skipped. Remove them "
+                    "and authenticate with a git credential helper or an SSH remote"
+                )
                 continue
             task = RepoTask(
                 repo_url=repo_url.strip(),
@@ -828,12 +902,12 @@ def main(argv: list[str] | None = None) -> int:
             if requested_ref:
                 StatusLogger.always(
                     f"[{idx}/{len(tasks)}] {identity.owner}/{identity.repo} "
-                    f"@ {requested_ref} — {task.repo_url}"
+                    f"@ {requested_ref} — {task.safe_url}"
                 )
             else:
                 StatusLogger.always(
                     f"[{idx}/{len(tasks)}] {identity.owner}/{identity.repo} "
-                    f"— {task.repo_url}"
+                    f"— {task.safe_url}"
                 )
             if args.dry_run:
                 stage = "done"
@@ -842,7 +916,7 @@ def main(argv: list[str] | None = None) -> int:
                 results.append(
                     {
                         "repo_key": dry_repo_key,
-                        "repo_url": task.repo_url,
+                        "repo_url": task.safe_url,
                         "status": status,
                         "stage": stage,
                         "message": "dry-run: skipped execution",
@@ -990,7 +1064,7 @@ def main(argv: list[str] | None = None) -> int:
             _write_json(
                 per_repo_dir / "meta.json",
                 {
-                    "repo_url": task.repo_url,
+                    "repo_url": task.safe_url,
                     "name": task.name,
                     "source_line": task.source_line,
                     "resolved_ref_input": resolved_ref_input,
@@ -1016,7 +1090,7 @@ def main(argv: list[str] | None = None) -> int:
                 per_repo_dir / "status.json",
                 {
                     "repo_key": resolved_repo_key,
-                    "repo_url": task.repo_url,
+                    "repo_url": task.safe_url,
                     "name": task.name,
                     "started_at": datetime.fromtimestamp(repo_started, tz=timezone.utc).isoformat().replace("+00:00", "Z"),
                     "completed_at": _utc_now_iso(),
@@ -1039,7 +1113,7 @@ def main(argv: list[str] | None = None) -> int:
             results.append(
                 {
                     "repo_key": resolved_repo_key,
-                    "repo_url": task.repo_url,
+                    "repo_url": task.safe_url,
                     "status": status,
                     "resolved_commit_sha": resolved_sha,
                     "config_source": config_source,
@@ -1088,7 +1162,7 @@ def main(argv: list[str] | None = None) -> int:
             results.append(
                 {
                     "repo_key": repo_key,
-                    "repo_url": task.repo_url,
+                    "repo_url": task.safe_url,
                     "status": status,
                     "stage": stage,
                     "error_code": error_code,
@@ -1100,7 +1174,7 @@ def main(argv: list[str] | None = None) -> int:
                     per_repo_dir / "status.json",
                     {
                         "repo_key": repo_key,
-                        "repo_url": task.repo_url,
+                        "repo_url": task.safe_url,
                         "name": task.name,
                         "started_at": datetime.fromtimestamp(repo_started, tz=timezone.utc).isoformat().replace("+00:00", "Z"),
                         "completed_at": _utc_now_iso(),
