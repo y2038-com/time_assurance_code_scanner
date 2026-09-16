@@ -78,7 +78,7 @@ def test_tacs_render_single_html_writes_default(tmp_path: Path) -> None:
 
 
 def test_tacs_render_batch_compat_alias(tmp_path: Path) -> None:
-    batch = tmp_path / "20260101T000000Z"
+    batch = tmp_path / "20260101T000000Z_aaaaaa"
     repo = batch / "repos" / "github__acme__demo__main"
     repo.mkdir(parents=True)
     (repo / "findings.json").write_text(json.dumps(_minimal_findings()), encoding="utf-8")

@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 from tacs.core.file_limits import validate_max_file_size
 from tacs.core.include_patterns import build_include_patterns
 from tacs.core.path_utils import update_latest_symlink
+from tacs.core.run_ids import new_run_id
 from tacs.core.status_logger import StatusLogger, format_count
 
 
@@ -61,10 +62,6 @@ class RepoIdentity:
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-def _run_id_now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
 def _sanitize_token(value: str) -> str:
@@ -835,7 +832,7 @@ def main(argv: list[str] | None = None) -> int:
     # Logging already configured above; keep verbose flag for summary metadata only.
 
     start_ts = time.time()
-    run_id = _run_id_now()
+    run_id = new_run_id()
     repos_file = Path(args.repos_file).resolve()
     if not repos_file.is_file():
         raise SystemExit(f"error: --repos-file not found: {repos_file}")

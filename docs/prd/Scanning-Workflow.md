@@ -91,7 +91,7 @@ Owners: John Lange; Contributors: GPT-5 Thinking
 
 ### Stage 8. Output Assembly ✅
 - Comprehensive JSON output with metadata
-- Structured logging in `results/scans/{timestamp}_scan-{id}/`
+- Structured logging in `results/scans/<session-id>/`
 - Human-readable summaries
 - ID mapping and artifact preservation
 

@@ -16,7 +16,7 @@ def main():
         return
     
     # Get latest scan
-    scans = sorted(scan_dir.glob("*_scan-*"), key=lambda p: p.stat().st_mtime, reverse=True)
+    scans = sorted(scan_dir.glob("*T*Z_*"), key=lambda p: p.stat().st_mtime, reverse=True)
     if not scans:
         print("No scan sessions found")
         return

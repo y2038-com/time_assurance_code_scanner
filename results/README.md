@@ -22,6 +22,10 @@ Defaults:
 - `tacs scan --out` still writes the primary findings JSON to the path you pass
   (default `findings.json` in the current directory)
 
+Session and run ids share one shape — a UTC timestamp and a short random
+suffix, such as `20260916T151300Z_7c91ab`. The timestamp sorts listings
+chronologically; the suffix keeps runs started in the same second apart.
+
 ```bash
 tacs repos --repos-file inputs/my_repos.jsonl
 tacs render results/batch_runs/latest --format text

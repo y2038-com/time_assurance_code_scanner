@@ -18,6 +18,8 @@ import shutil
 from pathlib import Path
 
 import pytest
+
+from tacs.core.run_ids import RUN_ID_PATTERN
 from click.testing import CliRunner
 
 import tacs.batch_scan_repos as bsr
@@ -154,8 +156,14 @@ def test_batch_repo_has_no_nested_session_tree(
     assert not (repo_dir / "scan").exists()
     assert not (repo_dir / "results").exists()
     assert not list(repo_dir.glob("**/results/scans"))
-    # No per-repo scan-session timestamp directory at any depth.
-    assert not list(repo_dir.glob("**/*_scan-*"))
+    # No per-repo scan-session directory at any depth. Batch identity comes
+    # from the run id and repo key, so a nested run-id folder would be the
+    # session tree growing back.
+    assert not [
+        path
+        for path in repo_dir.glob("**/*")
+        if path.is_dir() and RUN_ID_PATTERN.match(path.name)
+    ]
 
 
 def test_canonical_findings_json_at_repo_root(

@@ -172,12 +172,12 @@ def test_second_batch_run_repoints_latest_link(
 
     _run_batch(tmp_path, out_dir)
     first_run = (out_dir / "latest").resolve()
-    monkeypatch.setattr(bsr, "_run_id_now", lambda: "20260101T000000Z")
+    monkeypatch.setattr(bsr, "new_run_id", lambda: "20260101T000000Z_aaaaaa")
     _run_batch(tmp_path, out_dir)
     second_run = (out_dir / "latest").resolve()
 
     assert second_run != first_run
-    assert second_run.name == "20260101T000000Z"
+    assert second_run.name == "20260101T000000Z_aaaaaa"
     assert first_run.is_dir(), "earlier runs must be left in place"
 
 
@@ -190,7 +190,7 @@ def test_dry_run_leaves_latest_link_alone(
 
     _run_batch(tmp_path, out_dir)
     real_run = (out_dir / "latest").resolve()
-    monkeypatch.setattr(bsr, "_run_id_now", lambda: "20260101T000000Z")
+    monkeypatch.setattr(bsr, "new_run_id", lambda: "20260101T000000Z_aaaaaa")
     _run_batch(tmp_path, out_dir, "--dry-run")
 
     assert (out_dir / "latest").resolve() == real_run
@@ -205,10 +205,10 @@ def test_batch_latest_link_survives_deleted_run(
 
     _run_batch(tmp_path, out_dir)
     shutil.rmtree((out_dir / "latest").resolve())
-    monkeypatch.setattr(bsr, "_run_id_now", lambda: "20260101T000000Z")
+    monkeypatch.setattr(bsr, "new_run_id", lambda: "20260101T000000Z_aaaaaa")
     _run_batch(tmp_path, out_dir)
 
-    assert (out_dir / "latest").resolve().name == "20260101T000000Z"
+    assert (out_dir / "latest").resolve().name == "20260101T000000Z_aaaaaa"
     assert ((out_dir / "latest") / "summary.json").is_file()
 
 

@@ -90,11 +90,11 @@ def find_all_abstains_in_test_run(scan_dir: Path) -> List[tuple]:
     abstains = []
     
     # Get the date prefix from the scan directory name
-    # Format: YYYY-MM-DDTHH-MM-SSZ_scan-{id}
+    # Format: YYYYMMDDTHHMMSSZ_<6-hex-random>
     scan_name = scan_dir.name
-    if '_scan-' in scan_name:
-        # Extract date part (YYYY-MM-DD)
-        date_prefix = scan_name.split('T')[0]  # Get YYYY-MM-DD
+    if 'T' in scan_name:
+        # Extract date part (YYYYMMDD)
+        date_prefix = scan_name.split('T')[0]
         
         # Find all sessions from the same date
         scans_dir = scan_dir.parent
@@ -160,7 +160,7 @@ def main():
             sys.exit(1)
         
         print(f"Using latest scan session: {scan_dir.name}")
-        date_prefix = scan_dir.name.split('T')[0] if 'T' in scan_dir.name else scan_dir.name.split('_scan-')[0]
+        date_prefix = scan_dir.name.split('T')[0]
         print(f"Searching for abstains in all sessions from {date_prefix}...")
         
         # Find all abstains from the test run
@@ -169,7 +169,7 @@ def main():
     if not abstain_sessions:
         print(f"\nNo abstain findings found.")
         if len(sys.argv) == 1:
-            date_prefix = scan_dir.name.split('T')[0] if 'T' in scan_dir.name else scan_dir.name.split('_scan-')[0]
+            date_prefix = scan_dir.name.split('T')[0]
             print(f"   (Searched all sessions from {date_prefix})")
         sys.exit(0)
     

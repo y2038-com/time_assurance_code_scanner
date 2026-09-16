@@ -14,6 +14,7 @@ from typing import Dict, List, Any, Optional, Union
 from collections import defaultdict
 
 from tacs.core.path_utils import repo_relative_path, update_latest_symlink
+from tacs.core.run_ids import new_run_id
 
 
 # Line-number prefixes used when source is embedded in prompts, e.g. "  12 | code"
@@ -58,7 +59,7 @@ class ScanSession:
         self._output_base = Path(output_base).resolve() if output_base else None
         
         # Generate scan ID and timestamp
-        self.scan_id = self._generate_scan_id()
+        self.scan_id = new_run_id()
         self.created_utc = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%SZ")
         
         # A batch run already identifies each scan by run id and repo key, so the
@@ -69,7 +70,7 @@ class ScanSession:
             self.scan_folder = Path(session_dir).resolve()
         else:
             # Absolute when output_base is set, so concurrent jobs don't clash on cwd.
-            rel_folder = f"results/scans/{self.created_utc}_scan-{self.scan_id}"
+            rel_folder = f"results/scans/{self.scan_id}"
             if self._output_base is not None:
                 self.scan_folder = (self._output_base / rel_folder).resolve()
             else:
@@ -109,11 +110,6 @@ class ScanSession:
         """Create an artifact subdirectory on first use."""
         dir_path.mkdir(parents=True, exist_ok=True)
         return dir_path
-    
-    def _generate_scan_id(self) -> str:
-        """Generate a short unique scan ID."""
-        timestamp = str(int(time.time()))
-        return hashlib.md5(timestamp.encode()).hexdigest()[:6]
     
     def _create_readme(self):
         """Create README.txt for the scan folder."""
