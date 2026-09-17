@@ -23,7 +23,12 @@ from tacs.cli import app
 from tacs.core.function_analyzer import FunctionAnalyzer
 from tacs.core.function_schemas import FunctionBatch
 from tacs.core.logging_config import configure_logging
-from tacs.core.path_utils import repo_relative_path
+from tacs.core.path_utils import (
+    display_local_path,
+    display_rules_path,
+    display_scan_root,
+    repo_relative_path,
+)
 from tacs.core.scan_session import ScanSession
 from tacs.core.schema import Candidate
 
@@ -458,3 +463,53 @@ def test_batch_run_findings_are_repo_relative(
     text = candidate_files[0].read_text(encoding="utf-8")
     assert str(cache_dir) not in text
     assert "../" not in text
+
+    meta_files = list(out_dir.glob("*/repos/*/meta.json"))
+    assert meta_files, "expected per-repo meta.json"
+    meta = json.loads(meta_files[0].read_text(encoding="utf-8"))
+    assert "cache_path" not in meta
+    blob = json.dumps(meta)
+    assert str(tmp_path) not in blob
+    assert str(cache_dir) not in blob
+
+    findings_meta = payload.get("meta") or {}
+    assert findings_meta.get("root") == "."
+    rules = findings_meta.get("rules_path", "")
+    assert not Path(rules).is_absolute()
+    assert "/home/" not in rules
+
+    summaries = list(out_dir.glob("*/summary.json"))
+    assert summaries, "expected batch summary.json"
+    summary = json.loads(summaries[0].read_text(encoding="utf-8"))
+    args = summary.get("args") or {}
+    for key in ("repos_file", "cache_dir", "out_dir"):
+        value = args.get(key, "")
+        assert value, f"missing args.{key}"
+        assert not Path(value).is_absolute(), f"args.{key} should not be absolute: {value}"
+        assert str(tmp_path) not in value
+
+
+# --- display helpers for published metadata ---------------------------------
+
+
+def test_display_local_path_prefers_cwd_relative(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    nested = tmp_path / "results" / "batches" / "run1"
+    nested.mkdir(parents=True)
+    assert display_local_path(nested) == "results/batches/run1"
+    assert display_local_path("already/relative") == "already/relative"
+    outside = Path("/tmp/tacs-unrelated-display-path")
+    assert display_local_path(outside) == "tacs-unrelated-display-path"
+
+
+def test_display_rules_path_package_relative(tmp_path: Path) -> None:
+    packaged = tmp_path / "site-packages" / "tacs" / "rules" / "y2038_sample_rules.json"
+    packaged.parent.mkdir(parents=True)
+    packaged.write_text("[]", encoding="utf-8")
+    assert display_rules_path(packaged) == "tacs/rules/y2038_sample_rules.json"
+
+
+def test_display_scan_root_cache_clone_is_dot(tmp_path: Path) -> None:
+    cache = tmp_path / ".repo_cache" / "github.com" / "o" / "r.gitwork"
+    cache.mkdir(parents=True)
+    assert display_scan_root(cache) == "."

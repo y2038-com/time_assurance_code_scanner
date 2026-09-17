@@ -26,7 +26,7 @@ from tacs.core.env_capabilities import UNKNOWN_SETTING, time64_suffix
 from tacs.core.file_limits import validate_max_file_size
 from tacs.core.llm_client import DEFAULT_CONFIDENCE_FLOOR
 from tacs.core.include_patterns import build_include_patterns
-from tacs.core.path_utils import update_latest_symlink
+from tacs.core.path_utils import display_local_path, update_latest_symlink
 from tacs.core.run_ids import new_run_id
 from tacs.core.status_logger import StatusLogger, format_count
 
@@ -1204,7 +1204,6 @@ def main(argv: list[str] | None = None) -> int:
                     "resolved_ref_input": resolved_ref_input,
                     "resolved_ref": resolved_ref,
                     "resolved_commit_sha": resolved_sha,
-                    "cache_path": str(repo_dir),
                     "config_source": config_source,
                     "config_reason": config_reason,
                     "effective_config_id": effective_config_id,
@@ -1364,9 +1363,9 @@ def main(argv: list[str] | None = None) -> int:
         "completed_at": _utc_now_iso(),
         "duration_sec": round(time.time() - start_ts, 3),
         "args": {
-            "repos_file": str(repos_file),
-            "cache_dir": str(cache_dir),
-            "out_dir": str(out_root),
+            "repos_file": display_local_path(repos_file),
+            "cache_dir": display_local_path(cache_dir),
+            "out_dir": display_local_path(out_root),
             "continue_on_error": args.continue_on_error,
             "fail_fast": args.fail_fast,
             "ref_override": args.ref_override,

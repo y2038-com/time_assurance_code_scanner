@@ -9,6 +9,10 @@ Scanning reads absolute paths (``tacs repos`` works out of a clone under
 the way the repository does: ``benchmark/timezone_gmt_time.c`` rather than a
 path rooted in the cache or the host filesystem.
 
+Published metadata (scan root, rules path, batch args) prefers
+cwd-relative or package-relative forms so result bundles do not needlessly
+disclose usernames or host directory layouts.
+
 Also holds the ``latest`` convenience symlink used by scan sessions and batch
 runs, so both point at their newest output the same way.
 """
@@ -72,6 +76,92 @@ def repo_relative_path(path: Optional[PathInput], root: Optional[PathInput]) -> 
         return text
 
     return relative.as_posix() or "."
+
+
+def display_local_path(path: Optional[PathInput], *, cwd: Optional[PathInput] = None) -> str:
+    """
+    Path form for public artifacts: prefer cwd-relative, never invent ``..`` escapes.
+
+    Already-relative inputs are returned as POSIX paths. Absolute paths under the
+    current working directory become relative to it. Anything else falls back to
+    the final path component so host prefixes like ``/home/user/...`` are not
+    written into shareable result bundles.
+    """
+    if path is None:
+        return ""
+
+    text = os.fspath(path)
+    if not text:
+        return ""
+
+    candidate = Path(text)
+    if not candidate.is_absolute():
+        return candidate.as_posix()
+
+    try:
+        resolved = candidate.resolve()
+    except OSError:
+        resolved = candidate
+
+    try:
+        base = Path(os.fspath(cwd) if cwd is not None else Path.cwd()).resolve()
+        relative = resolved.relative_to(base)
+        return relative.as_posix() or "."
+    except (ValueError, OSError):
+        return resolved.name or text
+
+
+def display_rules_path(path: Optional[PathInput], *, cwd: Optional[PathInput] = None) -> str:
+    """
+    Rules path for published metadata.
+
+    Packaged rules under ``…/tacs/rules/<file>`` become ``tacs/rules/<file>``.
+    Otherwise the cwd-relative / basename policy of ``display_local_path`` applies.
+    """
+    if path is None:
+        return ""
+
+    text = os.fspath(path)
+    if not text:
+        return ""
+
+    try:
+        resolved = Path(text).resolve()
+        posix = resolved.as_posix()
+    except OSError:
+        posix = Path(text).as_posix()
+
+    marker = "/tacs/rules/"
+    idx = posix.find(marker)
+    if idx >= 0:
+        return "tacs/rules/" + posix[idx + len(marker) :]
+
+    return display_local_path(path, cwd=cwd)
+
+
+def display_scan_root(path: Optional[PathInput], *, cwd: Optional[PathInput] = None) -> str:
+    """
+    Scan-root label for published metadata and summaries.
+
+    Cache clones (``.repo_cache`` / ``*.gitwork``) publish as ``.`` because findings
+    are already repository-relative. Other roots use ``display_local_path``.
+    """
+    if path is None:
+        return ""
+
+    text = os.fspath(path)
+    if not text:
+        return ""
+
+    try:
+        posix = Path(text).resolve().as_posix()
+    except OSError:
+        posix = Path(text).as_posix()
+
+    if ".gitwork" in posix or "/.repo_cache/" in posix:
+        return "."
+
+    return display_local_path(path, cwd=cwd)
 
 
 def update_latest_symlink(link_path: PathInput, target: PathInput) -> bool:

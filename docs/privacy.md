@@ -112,3 +112,12 @@ the file. Treat provider choice as a data-handling decision.
 - Remember that `tacs repos` leaves cloned repositories in `--cache-dir`
   (default `.repo_cache`, gitignored); delete it when you no longer need the clones
 - Debug flags that dump raw prompts (`--debug-llm-raw`, etc.) may expose secrets in the scanned tree — use carefully
+
+## Paths in published artifacts
+
+Finding and source identifiers are repository-relative. Scan metadata prefers
+cwd-relative or package-relative forms for the scan root and rules path (cache
+clones publish as `.`). Batch `summary.json` records `repos_file` / `cache_dir` /
+`out_dir` in cwd-relative form when possible; absolute host prefixes are avoided
+so shared result bundles do not needlessly disclose usernames or local layouts.
+Local clone directories under `--cache-dir` are not written into per-repo `meta.json`.

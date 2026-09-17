@@ -14,7 +14,11 @@ from tacs.core.schema import (
 )
 from tacs.core.file_limits import validate_max_file_size
 from tacs.core.metrics import calculate_metrics
-from tacs.core.path_utils import repo_relative_path
+from tacs.core.path_utils import (
+    display_rules_path,
+    display_scan_root,
+    repo_relative_path,
+)
 from tacs.core.candidate_utils import candidate_id_for, prepare_candidates
 from tacs.core.discovery_manager import DiscoveryManager
 from tacs.core.ir_adapter import IRAdapter
@@ -1840,12 +1844,13 @@ class ScanningPipeline:
         
         # Create summary (total_ms was finalized in save_metadata)
         total_ms = session.timing.get("total_ms", 0)
+        display_root = display_scan_root(root_path)
         summary = f"""Y2038 Scan Summary
 ==================
 
 Scan ID: {session.scan_id}
 Created: {session.created_utc}
-Root: {root_path}
+Root: {display_root}
 
 Metrics:
 - Files: {metrics.total_files}
@@ -1919,10 +1924,10 @@ Timing (ms):
         
         session.log_message("INFO", f"Scan completed: {len(findings)} final findings")
         
-        # Create scan metadata
+        # Create scan metadata (display forms — findings are already repo-relative)
         metadata = ScanMetadata(
-            root=root_path,
-            rules_path=rules_path,
+            root=display_scan_root(root_path),
+            rules_path=display_rules_path(rules_path),
             model=reported_model,
             confidence_floor=self.confidence_floor,
             metrics=metrics,

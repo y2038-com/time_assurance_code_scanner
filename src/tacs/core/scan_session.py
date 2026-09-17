@@ -13,7 +13,13 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Union
 from collections import defaultdict
 
-from tacs.core.path_utils import repo_relative_path, update_latest_symlink
+from tacs.core.path_utils import (
+    display_rules_path,
+    display_scan_root,
+    display_local_path,
+    repo_relative_path,
+    update_latest_symlink,
+)
 from tacs.core.run_ids import new_run_id
 
 
@@ -118,7 +124,7 @@ class ScanSession:
 
 Scan ID: {self.scan_id}
 Created: {self.created_utc}
-Root: {self.root_path}
+Root: {display_scan_root(self.root_path)}
 
 Folder Structure:
 - meta.json: Scan metadata and timing
@@ -279,7 +285,7 @@ This scan session contains all data needed for debugging, review, and fine-tunin
         meta = {
             "scan_id": self.scan_id,
             "created_utc": self.created_utc,
-            "root": str(self.root_path),
+            "root": display_scan_root(self.root_path),
             "version": versions,
             "models": {
                 "llm_type": config.get("llm_type"),
@@ -393,7 +399,7 @@ This scan session contains all data needed for debugging, review, and fine-tunin
     def save_discovered_rules(self, new_rules: List[Dict[str, Any]], original_rules_path: str):
         """Save discovered rules to scan session folder."""
         rules_data = {
-            "original_rules_path": original_rules_path,
+            "original_rules_path": display_rules_path(original_rules_path),
             "new_rules_count": len(new_rules),
             "new_rules": new_rules,
             "timestamp": datetime.utcnow().isoformat() + "Z"
@@ -556,8 +562,8 @@ This scan session contains all data needed for debugging, review, and fine-tunin
         scan_entry = {
             "scan_id": self.scan_id,
             "timestamp": self.created_utc,
-            "root": str(self.root_path),
-            "folder": str(self.scan_folder),
+            "root": display_scan_root(self.root_path),
+            "folder": display_local_path(self.scan_folder),
             "total_duration_ms": self.finalize_total_timing(),
             "findings_count": 0  # Will be updated when findings are saved
         }

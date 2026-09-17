@@ -192,8 +192,20 @@ class Metrics(BaseModel):
 
 class ScanMetadata(BaseModel):
     """Metadata for the scan."""
-    root: str = Field(..., description="Root directory scanned")
-    rules_path: str = Field(..., description="Rules file path")
+    root: str = Field(
+        ...,
+        description=(
+            "Scan root in display form (cwd-relative, package-relative, or '.' "
+            "for cache clones); not a host absolute path"
+        ),
+    )
+    rules_path: str = Field(
+        ...,
+        description=(
+            "Rules file in display form (tacs/rules/... when packaged, else "
+            "cwd-relative or basename)"
+        ),
+    )
     model: str = Field(..., description="LLM model used (\"none\" when LLM is disabled)")
     confidence_floor: float = Field(..., description="Confidence threshold")
     metrics: Metrics = Field(..., description="Code metrics")

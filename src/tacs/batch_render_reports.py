@@ -21,6 +21,7 @@ from report_renderer.core import (
     sort_findings,
 )
 from report_renderer.renderers import render_html, render_text, write_html_file
+from tacs.core.path_utils import display_local_path
 
 RenderMode = Literal["single", "batch"]
 
@@ -236,7 +237,7 @@ def _run_batch(args: argparse.Namespace, batch_run_dir: Path) -> int:
             title=args.title,
         )
         if ok:
-            rendered.append({"repo_key": repo_key, "output": msg})
+            rendered.append({"repo_key": repo_key, "output": display_local_path(msg)})
             log.debug("rendered %s -> %s", repo_key, msg)
         else:
             failed += 1
@@ -244,9 +245,9 @@ def _run_batch(args: argparse.Namespace, batch_run_dir: Path) -> int:
             log.warning("skip %s: %s", repo_key, msg)
 
     index = {
-        "batch_run_dir": str(batch_run_dir),
+        "batch_run_dir": display_local_path(batch_run_dir),
         "format": args.format,
-        "output_dir": str(out_dir),
+        "output_dir": display_local_path(out_dir),
         "counts": {
             "repos_total": len(repos),
             "rendered": len(rendered),

@@ -92,6 +92,13 @@ int main() {
         meta = results["meta"]
         assert "root" in meta, "Missing 'root' in meta"
         assert "rules_path" in meta, "Missing 'rules_path' in meta"
+        assert not Path(meta["root"]).is_absolute(), (
+            f"Published meta.root should not be host-absolute: {meta['root']!r}"
+        )
+        assert not Path(meta["rules_path"]).is_absolute(), (
+            f"Published meta.rules_path should not be host-absolute: {meta['rules_path']!r}"
+        )
+        assert "/home/" not in meta["root"] and "/home/" not in meta["rules_path"]
         assert "model" in meta, "Missing 'model' in meta"
         assert meta["model"] == "none", (
             f"Discovery-only scan should report model 'none', got {meta['model']!r}"
