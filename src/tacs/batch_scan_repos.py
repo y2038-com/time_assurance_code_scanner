@@ -23,6 +23,7 @@ from tacs.batch_repo_scan import (
     run_repo_scan_with_deadline,
 )
 from tacs.core.file_limits import validate_max_file_size
+from tacs.core.llm_client import DEFAULT_CONFIDENCE_FLOOR
 from tacs.core.include_patterns import build_include_patterns
 from tacs.core.path_utils import update_latest_symlink
 from tacs.core.run_ids import new_run_id
@@ -865,7 +866,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model", default="gpt-oss:120b-cloud", help="Model name when --enable-llm is set (or TACS_MODEL)")
     parser.add_argument("--disable-stage1", action=argparse.BooleanOptionalAction, default=True, help="Disable Stage 1 line-level pass (default: disabled)")
     parser.add_argument("--detect-y2106", action=argparse.BooleanOptionalAction, default=False, help="Enable Y2106 detection (default: disabled, matching tacs scan)")
-    parser.add_argument("--confidence-floor", type=float, default=0.85, help="Confidence floor for classifications (default: 0.85)")
+    parser.add_argument("--confidence-floor", type=float, default=DEFAULT_CONFIDENCE_FLOOR, help=f"Confidence a classification needs to count as decided; the LLM prompts quote it too (default: {DEFAULT_CONFIDENCE_FLOOR})")
     parser.add_argument("--fallback-config", default=DEFAULT_FALLBACK_CONFIG_ID, help=f"Fallback config id when detection is uncertain (default: {DEFAULT_FALLBACK_CONFIG_ID})")
     parser.add_argument("--config-min-confidence", type=float, default=0.70, help="Minimum detection confidence to accept recommended config (default: 0.70)")
     parser.add_argument("--include-no-findings", action=argparse.BooleanOptionalAction, default=False, help="Include NO findings in output (default: disabled)")

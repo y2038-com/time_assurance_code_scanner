@@ -32,7 +32,7 @@ class FunctionLLMClient:
             environment_config: Environment configuration
             timeout_sec: Request timeout
             batch_size_func: Batch size for function analysis
-            confidence_floor: Minimum confidence threshold
+            confidence_floor: Minimum confidence threshold, quoted in the prompts
             debug_llm_raw: Enable raw LLM debugging
             detect_y2106: Enable Y2106 detection (32-bit unsigned time_t overflow in 2106)
         """
@@ -63,7 +63,10 @@ class FunctionLLMClient:
             timeout_sec=timeout_sec,
             batch_size_pass2=10,  # Not used in function-first
             batch_size_pass3=10,  # Not used in function-first
-            debug_llm_raw=debug_llm_raw
+            debug_llm_raw=debug_llm_raw,
+            # The base client writes the environment context these prompts carry,
+            # and it quotes the floor, so it needs the configured one.
+            confidence_floor=confidence_floor,
         )
     
     def analyze_functions_pass_f1(self, function_batch: FunctionBatch) -> List[FunctionAnalysis]:
@@ -402,9 +405,9 @@ IMPORTANT DISTINCTION:
 - SAFE: Functions that don't use time_t, use 64-bit time_t, or use unsigned time_t (Y2106, not Y2038)
 
 DECISION CRITERIA - BE CONSERVATIVE:
-- YES: Function contains CLEAR Y2038 risk (32-bit SIGNED time_t) OR narrowing patterns in ILP32 with 64-bit time_t - requires VERY HIGH confidence (>=0.85)
+- YES: Function contains CLEAR Y2038 risk (32-bit SIGNED time_t) OR narrowing patterns in ILP32 with 64-bit time_t - requires VERY HIGH confidence (>={confidence_floor})
 - NO: Function is safe OR uses 32-bit UNSIGNED time_t (Y2106, not Y2038) OR uses 64-bit time_t with NO narrowing patterns
-- ABSTAIN: Function is ambiguous, confidence < 0.85, or you're uncertain - PREFERRED over 'yes' when unsure
+- ABSTAIN: Function is ambiguous, confidence < {confidence_floor}, or you're uncertain - PREFERRED over 'yes' when unsure
 
 CRITICAL FOR LP64 WITH 64-BIT TIME_T:
 - Arithmetic operations on 64-bit time_t are SAFE (no overflow before 2038 or 2106)
@@ -442,7 +445,7 @@ RULES FOR UNSIGNED TIME_T ENVIRONMENTS (time_t_signed: "unsigned"):
 - Arithmetic operations on unsigned time_t are Y2106 risks, not Y2038 → classify as 'no' (unless Y2106 detection is on)
 - Functions using negative time_t values are incorrect code (unsigned can't be negative) → classify as 'no' or 'abstain'
 
-ONLY classify as 'yes' if you're 100% certain it's a signed time_t Y2038 risk with confidence >= 0.85.
+ONLY classify as 'yes' if you're 100% certain it's a signed time_t Y2038 risk with confidence >= {confidence_floor}.
 
 Be decisive! Most functions should be NO, not YES. Only flag as YES if there's a genuine Y2038 risk (overflow before 2038).
 
@@ -454,7 +457,8 @@ Environment Context:
 {migration_context}
 """.format(
             env_context=env_context,
-            migration_context=migration_context
+            migration_context=migration_context,
+            confidence_floor=self.base_client._confidence_floor_text(),
         )
         
         if self.detect_y2106:
@@ -481,7 +485,7 @@ Y2106 RISK PATTERNS (overflow in 2106):
 □ 32-bit unsigned time_t casting or conversion operations
 
 SAFE PATTERNS:
-□ Only struct tm declarations (struct tm tm = {{0}})
+□ Only struct tm declarations (struct tm tm = {0})
 □ Only printf/string operations with no time_t
 □ Only hardware register operations
 □ Only non-time-related function calls
@@ -495,17 +499,17 @@ ABSTAIN ONLY WHEN:
 □ Unknown struct fields that could be time_t (need struct context)
 
 EXAMPLES:
-Function: static time_t get_current_time() {{ return time(NULL); }}
-Response: {{"function_id": "test.c@get_current_time:10-12", "y2038_summary": "no", "y2106_summary": "yes", "issue_type": "y2106", "confidence": 0.95, "issues": [{{"type": "y2106", "line": 11, "description": "time() returns 32-bit unsigned time_t that overflows in 2106"}}], "needs_more_context": false, "needs": []}}
+Function: static time_t get_current_time() { return time(NULL); }
+Response: {"function_id": "test.c@get_current_time:10-12", "y2038_summary": "no", "y2106_summary": "yes", "issue_type": "y2106", "confidence": 0.95, "issues": [{"type": "y2106", "line": 11, "description": "time() returns 32-bit unsigned time_t that overflows in 2106"}], "needs_more_context": false, "needs": []}
 
-Function: static int process_timestamp(time_t ts) {{ return ts > 0 ? 1 : 0; }}
-Response: {{"function_id": "test.c@process_timestamp:15-17", "y2038_summary": "no", "y2106_summary": "yes", "issue_type": "y2106", "confidence": 0.9, "issues": [{{"type": "y2106", "line": 16, "description": "32-bit unsigned time_t comparison overflows in 2106"}}], "needs_more_context": false, "needs": []}}
+Function: static int process_timestamp(time_t ts) { return ts > 0 ? 1 : 0; }
+Response: {"function_id": "test.c@process_timestamp:15-17", "y2038_summary": "no", "y2106_summary": "yes", "issue_type": "y2106", "confidence": 0.9, "issues": [{"type": "y2106", "line": 16, "description": "32-bit unsigned time_t comparison overflows in 2106"}], "needs_more_context": false, "needs": []}
 
-Function: static void print_message() {{ printf("Hello world\\n"); }}
-Response: {{"function_id": "test.c@print_message:20-22", "y2038_summary": "no", "y2106_summary": "no", "issue_type": "none", "confidence": 0.95, "issues": [{{"type": "safe", "line": 21, "description": "no time_t usage, only printf operation"}}], "needs_more_context": false, "needs": []}}
+Function: static void print_message() { printf("Hello world\\n"); }
+Response: {"function_id": "test.c@print_message:20-22", "y2038_summary": "no", "y2106_summary": "no", "issue_type": "none", "confidence": 0.95, "issues": [{"type": "safe", "line": 21, "description": "no time_t usage, only printf operation"}], "needs_more_context": false, "needs": []}
 
-Function: static int nanosleep_wrapper(struct timespec *ts) {{ return nanosleep(ts, NULL); }}
-Response: {{"function_id": "test.c@nanosleep_wrapper:30-32", "y2038_summary": "no", "y2106_summary": "yes", "issue_type": "y2106", "confidence": 0.95, "issues": [{{"type": "y2106", "line": 31, "description": "struct timespec.tv_sec is 32-bit unsigned time_t, overflows in 2106"}}], "needs_more_context": false, "needs": []}}
+Function: static int nanosleep_wrapper(struct timespec *ts) { return nanosleep(ts, NULL); }
+Response: {"function_id": "test.c@nanosleep_wrapper:30-32", "y2038_summary": "no", "y2106_summary": "yes", "issue_type": "y2106", "confidence": 0.95, "issues": [{"type": "y2106", "line": 31, "description": "struct timespec.tv_sec is 32-bit unsigned time_t, overflows in 2106"}], "needs_more_context": false, "needs": []}
 """
         else:
             # Y2106 detection disabled - only Y2038 patterns
@@ -532,7 +536,7 @@ Y2106 PATTERNS (NOT Y2038 issues - flag as NO):
 □ 32-bit unsigned time_t casting or conversion operations
 
 SAFE PATTERNS (NO):
-□ Only struct tm declarations (struct tm tm = {{0}})
+□ Only struct tm declarations (struct tm tm = {0})
 □ Only printf/string operations with no time_t
 □ Only hardware register operations
 □ Only non-time-related function calls
@@ -545,24 +549,24 @@ ABSTAIN ONLY WHEN:
 □ Unknown struct fields that could be time_t (need struct context)
 
 EXAMPLES FOR SIGNED TIME_T ENVIRONMENTS:
-Function: void test_signed_comparison() {{ time_t t = time(NULL); if (t < 0) {{ return; }} }}
-Response: {{"function_id": "test.c@test_signed_comparison:25-30", "y2038_summary": "yes", "confidence": 0.95, "issues": [{{"type": "y2038_risk", "line": 27, "description": "Comparison with negative value (t < 0) indicates signed time_t behavior and potential for pre-2038 overflow"}}], "needs_more_context": false, "needs": []}}
+Function: void test_signed_comparison() { time_t t = time(NULL); if (t < 0) { return; } }
+Response: {"function_id": "test.c@test_signed_comparison:25-30", "y2038_summary": "yes", "confidence": 0.95, "issues": [{"type": "y2038_risk", "line": 27, "description": "Comparison with negative value (t < 0) indicates signed time_t behavior and potential for pre-2038 overflow"}], "needs_more_context": false, "needs": []}
 
-Function: void test_signed_addition() {{ time_t t = -1; t = t + 2147483648; }}
-Response: {{"function_id": "test.c@test_signed_addition:18-22", "y2038_summary": "yes", "confidence": 0.95, "issues": [{{"type": "y2038_risk", "line": 19, "description": "Signed time_t addition of large constant (2147483648) may cause overflow before 2038 on 32-bit signed time_t systems"}}], "needs_more_context": false, "needs": []}}
+Function: void test_signed_addition() { time_t t = -1; t = t + 2147483648; }
+Response: {"function_id": "test.c@test_signed_addition:18-22", "y2038_summary": "yes", "confidence": 0.95, "issues": [{"type": "y2038_risk", "line": 19, "description": "Signed time_t addition of large constant (2147483648) may cause overflow before 2038 on 32-bit signed time_t systems"}], "needs_more_context": false, "needs": []}
 
 EXAMPLES FOR UNSIGNED TIME_T ENVIRONMENTS:
-Function: static time_t get_current_time() {{ return time(NULL); }}
-Response: {{"function_id": "test.c@get_current_time:10-12", "y2038_summary": "no", "confidence": 0.95, "issues": [{{"type": "y2106_not_y2038", "line": 11, "description": "time() returns 32-bit unsigned time_t that overflows in 2106, not 2038"}}], "needs_more_context": false, "needs": []}}
+Function: static time_t get_current_time() { return time(NULL); }
+Response: {"function_id": "test.c@get_current_time:10-12", "y2038_summary": "no", "confidence": 0.95, "issues": [{"type": "y2106_not_y2038", "line": 11, "description": "time() returns 32-bit unsigned time_t that overflows in 2106, not 2038"}], "needs_more_context": false, "needs": []}
 
-Function: static int process_timestamp(time_t ts) {{ return ts > 0 ? 1 : 0; }}
-Response: {{"function_id": "test.c@process_timestamp:15-17", "y2038_summary": "no", "confidence": 0.9, "issues": [{{"type": "y2106_not_y2038", "line": 16, "description": "32-bit unsigned time_t comparison overflows in 2106, not 2038"}}], "needs_more_context": false, "needs": []}}
+Function: static int process_timestamp(time_t ts) { return ts > 0 ? 1 : 0; }
+Response: {"function_id": "test.c@process_timestamp:15-17", "y2038_summary": "no", "confidence": 0.9, "issues": [{"type": "y2106_not_y2038", "line": 16, "description": "32-bit unsigned time_t comparison overflows in 2106, not 2038"}], "needs_more_context": false, "needs": []}
 
-Function: static void print_message() {{ printf("Hello world\\n"); }}
-Response: {{"function_id": "test.c@print_message:20-22", "y2038_summary": "no", "confidence": 0.95, "issues": [{{"type": "safe", "line": 21, "description": "no time_t usage, only printf operation"}}], "needs_more_context": false, "needs": []}}
+Function: static void print_message() { printf("Hello world\\n"); }
+Response: {"function_id": "test.c@print_message:20-22", "y2038_summary": "no", "confidence": 0.95, "issues": [{"type": "safe", "line": 21, "description": "no time_t usage, only printf operation"}], "needs_more_context": false, "needs": []}
 
-Function: static int nanosleep_wrapper(struct timespec *ts) {{ return nanosleep(ts, NULL); }}
-Response: {{"function_id": "test.c@nanosleep_wrapper:30-32", "y2038_summary": "no", "confidence": 0.95, "issues": [{{"type": "y2106_not_y2038", "line": 31, "description": "struct timespec.tv_sec is 32-bit unsigned time_t, overflows in 2106 not 2038"}}], "needs_more_context": false, "needs": []}}
+Function: static int nanosleep_wrapper(struct timespec *ts) { return nanosleep(ts, NULL); }
+Response: {"function_id": "test.c@nanosleep_wrapper:30-32", "y2038_summary": "no", "confidence": 0.95, "issues": [{"type": "y2106_not_y2038", "line": 31, "description": "struct timespec.tv_sec is 32-bit unsigned time_t, overflows in 2106 not 2038"}], "needs_more_context": false, "needs": []}
 """
         
         system_prompt += """
@@ -735,17 +739,12 @@ Be DECISIVE! With full file context, you should be able to classify 99% of cases
 Functions with full file context:
 """
         
-        # Add functions with full file context
-        # Note: We need to escape curly braces in user content to prevent format string errors
-        def escape_braces(text: str) -> str:
-            """Escape curly braces in text to prevent format string errors."""
-            if not isinstance(text, str):
-                text = str(text)
-            return text.replace('{', '{{').replace('}', '}}')
-        
+        # This prompt is never passed through str.format, unlike Pass F2's, so the
+        # code goes in as written. Escaping here would show the model C with every
+        # brace doubled, in the pass meant to be decisive.
         for i, func in enumerate(function_batch.functions):
-            system_prompt += f"\n{i+1}. Function ID: {escape_braces(func.function_id)}\n"
-            system_prompt += f"   Function Body:\n{escape_braces(func.body)}\n"
+            system_prompt += f"\n{i+1}. Function ID: {func.function_id}\n"
+            system_prompt += f"   Function Body:\n{func.body}\n"
             if func.candidate_lines:
                 system_prompt += f"   Candidate Lines (absolute): {sorted(func.candidate_lines)}\n"
             else:
@@ -756,7 +755,7 @@ Functions with full file context:
                 with open(func.file_path, 'r', encoding='utf-8', errors='ignore') as f:
                     lines = f.readlines()
                     file_context = ''.join(lines[:50])
-                    system_prompt += f"   File Context (first 50 lines):\n{escape_braces(file_context)}\n"
+                    system_prompt += f"   File Context (first 50 lines):\n{file_context}\n"
                     
                     # Also extract ALL typedefs, structs, and macros from the entire file
                     # This ensures we have complete type information even if defined later in the file
@@ -772,17 +771,17 @@ Functions with full file context:
                         if all_typedefs:
                             system_prompt += f"   TYPEDEFS:\n"
                             for typedef in all_typedefs:
-                                system_prompt += f"     {escape_braces(typedef)}\n"
+                                system_prompt += f"     {typedef}\n"
                         if all_structs:
                             system_prompt += f"   STRUCTS:\n"
                             for struct in all_structs:
-                                system_prompt += f"     {escape_braces(struct)}\n"
+                                system_prompt += f"     {struct}\n"
                         if all_macros:
                             system_prompt += f"   MACROS:\n"
                             for macro in all_macros:
-                                system_prompt += f"     {escape_braces(macro)}\n"
+                                system_prompt += f"     {macro}\n"
             except Exception as e:
-                system_prompt += f"   File Context: Error reading file - {escape_braces(str(e))}\n"
+                system_prompt += f"   File Context: Error reading file - {e}\n"
         
         system_prompt += """
 This is your FINAL analysis opportunity. You have full file context - make a DECISIVE decision.

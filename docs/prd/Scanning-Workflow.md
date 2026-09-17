@@ -188,7 +188,7 @@ Owners: John Lange; Contributors: GPT-5 Thinking
 ## 9. Configuration knobs (per project) ✅
 - include_globs, exclude_globs
 - min_risk threshold for the IR stage
-- LLM confidence floor (default 0.6)
+- LLM confidence floor (`--confidence-floor`, default 0.85). The prompts quote it, so the threshold the model is asked to decide by is the one findings are kept by.
 - Batch sizes and timeouts per pass
 - Max token budget per scan
 - **LLM logging:** `--log-llm` flag, `--log-dir` path, `--redact-prompts` (default on)

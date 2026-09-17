@@ -22,6 +22,7 @@ from tacs.core.status_logger import StatusLogger, format_count
 from tacs.core.scan_session import ScanSession
 from tacs.core.function_schemas import FunctionBody, FunctionAnalysis
 from tacs.llm.env import DEFAULT_MODEL
+from tacs.core.llm_client import DEFAULT_CONFIDENCE_FLOOR
 from tacs.llm.factory import create_llm_client
 from tacs import __version__ as TACS_VERSION
 
@@ -42,7 +43,7 @@ class ScanningPipeline:
         scanner_path: str,
         llm_type: str = "none",
         model: str = DEFAULT_MODEL,
-        confidence_floor: float = 0.85,
+        confidence_floor: float = DEFAULT_CONFIDENCE_FLOOR,
         batch_size_pass1: int = 100,
         timeout_sec: int = 300,
         enable_discovery: bool = True,
@@ -257,6 +258,7 @@ class ScanningPipeline:
                 migration_mode=self.migration_mode,
                 migration_from_config=self.migration_from_config,
                 migration_to_config=self.migration_to_config,
+                confidence_floor=confidence_floor,
             )
             # Store time_t aliases for Stage S1, Pass P1 (will be set when discovery runs)
             self._time_t_aliases = {}

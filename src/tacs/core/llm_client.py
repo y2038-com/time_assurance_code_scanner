@@ -17,6 +17,11 @@ from tacs.llm.env import (
     resolve_ollama_request_target,
 )
 
+#: Confidence a 'yes' needs before it is kept, when a caller names no other floor.
+#: The CLIs and the pipeline share it so the number the prompts quote is the number
+#: the results are filtered by.
+DEFAULT_CONFIDENCE_FLOOR = 0.85
+
 
 class LLMNonRetryableError(RuntimeError):
     """HTTP client errors where retries will not help (wrong model id, auth, bad request)."""
@@ -25,7 +30,7 @@ class LLMNonRetryableError(RuntimeError):
 class LLMClient:
     """Pluggable LLM client with provider-specific HTTP adapters."""
     
-    def __init__(self, llm_type: str = "none", model: Optional[str] = None, environment_config: Optional[Dict[str, Any]] = None, timeout_sec: int = 30, batch_size_pass2: int = 20, batch_size_pass3: int = 10, debug_llm_raw: bool = False, debug_pass2_prompt: bool = False, time_t_aliases: Optional[Dict[str, List[str]]] = None, io_metadata_map: Optional[Dict[str, Dict[str, Any]]] = None, migration_mode: bool = False, migration_from_config: Optional[Dict[str, Any]] = None, migration_to_config: Optional[Dict[str, Any]] = None):
+    def __init__(self, llm_type: str = "none", model: Optional[str] = None, environment_config: Optional[Dict[str, Any]] = None, timeout_sec: int = 30, batch_size_pass2: int = 20, batch_size_pass3: int = 10, debug_llm_raw: bool = False, debug_pass2_prompt: bool = False, time_t_aliases: Optional[Dict[str, List[str]]] = None, io_metadata_map: Optional[Dict[str, Dict[str, Any]]] = None, migration_mode: bool = False, migration_from_config: Optional[Dict[str, Any]] = None, migration_to_config: Optional[Dict[str, Any]] = None, confidence_floor: float = DEFAULT_CONFIDENCE_FLOOR):
         """
         Initialize the LLM client.
         
@@ -37,6 +42,9 @@ class LLMClient:
             batch_size_pass2: Batch size for Pass 2
             time_t_aliases: Dictionary of time_t alias names to their definitions
             io_metadata_map: Mapping of candidate IDs to I/O-boundary metadata
+            confidence_floor: Confidence a 'yes' needs to stand. The prompts quote
+                it, so a caller that configures a floor asks the model for the
+                threshold it will then be held to.
         """
         self.llm_type = llm_type
         self.model = model or default_model_id() or DEFAULT_MODEL
@@ -48,6 +56,7 @@ class LLMClient:
         self.debug_pass2_prompt = debug_pass2_prompt
         self.time_t_aliases = time_t_aliases or {}
         self.io_metadata_map = io_metadata_map or {}
+        self.confidence_floor = confidence_floor
         # Prefer OLLAMA_API_KEY; keep OLLAMA_CLOUD_TOKEN for existing installs (COMPAT).
         self.cloud_token = ollama_api_key()
         
@@ -418,14 +427,7 @@ int main() {
     process_data();
     return 0;
 }""",
-                "response": {
-                    "id": "process.c:5",
-                    "y2038_issue": "yes",
-                    "severity": "high",
-                    "confidence": 0.95,
-                    "reason": "Direct time() call with 32-bit time_t in ILP32 environment",
-                    "needs_more_context": False
-                }
+                "response": self._stored_time_response("process.c:5"),
             },
             {
                 "file": """#include <time.h>
@@ -451,28 +453,22 @@ int main() {
                 }
             },
             {
+                # The seconds stay in time_t throughout, so the environment decides
+                # this on its own: no narrowing muddies the example.
                 "file": """#include <time.h>
 #include <sys/time.h>
 
-long get_timestamp() {
+time_t get_timestamp() {
 >>>    struct timeval tv;
     gettimeofday(&tv, NULL);
     return tv.tv_sec;
 }
 
 int main() {
-    long ts = get_timestamp();
-    printf("Timestamp: %ld\\n", ts);
-    return 0;
+    time_t ts = get_timestamp();
+    return ts != 0;
 }""",
-                "response": {
-                    "id": "timestamp.c:5",
-                    "y2038_issue": "yes",
-                    "severity": "high",
-                    "confidence": 0.9,
-                    "reason": "timeval.tv_sec is 32-bit signed, wraps in 2038",
-                    "needs_more_context": False
-                }
+                "response": self._stored_time_response("timestamp.c:5"),
             }
         ]
     
@@ -643,14 +639,7 @@ int main() {
     50:         // Process data
     51:     }
     52: }""",
-                "response": {
-                    "id": "test.c:48",
-                    "y2038_issue": "yes",
-                    "severity": "high",
-                    "confidence": 0.9,
-                    "reason": "Direct time() call with 32-bit time_t in ILP32 environment",
-                    "needs_more_context": False
-                }
+                "response": self._stored_time_response("test.c:48"),
             },
             {
                 "context": """    20: #define TIMEOUT_MS 5000
@@ -676,14 +665,7 @@ int main() {
     19:     gettimeofday(&tv, NULL);
     20:     return tv.tv_sec;
     21: }""",
-                "response": {
-                    "id": "test.c:62",
-                    "y2038_issue": "yes",
-                    "severity": "high",
-                    "confidence": 0.85,
-                    "reason": "timeval.tv_sec is 32-bit signed, wraps in 2038",
-                    "needs_more_context": False
-                }
+                "response": self._stored_time_response("test.c:62"),
             }
         ]
     
@@ -804,16 +786,17 @@ int main() {
         
         prompt += "Respond with a JSON array of classification objects matching the schema.\n"
         prompt += "IMPORTANT: Use the exact 'file:line' format for the 'id' field (e.g., 'test.c:10'), not just numbers.\n"
-        prompt += """Classification guidelines - BE CONSERVATIVE:
-- 'yes': ONLY for CLEAR Y2038 risks (32-bit SIGNED time_t that overflows before 2038) - requires VERY HIGH confidence (>=0.85)
+        floor = self._confidence_floor_text()
+        prompt += f"""Classification guidelines - BE CONSERVATIVE:
+- 'yes': ONLY for CLEAR Y2038 risks (32-bit SIGNED time_t that overflows before 2038) - requires VERY HIGH confidence (>={floor})
 - 'no': Safe code (64-bit time_t, Y2106 patterns when Y2106 detection is off, clearly not Y2038, unsigned time_t when unsigned)
 - 'abstain': USE THIS for uncertain, ambiguous, or medium confidence cases - PREFERRED over 'yes' when unsure
 
 CRITICAL RULES:
 1. If you're not 100% certain it's a Y2038 risk (32-bit signed time_t), use 'abstain'
-2. If confidence is below 0.85, use 'abstain' (not 'yes')
+2. If confidence is below {floor}, use 'abstain' (not 'yes')
 3. When distinguishing signed vs unsigned patterns is unclear, use 'abstain'
-4. When you can't determine if time_t is signed or unsigned from the line alone, use 'abstain'
+4. When the environment context does not state the signedness of time_t, or the line's value cannot be traced to time_t, use 'abstain'
 5. False positives (incorrect 'yes') are WORSE than false negatives (missed 'yes') - be conservative
 6. For UNSIGNED time_t environments: patterns checking for negative values (t < 0) should be 'no', not 'yes'
 7. For UNSIGNED time_t environments: arithmetic operations are Y2106 risks, not Y2038 - classify as 'no' unless Y2106 detection is on
@@ -821,12 +804,20 @@ CRITICAL RULES:
 Only classify as 'yes' when ALL of these are true:
 - time_t is clearly 32-bit SIGNED (not unsigned) - verify from environment context
 - The pattern could overflow before 2038 (not 2106)
-- You have VERY HIGH confidence (>=0.85)
+- You have VERY HIGH confidence (>={floor})
 - The context clearly shows it's a Y2038 risk, not Y2106
 - The code pattern is genuinely risky (not a safe operation like small constant addition)"""
         
         return prompt
     
+    def _confidence_floor_text(self) -> str:
+        """The configured floor, formatted for the prompts that quote it.
+
+        A prompt naming a threshold the run does not apply has the model decide by
+        one number while the pipeline keeps findings by another.
+        """
+        return f"{self.confidence_floor:.2f}".rstrip("0").rstrip(".")
+
     def _build_environment_context(self) -> str:
         """Build environment context string for LLM prompts."""
         if not self.environment_config:
@@ -859,6 +850,7 @@ Be decisive but conservative in your analysis."""
         # Get config_id if available
         config_id = config.get('config_id')
         config_id_str = f" ({config_id})" if config_id else ""
+        floor = self._confidence_floor_text()
         
         context = f"""Target Environment{config_id_str}:
 - Architecture: {hardware_model}
@@ -896,7 +888,7 @@ CRITICAL CLASSIFICATION RULES:
    a) Standard overflow risk (32-bit time_t):
       - time_t is 32-bit SIGNED (not unsigned) - verify this from environment context
       - The pattern could overflow BEFORE 2038 (not 2106)
-      - You have VERY HIGH confidence (>=0.85)
+      - You have VERY HIGH confidence (>={floor})
       - The code clearly shows signed time_t behavior (e.g., negative values, signed comparisons)
       - **ARITHMETIC RISK**: For arithmetic operations, evaluate if the addition could cause overflow:
         * Adding any positive constant N to signed 32-bit time_t could overflow if current_time + N > 2,147,483,647
@@ -926,8 +918,9 @@ CRITICAL CLASSIFICATION RULES:
    - For ILP32 with 64-bit time_t: Only if NO narrowing patterns exist (64-bit time_t used safely without narrowing)
 
 3. Classify as 'abstain' if:
-   - You cannot determine if time_t is signed or unsigned
-   - Confidence is below 0.85
+   - The size or signedness listed above reads 'unknown', so the environment does not settle it
+   - The line's value cannot be traced to time_t (unknown typedef, macro or callee)
+   - Confidence is below {floor}
    - The pattern is ambiguous
    - You're uncertain about Y2038 vs Y2106
    - The line lacks sufficient context
@@ -986,6 +979,66 @@ Classification in migration mode:
 """
         return migration_context
     
+    def _stored_time_verdict(self) -> Tuple[str, float, str]:
+        """Verdict, confidence and reason for storing a fresh time() value in time_t.
+
+        Every example set needs this case, and an example asserting a width the
+        target does not have teaches the model to read past the environment
+        context it was given. So the answer comes from the config the prompt
+        already carries rather than from a width written into the example.
+        """
+        config = self.environment_config
+        if not config:
+            # The no-config context above asks for the worst plausible platform.
+            return (
+                "yes",
+                0.9,
+                "no environment configuration, so assume the worst plausible platform: "
+                "a 32-bit signed time_t wraps in 2038",
+            )
+        try:
+            bits = int(config.get('time_t_size_bits') or 0)
+        except (TypeError, ValueError):
+            bits = 0
+        signed = str(config.get('time_t_signed', 'unknown')).lower()
+        if bits >= 64:
+            return (
+                "no",
+                0.95,
+                "64-bit time_t per the environment context: the stored value does not "
+                "overflow, and nothing narrows it here",
+            )
+        if bits == 32 and signed == "signed":
+            return (
+                "yes",
+                0.9,
+                "32-bit signed time_t per the environment context: the stored value wraps in 2038",
+            )
+        if bits == 32 and signed == "unsigned":
+            return (
+                "no",
+                0.9,
+                "32-bit unsigned time_t per the environment context: wraps in 2106, "
+                "which is not a Y2038 issue",
+            )
+        return (
+            "abstain",
+            0.5,
+            "the environment context leaves the width or signedness of time_t unknown",
+        )
+
+    def _stored_time_response(self, candidate_id: str) -> Dict[str, Any]:
+        """An example response for a stored time() value, answered from the config."""
+        verdict, confidence, reason = self._stored_time_verdict()
+        return {
+            "id": candidate_id,
+            "y2038_issue": verdict,
+            "severity": "high" if verdict == "yes" else None,
+            "confidence": confidence,
+            "reason": reason,
+            "needs_more_context": verdict == "abstain",
+        }
+
     def _get_scenario_examples(self) -> List[Dict[str, Any]]:
         """Get scenario-specific examples based on environment configuration."""
         if not self.environment_config:
@@ -1007,14 +1060,7 @@ Classification in migration mode:
         return [
             {
                 "code": "time_t current_time = time(NULL);",
-                "response": {
-                    "id": "generic.c:10",
-                    "y2038_issue": "yes",
-                    "severity": "high",
-                    "confidence": 0.9,
-                    "reason": "Direct time() call with 32-bit time_t",
-                    "needs_more_context": False
-                }
+                "response": self._stored_time_response("generic.c:10"),
             },
             {
                 "code": "int counter = 0;",
@@ -1029,14 +1075,7 @@ Classification in migration mode:
             },
             {
                 "code": "struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts);",
-                "response": {
-                    "id": "generic.c:20",
-                    "y2038_issue": "yes",
-                    "severity": "high",
-                    "confidence": 0.9,
-                    "reason": "timespec.tv_sec is 32-bit signed",
-                    "needs_more_context": False
-                }
+                "response": self._stored_time_response("generic.c:20"),
             },
             {
                 "code": "usleep(1000);",
@@ -1077,14 +1116,26 @@ Classification in migration mode:
                 }
             },
             {
+                # long is 64-bit in LP64, so this cast is not a narrowing one.
                 "code": "long timestamp = (long)time(NULL);",
                 "response": {
                     "id": "lp64.c:15",
-                    "y2038_issue": "abstain",
+                    "y2038_issue": "no",
                     "severity": None,
-                    "confidence": 0.3,
-                    "reason": "Cast to long may truncate in LP64",
-                    "needs_more_context": True
+                    "confidence": 0.9,
+                    "reason": "long is 64-bit in LP64, so the cast keeps the full time_t value",
+                    "needs_more_context": False
+                }
+            },
+            {
+                "code": "int32_t timestamp = (int32_t)time(NULL);",
+                "response": {
+                    "id": "lp64.c:20",
+                    "y2038_issue": "yes",
+                    "severity": "high",
+                    "confidence": 0.9,
+                    "reason": "narrowing a 64-bit time_t to int32_t loses the high bits and wraps in 2038",
+                    "needs_more_context": False
                 }
             }
         ]
@@ -1094,14 +1145,7 @@ Classification in migration mode:
         return [
             {
                 "code": "time_t t = time(NULL);",
-                "response": {
-                    "id": "ilp32_risky.c:10",
-                    "y2038_issue": "abstain",
-                    "severity": None,
-                    "confidence": 0.6,
-                    "reason": "Cannot determine if time_t is signed or unsigned from single line - use abstain",
-                    "needs_more_context": True
-                }
+                "response": self._stored_time_response("ilp32_risky.c:10"),
             },
             {
                 "code": "time_t t = -1; t = t + 2147483648;",
@@ -1115,13 +1159,15 @@ Classification in migration mode:
                 }
             },
             {
+                # Signedness is settled by the environment; the timing of the addition
+                # is what this line does not say.
                 "code": "time_t t = time(NULL); t = t + 86400;",
                 "response": {
                     "id": "ilp32_risky.c:15",
                     "y2038_issue": "abstain",
                     "severity": None,
                     "confidence": 0.5,
-                    "reason": "Cannot determine if time_t is signed or unsigned - could be Y2106 (unsigned) not Y2038",
+                    "reason": "32-bit signed time_t, but whether adding a day overflows depends on when it runs and how the result is used",
                     "needs_more_context": True
                 }
             },
@@ -1131,32 +1177,14 @@ Classification in migration mode:
                     "id": "ilp32_risky.c:18",
                     "y2038_issue": "yes",
                     "severity": "high",
-                    "confidence": 0.85,
-                    "reason": "Comparison with 0 indicates signed time_t - Y2038 risk",
+                    "confidence": 0.9,
+                    "reason": "a negative check only makes sense for signed time_t, which here is 32-bit and wraps in 2038",
                     "needs_more_context": False
                 }
             },
             {
                 "code": "struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts);",
-                "response": {
-                    "id": "ilp32_risky.c:20",
-                    "y2038_issue": "abstain",
-                    "severity": None,
-                    "confidence": 0.6,
-                    "reason": "Cannot determine if timespec.tv_sec is signed or unsigned from single line",
-                    "needs_more_context": True
-                }
-            },
-            {
-                "code": "if (time(NULL) < 0) { /* handle negative */ }",
-                "response": {
-                    "id": "ilp32_risky.c:25",
-                    "y2038_issue": "yes",
-                    "severity": "high",
-                    "confidence": 0.85,
-                    "reason": "Comparison with 0 indicates signed time_t - Y2038 risk",
-                    "needs_more_context": False
-                }
+                "response": self._stored_time_response("ilp32_risky.c:20"),
             }
         ]
     
@@ -1178,11 +1206,11 @@ Classification in migration mode:
                 "code": "if (time(NULL) > 2147483647) { /* handle overflow */ }",
                 "response": {
                     "id": "ilp32_unsigned.c:15",
-                    "y2038_issue": "abstain",
+                    "y2038_issue": "no",
                     "severity": None,
-                    "confidence": 0.5,
-                    "reason": "Unsigned time_t check may be incorrect",
-                    "needs_more_context": True
+                    "confidence": 0.9,
+                    "reason": "the check is valid for unsigned time_t, which holds values past 2038 and wraps in 2106",
+                    "needs_more_context": False
                 }
             },
             {
@@ -1609,9 +1637,10 @@ Classification in migration mode:
         if not 0.0 <= confidence <= 1.0:
             raise ValueError(f"Confidence must be between 0.0 and 1.0, got: {confidence}")
         
-        # Apply confidence threshold: if confidence < 0.85 and classified as YES, change to ABSTAIN
-        # This helps avoid false positives - raised threshold from 0.8 to 0.85
-        if y2038_issue_str == "yes" and confidence < 0.85:
+        # A 'yes' the model is not confident enough about becomes an abstain, by the
+        # same floor the prompt quoted. Hardcoding one here would override a lower
+        # configured floor, so the run could never use the threshold it asked for.
+        if y2038_issue_str == "yes" and confidence < self.confidence_floor:
             y2038_issue_str = "abstain"
             if "reason" in item:
                 item["reason"] = f"{item['reason']} (low confidence: {confidence:.2f}, using abstain to avoid false positive)"

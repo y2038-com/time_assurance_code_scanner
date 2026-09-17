@@ -41,7 +41,7 @@ Unsupported keys are reported as a warning and ignored.
 | `model` | string | Model name for the selected provider |
 | `disable_stage1` | bool | Skip the Stage S1 line-level pre-filter |
 | `detect_y2106` | bool | Also assess 2106 overflow of unsigned 32-bit `time_t` |
-| `confidence_floor` | float | Minimum confidence for a classification |
+| `confidence_floor` | float | Minimum confidence for a classification; the LLM prompts quote it |
 | `confidence_threshold` | float | Alias for `confidence_floor`, which wins if both appear |
 | `include_no_findings` | bool | Keep findings classified as safe |
 

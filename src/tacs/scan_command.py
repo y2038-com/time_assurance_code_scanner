@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List
 from tacs.core.status_logger import StatusLogger
 from tacs.core.logging_config import configure_logging, resolve_log_level
+from tacs.core.llm_client import DEFAULT_CONFIDENCE_FLOOR
 from tacs.core.pipeline import ScanningPipeline
 from tacs.llm.env import (
     DEFAULT_LOCAL_HOST,
@@ -42,7 +43,7 @@ def _default_model() -> str:
 @click.option('--batch-size-stage3', type=int, default=20, help='Batch size for Stage S3 file-level context (default: 20)')
 @click.option('--bypass-stage1', is_flag=True, default=False, help='Bypass Stage S1, send all candidates to Stage S2 (default: disabled)')
 @click.option('--bypass-stage3', is_flag=True, default=False, help='Bypass Stage S3, stop after Stage S2 (default: disabled)')
-@click.option('--confidence-floor', type=float, default=0.85, help='Confidence threshold/floor for decisions (default: 0.85)')
+@click.option('--confidence-floor', type=float, default=DEFAULT_CONFIDENCE_FLOOR, help=f'Confidence a classification needs to count as decided; the LLM prompts quote it too (default: {DEFAULT_CONFIDENCE_FLOOR})')
 @click.option('--debug-candidates', is_flag=True, default=False, help='Show sample candidates sent to LLM (default: disabled)')
 @click.option('--debug-llm-raw', is_flag=True, default=False, help='Show raw LLM input/output for debugging (default: disabled)')
 @click.option('--debug-stage2', is_flag=True, default=False, help='Enable detailed Stage S2 debugging (default: disabled)')
