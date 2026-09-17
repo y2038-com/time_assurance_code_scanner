@@ -7,6 +7,9 @@ import json
 from pathlib import Path
 from typing import Dict, List, Any, Tuple, Optional
 
+from envui.cli.derive_fields import requires_mitigation_path
+from tacs.core.env_capabilities import capability_of
+
 try:
     import jsonschema
 except ImportError:
@@ -76,15 +79,20 @@ class EnvironmentValidator:
         """Validate additional business rules not covered by JSON schema."""
         errors = []
         
-        # Rule 1: d_time_bits_supported vs d_time_bits_setting
-        d_time_bits_supported = config.get('d_time_bits_supported', False)
+        # Rule 1: d_time_bits_supported vs d_time_bits_setting. Read as a tri-state:
+        # a truth test would hold an unknown config to the rule for a known-absent
+        # one, and demand it say 'not_available'.
+        d_time_bits_supported = capability_of(config, 'd_time_bits_supported')
         d_time_bits_setting = config.get('d_time_bits_setting', '')
         
-        if not d_time_bits_supported and d_time_bits_setting != 'not_available':
+        if d_time_bits_supported is False and d_time_bits_setting != 'not_available':
             errors.append("If d_time_bits_supported=false, d_time_bits_setting must be 'not_available'")
         
-        if d_time_bits_supported and d_time_bits_setting == 'not_available':
+        if d_time_bits_supported is True and d_time_bits_setting == 'not_available':
             errors.append("If d_time_bits_supported=true, d_time_bits_setting cannot be 'not_available'")
+        
+        if d_time_bits_supported is None and d_time_bits_setting == 'not_available':
+            errors.append("If d_time_bits_supported is unknown, d_time_bits_setting cannot be 'not_available'; use 'unknown'")
         
         # Rule 2: c_library="other" requires c_library_other_text
         c_library = config.get('c_library', '')
@@ -93,21 +101,33 @@ class EnvironmentValidator:
         if c_library == 'other' and not c_library_other_text.strip():
             errors.append("If c_library='other', c_library_other_text must be non-empty")
         
-        # Rule 3: scenario_hint="ILP32-32bit-signed-time64_no" requires mitigation_path
+        # Rule 3: the risky ILP32-32bit-signed scenarios require mitigation_path
         scenario_hint = config.get('scenario_hint', '')
         mitigation_path = config.get('mitigation_path')
         
-        if scenario_hint == 'ILP32-32bit-signed-time64_no' and mitigation_path is None:
-            errors.append("If scenario_hint='ILP32-32bit-signed-time64_no', mitigation_path is required")
+        if requires_mitigation_path(scenario_hint) and mitigation_path is None:
+            errors.append(f"If scenario_hint='{scenario_hint}', mitigation_path is required")
         
-        # Rule 4: toolchain_flags pattern validation
+        # Rule 4: toolchain_flags pattern validation. Malformed input is what this
+        # method exists to report, so a non-list value or a non-string entry
+        # becomes an error rather than a TypeError out of iteration or re.match.
         toolchain_flags = config.get('toolchain_flags', [])
         flag_pattern = r'^(-{1,2}[A-Za-z0-9_][A-Za-z0-9_-]*(=.+)?|-[DU][A-Za-z0-9_]+(=.+)?)$'
         
         import re
-        for flag in toolchain_flags:
-            if not re.match(flag_pattern, flag):
-                errors.append(f"Invalid toolchain flag format: '{flag}'. Must match pattern: {flag_pattern}")
+        if not isinstance(toolchain_flags, list):
+            errors.append(
+                f"toolchain_flags must be a list, found {type(toolchain_flags).__name__}"
+            )
+        else:
+            for flag in toolchain_flags:
+                if not isinstance(flag, str):
+                    errors.append(
+                        f"Invalid toolchain flag {flag!r}: must be a string, "
+                        f"found {type(flag).__name__}"
+                    )
+                elif not re.match(flag_pattern, flag):
+                    errors.append(f"Invalid toolchain flag format: '{flag}'. Must match pattern: {flag_pattern}")
         
         return errors
     

@@ -22,6 +22,7 @@ from tacs.batch_repo_scan import (
     discard_staged_findings,
     run_repo_scan_with_deadline,
 )
+from tacs.core.env_capabilities import UNKNOWN_SETTING, time64_suffix
 from tacs.core.file_limits import validate_max_file_size
 from tacs.core.llm_client import DEFAULT_CONFIDENCE_FLOOR
 from tacs.core.include_patterns import build_include_patterns
@@ -476,9 +477,9 @@ def _config_id_to_env_json(config_id: str) -> dict[str, Any]:
 
     Every field is derived from the three facts the config id establishes: hardware
     model, time_t signedness, and time_t width. Platform details the id does not
-    imply (C library, OS/RTOS, _TIME_BITS support) are left unspecified rather than
-    guessed, because this payload is loaded by the pipeline and reaches the I/O
-    analyzer and LLM prompts.
+    imply (C library, OS/RTOS, time64 entry points, _TIME_BITS support) are left
+    unspecified or unknown rather than guessed, because this payload is loaded by
+    the pipeline and reaches the I/O analyzer and LLM prompts.
     """
     from tacs.core.config_validator import ConfigValidator
 
@@ -496,9 +497,6 @@ def _config_id_to_env_json(config_id: str) -> dict[str, Any]:
     normalized_id = f"{model}_{signedness}_{bits_part}"
     hardware_model = model.upper()
     time_t_size_bits = 32 if bits_part == "32bit" else 64
-    # A 64-bit time_t means the target's time APIs are 64-bit. A 32-bit time_t says
-    # nothing about whether time64 variants exist, so assume the unmitigated case.
-    time64_available = time_t_size_bits == 64
 
     config_info = ConfigValidator.get_config_info(normalized_id) or {}
     description = config_info.get(
@@ -510,19 +508,24 @@ def _config_id_to_env_json(config_id: str) -> dict[str, Any]:
         "hardware_model": hardware_model,
         "time_t_size_bits": time_t_size_bits,
         "time_t_signed": signedness,
-        "time64_functions_available": time64_available,
-        "d_time_bits_supported": False,
-        "d_time_bits_setting": "not_available",
+        # A config id names an ABI, and an ABI ships no entry points: a 64-bit
+        # time_t does not put time64 variants in the C library, and nothing here
+        # says whether that library honours _TIME_BITS. Recording false would
+        # report a library nobody inspected as lacking features nobody checked.
+        "time64_functions_available": None,
+        "d_time_bits_supported": None,
+        "d_time_bits_setting": UNKNOWN_SETTING,
         "c_library": "other",
         "c_library_other_text": "unspecified (derived from config id)",
         "os_or_rtos": "unspecified",
         "notes": (
             f"{description}. Derived from config id {normalized_id}; "
-            "C library, OS/RTOS and _TIME_BITS support are unspecified."
+            "C library, OS/RTOS, time64 entry points and _TIME_BITS support are "
+            "not established by the config id."
         ),
         "scenario_hint": (
             f"{hardware_model}-{time_t_size_bits}bit-{signedness}"
-            f"-time64_{'yes' if time64_available else 'no'}"
+            f"-time64_{time64_suffix(None)}"
         ),
         "mitigation_path": "upgrade_env" if time_t_size_bits == 32 else None,
     }

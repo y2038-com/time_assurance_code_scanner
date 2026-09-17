@@ -102,9 +102,9 @@ Your task is to extract the following information:
 2. time_t_size_bits: 32 or 64
 3. time_t_signed: signed or unsigned
 4. c_library: glibc, picolibc, newlib, musl, minimal, libstdc++, or other
-5. time64_functions_available: true or false
-6. d_time_bits_supported: true or false
-7. d_time_bits_setting: not_available, not_set, 32, or 64
+5. time64_functions_available: true, false, or null when the files do not establish it
+6. d_time_bits_supported: true, false, or null when the files do not establish it
+7. d_time_bits_setting: not_available, not_set, 32, 64, or unknown
 8. os_or_rtos: Operating system or RTOS name (if detectable, or null)
 9. toolchain_flags: List of relevant compiler flags (array of strings)
 
@@ -131,9 +131,9 @@ Analyze these files and respond with a JSON object matching this schema:
   "hardware_model": "ILP32" | "LP64",
   "time_t_size_bits": 32 | 64,
   "time_t_signed": "signed" | "unsigned",
-  "time64_functions_available": true | false,
-  "d_time_bits_supported": true | false,
-  "d_time_bits_setting": "not_available" | "not_set" | "32" | "64",
+  "time64_functions_available": true | false | null,
+  "d_time_bits_supported": true | false | null,
+  "d_time_bits_setting": "not_available" | "not_set" | "32" | "64" | "unknown",
   "c_library": "glibc" | "picolibc" | "newlib" | "musl" | "minimal" | "libstdc++" | "other",
   "os_or_rtos": "string or null",
   "toolchain_flags": ["-D_TIME_BITS=64", ...],
@@ -162,6 +162,7 @@ CRITICAL RULES:
 - For c_library: Look for library paths, -lc flags, library names in includes, find_package() calls
 - For d_time_bits_supported: Check if glibc 2.34+ (usually true for modern Linux), false for embedded libraries
 - For d_time_bits_setting: Check for -D_TIME_BITS=64 or -D_TIME_BITS=32, or "not_set" if not defined
+- For the two capability fields: answer false only when the files show the feature is absent, and null when they simply do not say. "not_available" likewise asserts absence, so use "unknown" when the files are silent
 - Be conservative: If uncertain, use lower confidence and explain reasoning
 - Validate against keyword hints: If LLM result conflicts, explain why in reasoning
 - Respond with ONLY valid JSON, no markdown formatting, no code blocks

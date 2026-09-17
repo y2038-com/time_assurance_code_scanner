@@ -10,6 +10,7 @@ from .llm_analyzer import LLMAnalyzer
 from .cache import ConfigCache
 from .validator import ConfigValidator
 from .build_parsers import MakefileParser, CMakeParser
+from tacs.core.env_capabilities import UNKNOWN_SETTING
 
 
 class HybridConfigDetector:
@@ -363,10 +364,12 @@ class HybridConfigDetector:
                     'time_t_size_bits': config_info['time_t_size_bits'],
                     'time_t_signed': config_info['time_t_signed'],
                     'config_id': best_config,
-                    # Add defaults for required fields
-                    'time64_functions_available': False,
-                    'd_time_bits_supported': False,
-                    'd_time_bits_setting': 'not_available',
+                    # A likelihood over ABIs establishes the ABI and nothing about
+                    # the C library, so the capability fields stay unknown instead
+                    # of reporting features as absent on no evidence.
+                    'time64_functions_available': None,
+                    'd_time_bits_supported': None,
+                    'd_time_bits_setting': UNKNOWN_SETTING,
                     'c_library': 'unknown'
                 }
                 return config

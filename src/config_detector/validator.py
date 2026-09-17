@@ -8,6 +8,13 @@ from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 import jsonschema
 
+from tacs.core.env_capabilities import (
+    CAPABILITY_FIELDS,
+    capability,
+    capability_of,
+    setting,
+)
+
 
 class ConfigValidator:
     """Validator for configuration detection results."""
@@ -62,21 +69,32 @@ class ConfigValidator:
         """Validate business rules that aren't in the schema."""
         errors = []
         
+        # The setting says more than the support flag, so the two can contradict
+        # each other. Unknown support contradicts only "not_available", which
+        # asserts the feature is absent.
+        support = capability_of(config, "d_time_bits_supported")
+        current = config.get("d_time_bits_setting")
+
         # Rule 1: If d_time_bits_supported is false, d_time_bits_setting must be "not_available"
-        if config.get("d_time_bits_supported") is False:
-            if config.get("d_time_bits_setting") != "not_available":
-                errors.append(
-                    "d_time_bits_setting must be 'not_available' when "
-                    "d_time_bits_supported is false"
-                )
+        if support is False and current != "not_available":
+            errors.append(
+                "d_time_bits_setting must be 'not_available' when "
+                "d_time_bits_supported is false"
+            )
         
         # Rule 2: If d_time_bits_supported is true, d_time_bits_setting cannot be "not_available"
-        if config.get("d_time_bits_supported") is True:
-            if config.get("d_time_bits_setting") == "not_available":
-                errors.append(
-                    "d_time_bits_setting cannot be 'not_available' when "
-                    "d_time_bits_supported is true"
-                )
+        if support is True and current == "not_available":
+            errors.append(
+                "d_time_bits_setting cannot be 'not_available' when "
+                "d_time_bits_supported is true"
+            )
+
+        # Rule 2b: unknown support cannot claim the feature is unavailable
+        if support is None and current == "not_available":
+            errors.append(
+                "d_time_bits_setting cannot be 'not_available' when "
+                "d_time_bits_supported is unknown; use 'unknown'"
+            )
         
         # Rule 3: If c_library is "other", c_library_other_text should be provided (optional but recommended)
         # This is handled by the schema, but we can add a warning
@@ -107,12 +125,14 @@ class ConfigValidator:
             except (ValueError, TypeError):
                 pass
         
-        # Ensure boolean fields are booleans
-        bool_fields = ["time64_functions_available", "d_time_bits_supported"]
-        for field in bool_fields:
+        # Capability fields are tri-state. Reading them as plain booleans turned
+        # "unknown" into False, which is the assertion they exist to avoid.
+        for field in CAPABILITY_FIELDS:
             if field in normalized:
-                if isinstance(normalized[field], str):
-                    normalized[field] = normalized[field].lower() in ("true", "1", "yes")
+                normalized[field] = capability(normalized[field])
+
+        if "d_time_bits_setting" in normalized:
+            normalized["d_time_bits_setting"] = setting(normalized["d_time_bits_setting"])
         
         # Ensure toolchain_flags is a list
         if "toolchain_flags" in normalized:

@@ -31,6 +31,17 @@ except ImportError:
     from envui.cli.derive_fields import FieldDeriver
     from envui.cli.io_utils import IOUtils
 
+from tacs.core.env_capabilities import UNKNOWN_SETTING
+
+
+def _tri_state(answer: str) -> Optional[bool]:
+    """Read a true/false/unknown answer, where unknown is None rather than False."""
+    if answer == 'true':
+        return True
+    if answer == 'false':
+        return False
+    return None
+
 
 class EnvironmentWizard:
     """Main environment configuration wizard."""
@@ -164,42 +175,47 @@ class EnvironmentWizard:
                 break
             print("   Invalid option. Please choose signed or unsigned.")
         
-        # time64 functions availability
+        # time64 functions availability. 'unknown' is offered because a scan
+        # answers differently when told a feature is absent than when told
+        # nobody established it, and guessing false is the worse answer.
         print("\n4. time64 Functions:")
-        print("   Options: true, false")
+        print("   Options: true, false, unknown")
         print("   Example: false (no time64 functions available)")
         while True:
-            time64_input = input("   time64 functions available (true/false): ").strip().lower()
-            if time64_input in ['true', 'false']:
-                config['time64_functions_available'] = time64_input == 'true'
+            time64_input = input("   time64 functions available (true/false/unknown): ").strip().lower()
+            if time64_input in ['true', 'false', 'unknown']:
+                config['time64_functions_available'] = _tri_state(time64_input)
                 break
-            print("   Invalid option. Please choose true or false.")
+            print("   Invalid option. Please choose true, false or unknown.")
         
         # _TIME_BITS support
         print("\n5. _TIME_BITS Support:")
-        print("   Options: true, false")
+        print("   Options: true, false, unknown")
         print("   Example: true (glibc supports _TIME_BITS)")
         while True:
-            d_time_bits_supported_input = input("   _TIME_BITS supported (true/false): ").strip().lower()
-            if d_time_bits_supported_input in ['true', 'false']:
-                config['d_time_bits_supported'] = d_time_bits_supported_input == 'true'
+            d_time_bits_supported_input = input("   _TIME_BITS supported (true/false/unknown): ").strip().lower()
+            if d_time_bits_supported_input in ['true', 'false', 'unknown']:
+                config['d_time_bits_supported'] = _tri_state(d_time_bits_supported_input)
                 break
-            print("   Invalid option. Please choose true or false.")
+            print("   Invalid option. Please choose true, false or unknown.")
         
         # _TIME_BITS setting
         print("\n6. _TIME_BITS Setting:")
-        if config['d_time_bits_supported']:
-            print("   Options: not_set, 32, 64")
+        if config['d_time_bits_supported'] is True:
+            print("   Options: not_set, 32, 64, unknown")
             print("   Example: 64 (use 64-bit time_t)")
             while True:
                 d_time_bits_setting = input("   _TIME_BITS setting: ").strip()
-                if d_time_bits_setting in ['not_set', '32', '64']:
+                if d_time_bits_setting in ['not_set', '32', '64', UNKNOWN_SETTING]:
                     config['d_time_bits_setting'] = d_time_bits_setting
                     break
-                print("   Invalid option. Please choose not_set, 32, or 64.")
-        else:
+                print("   Invalid option. Please choose not_set, 32, 64, or unknown.")
+        elif config['d_time_bits_supported'] is False:
             config['d_time_bits_setting'] = 'not_available'
             print("   Set to 'not_available' (not supported)")
+        else:
+            config['d_time_bits_setting'] = UNKNOWN_SETTING
+            print("   Set to 'unknown' (support not established)")
         
         # OS/RTOS
         print("\n7. Operating System/RTOS (optional):")

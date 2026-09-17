@@ -7,6 +7,7 @@ import json
 import os
 import time
 from typing import List, Dict, Any, Optional, Tuple
+from tacs.core.env_capabilities import capability, describe_capability, setting_of
 from tacs.core.schema import Candidate, LLMResponse, Y2038Issue, SeverityLevel
 from tacs.core.status_logger import StatusLogger, format_count
 from tacs.llm.env import (
@@ -841,9 +842,22 @@ Be decisive but conservative in your analysis."""
         hardware_model = config.get('hardware_model', 'unknown')
         time_t_size = config.get('time_t_size_bits', 0)
         time_t_signed = config.get('time_t_signed', 'unknown')
-        time64_available = config.get('time64_functions_available', False)
-        d_time_bits_supported = config.get('d_time_bits_supported', False)
-        d_time_bits_setting = config.get('d_time_bits_setting', 'unknown')
+        # Capability fields are tri-state, and the third state has to reach the
+        # model as itself: "not available" would report a library nobody
+        # inspected as missing features nobody checked.
+        time64_text = describe_capability(
+            config.get('time64_functions_available'),
+            yes="available",
+            no="not available",
+            unknown="unknown (not established by the environment evidence)",
+        )
+        d_time_bits_text = describe_capability(
+            config.get('d_time_bits_supported'),
+            yes="supported",
+            no="not supported",
+            unknown="support unknown (not established by the environment evidence)",
+        )
+        d_time_bits_setting = setting_of(config)
         c_library = config.get('c_library', 'unknown')
         scenario_hint = config.get('scenario_hint', 'unknown')
         
@@ -855,10 +869,14 @@ Be decisive but conservative in your analysis."""
         context = f"""Target Environment{config_id_str}:
 - Architecture: {hardware_model}
 - time_t: {time_t_size}-bit {time_t_signed}
-- time64 functions: {'available' if time64_available else 'not available'}
-- _TIME_BITS: {'supported' if d_time_bits_supported else 'not supported'} ({d_time_bits_setting})
+- time64 functions: {time64_text}
+- _TIME_BITS: {d_time_bits_text} (setting: {d_time_bits_setting})
 - C library: {c_library}
 - Scenario: {scenario_hint}
+
+A capability listed as unknown, or a setting of 'unknown', means the available
+evidence does not settle it. Treat it as undetermined, not as absent: do not
+reason as though the feature were missing, and do not let it alone carry a 'yes'.
 
 CRITICAL: time_t signedness determines Y2038 vs Y2106 issues:
 - 32-bit SIGNED time_t: Y2038 issue (wraps in 2038) → classify as 'yes' for Y2038 risks
@@ -1040,20 +1058,35 @@ Classification in migration mode:
         }
 
     def _get_scenario_examples(self) -> List[Dict[str, Any]]:
-        """Get scenario-specific examples based on environment configuration."""
-        if not self.environment_config:
+        """Get scenario-specific examples based on environment configuration.
+
+        Selection reads the config's own fields rather than matching text in
+        ``scenario_hint``. The hint spells out time64 availability, which can now
+        be unknown, and an example set should not change because a capability
+        went from asserted to undetermined.
+        """
+        config = self.environment_config
+        if not config:
             return self._get_generic_examples()
-        
-        scenario_hint = self.environment_config.get('scenario_hint', '')
-        
-        if 'LP64-64bit' in scenario_hint:
+
+        model = str(config.get('hardware_model', '')).upper()
+        try:
+            bits = int(config.get('time_t_size_bits') or 0)
+        except (TypeError, ValueError):
+            bits = 0
+        signedness = str(config.get('time_t_signed', '')).lower()
+        time64 = capability(config.get('time64_functions_available'))
+
+        if model == 'LP64' and bits == 64:
             return self._get_lp64_examples()
-        elif 'ILP32-32bit-signed-time64_no' in scenario_hint:
-            return self._get_ilp32_risky_examples()
-        elif 'ILP32-32bit-unsigned' in scenario_hint:
+        if model == 'ILP32' and bits == 32 and signedness == 'signed':
+            # Known time64 availability is the mitigated case, which these
+            # examples do not describe; unknown leaves the risk standing.
+            if time64 is not True:
+                return self._get_ilp32_risky_examples()
+        if model == 'ILP32' and bits == 32 and signedness == 'unsigned':
             return self._get_ilp32_unsigned_examples()
-        else:
-            return self._get_generic_examples()
+        return self._get_generic_examples()
     
     def _get_generic_examples(self) -> List[Dict[str, Any]]:
         """Generic examples that work across all codebases."""

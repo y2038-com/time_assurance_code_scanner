@@ -255,13 +255,18 @@ def test_config_id_to_env_json_is_internally_consistent(config_id: str) -> None:
     assert derived_id == config_id
 
     assert config["mitigation_path"] == ("upgrade_env" if expected_bits == 32 else None)
-    assert config["time64_functions_available"] is (expected_bits == 64)
     assert f"{expected_bits}-bit" in config["notes"] or model.upper() in config["notes"]
 
-    # Facts the config id does not establish stay unspecified.
+    # Facts the config id does not establish stay unspecified. The capability
+    # fields are unknown rather than false: an ABI ships no entry points, so
+    # neither time64 availability nor _TIME_BITS support follows from it.
     assert config["os_or_rtos"] == "unspecified"
     assert config["c_library"] == "other"
     assert config["c_library_other_text"]
+    assert config["time64_functions_available"] is None
+    assert config["d_time_bits_supported"] is None
+    assert config["d_time_bits_setting"] == "unknown"
+    assert hint.endswith("-time64_unknown")
 
 
 def test_all_config_ids_produce_distinct_env_configs() -> None:

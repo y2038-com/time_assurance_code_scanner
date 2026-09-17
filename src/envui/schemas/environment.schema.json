@@ -29,17 +29,17 @@
       "description": "Whether time_t is signed or unsigned"
     },
     "time64_functions_available": {
-      "type": "boolean",
-      "description": "Whether time64 functions are available"
+      "type": ["boolean", "null"],
+      "description": "Whether time64 functions are available. null means unknown: not established by the available environment evidence. Do not infer it from the ABI, which does not imply which entry points a C library ships."
     },
     "d_time_bits_supported": {
-      "type": "boolean",
-      "description": "Whether _TIME_BITS is supported"
+      "type": ["boolean", "null"],
+      "description": "Whether _TIME_BITS is supported. null means unknown: not established by the available environment evidence. No ABI or time_t width implies C library support for _TIME_BITS."
     },
     "d_time_bits_setting": {
       "type": "string",
-      "enum": ["not_available", "not_set", "32", "64"],
-      "description": "Current _TIME_BITS setting"
+      "enum": ["unknown", "not_available", "not_set", "32", "64"],
+      "description": "Current _TIME_BITS setting. 'unknown' means not established; 'not_available' asserts the feature is absent, and 'not_set' asserts the build leaves the macro undefined."
     },
     "os_or_rtos": {
       "type": "string",
@@ -68,15 +68,8 @@
     },
     "scenario_hint": {
       "type": "string",
-      "enum": [
-        "LP64-64bit-N/A",
-        "ILP32-64bit-N/A", 
-        "ILP32-32bit-unsigned-time64_yes",
-        "ILP32-32bit-unsigned-time64_no",
-        "ILP32-32bit-signed-time64_yes",
-        "ILP32-32bit-signed-time64_no"
-      ],
-      "description": "Derived scenario hint"
+      "pattern": "^(ILP32|LP64)-(32|64)bit(-(signed|unsigned))?(-time64_(yes|no|unknown))?(-(N/A|_TIME_BITS_(32|64|not_set|unknown)))?$",
+      "description": "Derived scenario hint, composed as <hardware_model>-<time_t bits>bit[-<signedness>][-time64_<yes|no|unknown>][-<N/A|_TIME_BITS_<setting>>]. A pattern rather than an enum, because the hint is mechanically assembled from those dimensions and a hand-maintained list of the products drifts from the code that composes them. The time64_unknown form carries through an unknown time64_functions_available rather than reading it as no."
     },
     "mitigation_path": {
       "type": ["string", "null"],
@@ -84,44 +77,75 @@
       "description": "Required mitigation path for risky scenarios"
     }
   },
-  "if": {
-    "properties": {
-      "d_time_bits_supported": { "const": false }
+  "allOf": [
+    {
+      "if": {
+        "required": ["d_time_bits_supported"],
+        "properties": {
+          "d_time_bits_supported": { "const": false }
+        }
+      },
+      "then": {
+        "properties": {
+          "d_time_bits_setting": { "const": "not_available" }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["d_time_bits_supported"],
+        "properties": {
+          "d_time_bits_supported": { "const": true }
+        }
+      },
+      "then": {
+        "properties": {
+          "d_time_bits_setting": { "not": { "const": "not_available" } }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["d_time_bits_supported"],
+        "properties": {
+          "d_time_bits_supported": { "const": null }
+        }
+      },
+      "then": {
+        "properties": {
+          "d_time_bits_setting": { "not": { "const": "not_available" } }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["c_library"],
+        "properties": {
+          "c_library": { "const": "other" }
+        }
+      },
+      "then": {
+        "required": ["c_library_other_text"],
+        "properties": {
+          "c_library_other_text": { "minLength": 1 }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["scenario_hint"],
+        "properties": {
+          "scenario_hint": {
+            "pattern": "^ILP32-32bit-signed-time64_(no|unknown)(-.*)?$"
+          }
+        }
+      },
+      "then": {
+        "required": ["mitigation_path"],
+        "properties": {
+          "mitigation_path": { "not": { "const": null } }
+        }
+      }
     }
-  },
-  "then": {
-    "properties": {
-      "d_time_bits_setting": { "const": "not_available" }
-    }
-  },
-  "if": {
-    "properties": {
-      "d_time_bits_supported": { "const": true }
-    }
-  },
-  "then": {
-    "properties": {
-      "d_time_bits_setting": { "not": { "const": "not_available" } }
-    }
-  },
-  "if": {
-    "properties": {
-      "c_library": { "const": "other" }
-    }
-  },
-  "then": {
-    "properties": {
-      "c_library_other_text": { "minLength": 1 }
-    }
-  },
-  "if": {
-    "properties": {
-      "scenario_hint": { "const": "ILP32-32bit-signed-time64_no" }
-    }
-  },
-  "then": {
-    "properties": {
-      "mitigation_path": { "not": { "const": null } }
-    }
-  }
+  ]
 }

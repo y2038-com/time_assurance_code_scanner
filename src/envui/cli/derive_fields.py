@@ -5,6 +5,31 @@ from __future__ import annotations
 
 from typing import Dict, Any, Optional
 
+from tacs.core.env_capabilities import describe_capability, setting_of, time64_suffix
+
+#: Scenario hints that oblige the config to name a mitigation path. Unknown time64
+#: availability is included: the risk it would mitigate has not been ruled out.
+MITIGATION_REQUIRED_HINTS = (
+    'ILP32-32bit-signed-time64_no',
+    'ILP32-32bit-signed-time64_unknown',
+)
+
+
+def requires_mitigation_path(scenario_hint: str) -> bool:
+    """Whether a hint describes a scenario that must name a mitigation path.
+
+    Hints are composed left to right, so the risky scenario can carry a trailing
+    segment such as ``-N/A``. Matching the leading segments keeps this in step
+    with the schema, which asks the same question as a pattern. This is a
+    validation-layer reading of a derived label; scan logic reads the structured
+    ABI fields instead.
+    """
+    hint = scenario_hint or ''
+    return any(
+        hint == required or hint.startswith(f'{required}-')
+        for required in MITIGATION_REQUIRED_HINTS
+    )
+
 
 class FieldDeriver:
     """Derives computed fields from environment configuration."""
@@ -44,7 +69,9 @@ class FieldDeriver:
         hardware_model = config.get('hardware_model', '')
         time_t_size_bits = config.get('time_t_size_bits', 0)
         time_t_signed = config.get('time_t_signed', '')
-        time64_functions_available = config.get('time64_functions_available', False)
+        # The hint carries the capability's three states through, so a config that
+        # never established time64 availability is not labelled as lacking it.
+        suffix = time64_suffix(config.get('time64_functions_available'))
         
         # LP64 cases
         if hardware_model == 'LP64':
@@ -56,11 +83,9 @@ class FieldDeriver:
                 return 'ILP32-64bit-N/A'
             elif time_t_size_bits == 32:
                 if time_t_signed == 'unsigned':
-                    time64_suffix = 'yes' if time64_functions_available else 'no'
-                    return f'ILP32-32bit-unsigned-time64_{time64_suffix}'
+                    return f'ILP32-32bit-unsigned-time64_{suffix}'
                 elif time_t_signed == 'signed':
-                    time64_suffix = 'yes' if time64_functions_available else 'no'
-                    return f'ILP32-32bit-signed-time64_{time64_suffix}'
+                    return f'ILP32-32bit-signed-time64_{suffix}'
         
         # Fallback for invalid combinations
         return 'LP64-64bit-N/A'
@@ -76,8 +101,10 @@ class FieldDeriver:
         Returns:
             Mitigation path string or None
         """
-        # Only required for the risky ILP32-32bit-signed-time64_no scenario
-        if scenario_hint == 'ILP32-32bit-signed-time64_no':
+        # Required for the risky ILP32-32bit-signed scenarios. Unknown time64
+        # availability counts here: a mitigation path is a decision about risk that
+        # has not been ruled out, not a claim that the entry points are missing.
+        if requires_mitigation_path(scenario_hint):
             # For now, default to 'upgrade_env' - this could be made configurable
             return 'upgrade_env'
         
@@ -96,19 +123,19 @@ class FieldDeriver:
         hardware_model = config.get('hardware_model', 'unknown')
         time_t_size_bits = config.get('time_t_size_bits', 0)
         time_t_signed = config.get('time_t_signed', 'unknown')
-        time64_functions_available = config.get('time64_functions_available', False)
-        d_time_bits_supported = config.get('d_time_bits_supported', False)
-        d_time_bits_setting = config.get('d_time_bits_setting', 'unknown')
         c_library = config.get('c_library', 'unknown')
+        d_time_bits_setting = setting_of(config)
         
         # Format time64 availability
-        time64_str = 'yes' if time64_functions_available else 'no'
+        time64_str = time64_suffix(config.get('time64_functions_available'))
         
-        # Format _TIME_BITS support
-        if d_time_bits_supported:
-            d_time_str = f"supported:{d_time_bits_setting}"
-        else:
-            d_time_str = "not_supported"
+        # Format _TIME_BITS support, keeping unknown apart from unsupported
+        d_time_str = describe_capability(
+            config.get('d_time_bits_supported'),
+            yes=f"supported:{d_time_bits_setting}",
+            no="not_supported",
+            unknown=f"support_unknown:{d_time_bits_setting}",
+        )
         
         # Format C library
         c_lib_str = c_library
