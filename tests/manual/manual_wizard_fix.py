@@ -4,12 +4,19 @@
 
 """
 Manual smoke for environment wizard imports.
-Run: python3 tests/test_wizard_fix.py
+Run: python3 tests/manual/manual_wizard_fix.py
 """
 
 from __future__ import annotations
 
 import sys
+import tempfile
+from pathlib import Path
+
+# The sample config moved under src/ with the rest of the packages. Anchoring on
+# __file__ keeps this working from any directory.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SAMPLE_CONFIG = REPO_ROOT / "src" / "envui" / "examples" / "env_config.sample.json"
 
 
 def main() -> int:
@@ -22,12 +29,14 @@ def main() -> int:
         print("Wizard instance created successfully!")
 
         print("\nTesting non-interactive mode...")
-        wizard.run_non_interactive(
-            "envui/examples/env_config.sample.json",
-            "results/test_env_config.json",
-            print_summary=True,
-            log_cli=False,
-        )
+        # The written config is scratch, so it goes to a temp directory.
+        with tempfile.TemporaryDirectory(prefix="y2038_wizard_") as out_dir:
+            wizard.run_non_interactive(
+                str(SAMPLE_CONFIG),
+                str(Path(out_dir) / "test_env_config.json"),
+                print_summary=True,
+                log_cli=False,
+            )
         print("Non-interactive mode test passed!")
         return 0
     except Exception as e:

@@ -12,6 +12,7 @@ that expected patterns are detected.
 import json
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Set, Optional
 from dataclasses import dataclass
@@ -136,7 +137,7 @@ def run_scanner(test_file: Path, rules_file: Path, output_file: Path, project_ro
     try:
         # Run scanner from project root so Python can find the scanner module
         cmd = [
-            sys.executable, '-m', 'tacs.cli',
+            sys.executable, '-m', 'tacs.cli', 'scan',
             '--root', str(test_file.parent),
             '--rules', str(rules_file),
             '--include', f'**/{test_file.name}',
@@ -379,11 +380,11 @@ def create_test_rules_file(rules_file: Path):
 
 def main():
     """Main test runner."""
-    # Get project root (parent of tests directory)
-    # This script is in tests/patterns/, so project root is parent.parent.parent
-    project_root = Path(__file__).parent.parent.parent
-    test_dir = Path(__file__).parent
-    patterns_dir = test_dir  # Test files are in the same directory as this script
+    # This script is in tests/manual/, so project root is parent.parent.parent
+    # and the C pattern files it scans are in the sibling tests/patterns/.
+    # Both are anchored on __file__ so the script runs from any directory.
+    project_root = Path(__file__).resolve().parent.parent.parent
+    patterns_dir = Path(__file__).resolve().parent.parent / "patterns"
     
     if not patterns_dir.exists():
         print(f"Error: Patterns directory not found: {patterns_dir}")
@@ -393,8 +394,12 @@ def main():
         print(f"Error: Project root not found: {project_root}")
         sys.exit(1)
     
-    # Create rules file
-    rules_file = test_dir / 'test_patterns_rules.json'
+    # Create rules file. It is scratch -- written here and deleted at the end of
+    # the run -- so it goes to a temp directory rather than into tests/patterns,
+    # where it would overwrite and then delete the committed fixture of the same
+    # name.
+    rules_dir = Path(tempfile.mkdtemp(prefix='y2038_rules_'))
+    rules_file = rules_dir / 'test_patterns_rules.json'
     create_test_rules_file(rules_file)
     
     # Find all test files
@@ -445,6 +450,7 @@ def main():
     # Clean up
     if rules_file.exists():
         rules_file.unlink()
+    rules_dir.rmdir()
     
     sys.exit(0 if passed == total else 1)
 

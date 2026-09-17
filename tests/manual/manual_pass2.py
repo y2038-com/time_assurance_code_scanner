@@ -11,7 +11,10 @@ import sys
 import tempfile
 from pathlib import Path
 
-# Add the project root to the Python path
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# Add this script's directory to the Python path (tacs/envui come from
+# the installed package)
 sys.path.insert(0, str(Path(__file__).parent))
 
 def test_pass2():
@@ -73,7 +76,7 @@ void clear_function() {
             from tacs.core.pipeline import ScanningPipeline
             
             pipeline = ScanningPipeline(
-                scanner_path=str(Path(__file__).resolve().parents[1] / "src" / "tacs" / "python" / "y2038scan_fast_json_group.py"),
+                scanner_path=str(Path(__file__).resolve().parents[2] / "src" / "tacs" / "python" / "y2038scan_fast_json_group.py"),
                 llm_type="none",
                 environment_config_path=str(env_config_file),
                 enable_discovery=False,
@@ -82,7 +85,7 @@ void clear_function() {
             
             results = pipeline.scan(
                 root_path=str(temp_dir),
-                rules_path="configs/example.rules.json",
+                rules_path=str(REPO_ROOT / "configs" / "example.rules.json"),
                 include_patterns=["**/*.c"],
                 exclude_patterns=[],
                 min_risk="low"
@@ -110,7 +113,7 @@ void clear_function() {
         print("\n2. Testing Pass 2 with 'ollama' LLM...")
         try:
             ollama_pipeline = ScanningPipeline(
-                scanner_path=str(Path(__file__).resolve().parents[1] / "src" / "tacs" / "python" / "y2038scan_fast_json_group.py"),
+                scanner_path=str(Path(__file__).resolve().parents[2] / "src" / "tacs" / "python" / "y2038scan_fast_json_group.py"),
                 llm_type="ollama",
                 model="qwen3-coder:480b-cloud",
                 environment_config_path=str(env_config_file),
@@ -121,7 +124,7 @@ void clear_function() {
             
             ollama_results = ollama_pipeline.scan(
                 root_path=str(temp_dir),
-                rules_path="configs/example.rules.json",
+                rules_path=str(REPO_ROOT / "configs" / "example.rules.json"),
                 include_patterns=["**/*.c"],
                 exclude_patterns=[],
                 min_risk="low"

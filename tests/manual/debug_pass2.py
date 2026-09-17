@@ -11,7 +11,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-# Add the project root to the Python path
+# Add this script's directory to the Python path (tacs/envui come from
+# the installed package)
 sys.path.insert(0, str(Path(__file__).parent))
 
 def debug_pass2():
@@ -32,6 +33,7 @@ def debug_pass2():
                 col_end=15,
                 symbol="time",
                 one_line_snippet="time_t t = time(NULL);",
+                risk="high",
                 symbol_role="function_call"
             ),
             Candidate(
@@ -41,6 +43,7 @@ def debug_pass2():
                 col_end=20,
                 symbol="usleep",
                 one_line_snippet="usleep(1000);",
+                risk="medium",
                 symbol_role="function_call"
             )
         ]
@@ -97,7 +100,7 @@ def debug_pass2():
         from tacs.core.pipeline import ScanningPipeline
         
         pipeline = ScanningPipeline(
-            scanner_path=str(Path(__file__).resolve().parents[1] / "src" / "tacs" / "python" / "y2038scan_fast_json_group.py"),
+            scanner_path=str(Path(__file__).resolve().parents[2] / "src" / "tacs" / "python" / "y2038scan_fast_json_group.py"),
             llm_type="none",
             batch_size_pass2=5
         )

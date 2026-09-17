@@ -4,7 +4,7 @@
 
 """
 Simple script to analyze why I/O candidates are missing from final findings.
-Run after a scan: python3 tests/patterns/analyze_io_missing.py
+Run after a scan: python3 tests/manual/analyze_io_missing.py
 """
 
 import json

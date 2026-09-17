@@ -30,8 +30,14 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
-# Import from same directory
-sys.path.insert(0, str(Path(__file__).parent))
+# This harness lives in tests/manual/, but its fixtures -- the C pattern files,
+# the rules file and test_config_fixtures -- stayed in tests/patterns/ when it was
+# moved. Anchoring on __file__ rather than the working directory keeps the
+# documented `python tests/manual/manual_multi_config.py` invocation working from
+# anywhere. tests/patterns is not a package, so it goes on sys.path the same way
+# pytest puts it there for the suite.
+PATTERNS_DIR = Path(__file__).resolve().parent.parent / "patterns"
+sys.path.insert(0, str(PATTERNS_DIR))
 
 from test_config_fixtures import get_all_test_configs, save_config_to_file
 
@@ -161,7 +167,7 @@ def run_scanner_with_config(
         shutil.copy2(rules_file, temp_rules_file)
         
         cmd = [
-            sys.executable, '-m', 'tacs.cli',
+            sys.executable, '-m', 'tacs.cli', 'scan',
             '--root', temp_scan_dir,  # Use temp directory with only target file
             '--rules', str(temp_rules_file),
             '--include', f'**/{test_file.name}',  # Include only the target file
@@ -550,6 +556,11 @@ Examples:
         type=int,
         help='Limit number of test files to test (for faster testing)'
     )
+    parser.add_argument(
+        '--detect-y2106',
+        action='store_true',
+        help='Also assess 2106 overflow of unsigned 32-bit time_t (default: disabled)'
+    )
     
     args = parser.parse_args()
     use_llm = args.llm == 'ollama'
@@ -567,7 +578,7 @@ Examples:
         print("✅")
         print()
     
-    test_dir = Path(__file__).parent
+    test_dir = PATTERNS_DIR
     
     # Test files to run
     all_test_files = [
@@ -583,10 +594,15 @@ Examples:
     else:
         test_files = all_test_files
     
-    # Create rules file
-    rules_file = test_dir / 'test_patterns_rules.json'
-    # Use the same rules creation as test_pattern_detection.py
-    from test_pattern_detection import create_test_rules_file
+    # Create rules file. It is scratch -- regenerated here and deleted at the end
+    # of the run -- so it goes to a temp directory rather than into
+    # tests/patterns, where it would overwrite and then delete the committed
+    # fixture of the same name.
+    rules_dir = Path(tempfile.mkdtemp(prefix='y2038_rules_'))
+    rules_file = rules_dir / 'test_patterns_rules.json'
+    # Use the same rules creation as manual_pattern_detection.py, which sits
+    # next to this file and is therefore already importable by name.
+    from manual_pattern_detection import create_test_rules_file
     create_test_rules_file(rules_file)
     
     print("="*70)
@@ -674,6 +690,7 @@ Examples:
     # Clean up
     if rules_file.exists():
         rules_file.unlink()
+    rules_dir.rmdir()
     
     sys.exit(0 if passed == total else 1)
 

@@ -9,7 +9,8 @@ Quick test to verify the LLM integration fixes.
 import sys
 from pathlib import Path
 
-# Add the project root to the Python path
+# Add this script's directory to the Python path (tacs/envui come from
+# the installed package)
 sys.path.insert(0, str(Path(__file__).parent))
 
 def test_fixes():

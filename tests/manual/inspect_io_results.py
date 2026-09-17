@@ -4,7 +4,7 @@
 
 """
 Inspect I/O boundary findings in scan results.
-Usage: python3 tests/patterns/inspect_io_results.py [results_file]
+Usage: python3 tests/manual/inspect_io_results.py [results_file]
 """
 
 import json

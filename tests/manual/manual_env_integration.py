@@ -8,9 +8,11 @@ Test script to demonstrate environment configuration integration.
 
 import json
 import sys
+import tempfile
 from pathlib import Path
 
-# Add the project root to the Python path
+# Add this script's directory to the Python path (tacs/envui come from
+# the installed package)
 sys.path.insert(0, str(Path(__file__).parent))
 
 def test_environment_integration():
@@ -34,8 +36,11 @@ def test_environment_integration():
         "mitigation_path": "upgrade_env"
     }
     
-    # Write sample config
-    with open('results/test_env_config.json', 'w') as f:
+    # Write sample config. It is scratch, so it goes to a temp directory; the
+    # handle stays alive for the whole function, so it is removed on return.
+    tmp_config_dir = tempfile.TemporaryDirectory(prefix="y2038_env_")
+    env_config_path = Path(tmp_config_dir.name) / "test_env_config.json"
+    with open(env_config_path, 'w') as f:
         json.dump(sample_config, f, indent=2)
     print("✓ Created sample environment configuration")
     
@@ -64,9 +69,9 @@ def test_environment_integration():
         from tacs.core.pipeline import ScanningPipeline
         
         pipeline = ScanningPipeline(
-            scanner_path=str(Path(__file__).resolve().parents[1] / "src" / "tacs" / "python" / "y2038scan_fast_json_group.py"),
+            scanner_path=str(Path(__file__).resolve().parents[2] / "src" / "tacs" / "python" / "y2038scan_fast_json_group.py"),
             llm_type="none",
-            environment_config_path="results/test_env_config.json"
+            environment_config_path=str(env_config_path)
         )
         print("✓ Pipeline initialized with environment config")
         

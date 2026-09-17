@@ -10,7 +10,8 @@ import json
 import sys
 from pathlib import Path
 
-# Add the project root to the Python path
+# Add this script's directory to the Python path (tacs/envui come from
+# the installed package)
 sys.path.insert(0, str(Path(__file__).parent))
 
 def test_llm_integration():
@@ -31,6 +32,7 @@ def test_llm_integration():
                 col_end=15,
                 symbol="time",
                 one_line_snippet="time_t t = time(NULL);",
+                risk="high",
                 symbol_role="function_call"
             ),
             Candidate(
@@ -40,6 +42,7 @@ def test_llm_integration():
                 col_end=20,
                 symbol="clock_gettime64",
                 one_line_snippet="clock_gettime64(CLOCK_REALTIME, &ts);",
+                risk="medium",
                 symbol_role="function_call"
             )
         ]
