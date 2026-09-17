@@ -36,6 +36,7 @@ commit `.env` or scan outputs.
 - Bugs and UX friction in the CLI / docs are always welcome.
 - Improving **experimental** config auto-detect (`tacs detect` / `config_detector`) is welcome, but keep expectations honest in docs.
 - Explicit env-config workflow and scan quality are higher priority than detection heuristics.
+- Known deferred (non-blocking) work is listed in [docs/backlog.md](docs/backlog.md).
 
 ## Security
 

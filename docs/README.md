@@ -13,6 +13,7 @@ Public entry points:
 | [config_detector.md](config_detector.md) | Detector design notes |
 | [report_renderer.md](report_renderer.md) | Text/HTML rendering |
 | [release_checklist.md](release_checklist.md) | Maintainer release / GitHub metadata checklist |
+| [backlog.md](backlog.md) | Deferred non-blocking work (not release blockers) |
 
 Historical:
 

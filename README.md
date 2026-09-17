@@ -120,7 +120,7 @@ Sibling project: [time_assurance_doc_scanner](https://github.com/y2038-com/time_
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). To report a vulnerability, use [SECURITY.md](SECURITY.md) (not a public issue).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Deferred non-blocking work is tracked in [docs/backlog.md](docs/backlog.md). To report a vulnerability, use [SECURITY.md](SECURITY.md) (not a public issue).
 
 ## License
 

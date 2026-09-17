@@ -96,6 +96,7 @@ Publish later with maintainer credentials (`twine` / Trusted Publishing) — **n
 ## Known gaps carried into the public release
 
 None of these block the visibility flip, but a first outside reader may notice them.
+Deferred non-blocking work beyond this cut is tracked in [backlog.md](backlog.md).
 
 - **Lint debt.** `ruff check` reports ~1.3k findings under the rule set current ruff
   enables by default, ~148 of them under ruff's classic `E4,E7,E9,F` selection
