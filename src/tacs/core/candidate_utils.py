@@ -23,7 +23,22 @@ def candidate_identity_key(candidate: Candidate) -> Tuple[str, int, int, int, st
     """
     Semantic identity for a candidate discovery.
 
-    Distinct symbols, columns, or risk levels on the same line stay distinct.
+    Tuple: ``(canonical_file, line, col_start, col_end, symbol, risk)``.
+
+    Why ``risk`` (not description / a synthetic rule id):
+    * ``Candidate`` has no ``rule_id`` or ``category`` field; ``risk`` is the
+      stable severity tag supplied by rules JSON and by the define/arithmetic
+      detectors.
+    * It is deterministic for a given ruleset/detector (not model output or a
+      timestamp). Distinct severity at the same site stays distinct.
+    * ``description`` is deliberately omitted: wording is unstable, and the
+      bundled ruleset has several same-symbol/same-risk entries that differ
+      only in prose (OS/header variants). Collapsing those is correct.
+    * On the sample ruleset every symbol maps to one risk, so risk rarely
+      splits IR hits by itself; columns + symbol already separate sites. Risk
+      still belongs in the key for detector severity differences and for
+      future multi-risk rules.
+
     Symlink aliases of one file collapse through ``canonical_source_path``.
     """
     return (
@@ -55,9 +70,9 @@ def make_candidate_id(
         ``<relpath>:<line>:<col_start>:<col_end>:<risk>:<symbol>``
 
     The tuple matches ``candidate_identity_key`` so two distinct semantic
-    candidates cannot share an id after exact duplicates are removed. ``risk``
-    is the closest stable rule discriminator on the Candidate model (there is
-    no separate rule_id field).
+    candidates cannot share an id after exact duplicates are removed. See
+    that helper for why ``risk`` is the severity discriminator (and why
+    ``description`` is not part of the id).
     """
     return (
         f"{relpath}:{int(line)}:{int(col_start or 0)}:{int(col_end or 0)}"

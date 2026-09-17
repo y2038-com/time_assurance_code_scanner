@@ -379,6 +379,7 @@ class ScanningPipeline:
             "files": {
                 "max_file_size": info.get('max_file_size'),
                 "files_skipped_too_large": info.get('files_skipped_too_large', 0),
+                "files_skipped_external": info.get('files_skipped_external', 0),
             },
             "prescan": {"time_t_aliases": session.stage_counts.get("time_t_aliases", 0)},
             "ir": {
@@ -458,6 +459,12 @@ class ScanningPipeline:
                 f"{_format_count(metrics.files_skipped_too_large, 'file')} "
                 f"over the {self.max_file_size} byte max_file_size"
             )
+        if metrics.files_skipped_external:
+            StatusLogger.timestamped_print(
+                f"Stage 1: Ignored "
+                f"{_format_count(metrics.files_skipped_external, 'source symlink')} "
+                f"resolving outside the repository root"
+            )
         # Carried into stage_stats.json so a run records the limit it applied and
         # what the limit cost, rather than leaving the gap unexplained.
         if not hasattr(session, '_legacy_pipeline_info'):
@@ -465,6 +472,9 @@ class ScanningPipeline:
         session._legacy_pipeline_info['max_file_size'] = self.max_file_size
         session._legacy_pipeline_info['files_skipped_too_large'] = (
             metrics.files_skipped_too_large
+        )
+        session._legacy_pipeline_info['files_skipped_external'] = (
+            metrics.files_skipped_external
         )
         StatusLogger.timestamped_print(
             f"Stage 1: Found {_format_count(metrics.total_files, 'file')}, "

@@ -31,6 +31,8 @@ def calculate_metrics(
         max_file_size=max_file_size,
     )
 
+    external_count = len(enumeration.skipped_external)
+    external_detail: List[str] = enumeration.skipped_external[:MAX_RECORDED_SKIPS]
     for display in enumeration.skipped_external:
         StatusLogger.timestamped_debug(
             f"Ignoring source symlink outside repository root: {display}"
@@ -85,4 +87,6 @@ def calculate_metrics(
         max_file_size=max_file_size,
         files_skipped_too_large=skipped_count,
         skipped_too_large=skipped_detail,
+        files_skipped_external=external_count,
+        skipped_external=external_detail,
     )

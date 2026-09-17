@@ -174,6 +174,20 @@ class Metrics(BaseModel):
             "file_limits.MAX_RECORDED_SKIPS entries; files_skipped_too_large is exact"
         ),
     )
+    files_skipped_external: int = Field(
+        default=0,
+        description=(
+            "Source symlinks whose targets resolve outside the repository root"
+        ),
+    )
+    skipped_external: List[str] = Field(
+        default_factory=list,
+        description=(
+            "In-repo link paths (lexical, not followed) for external symlink "
+            "skips, capped at file_limits.MAX_RECORDED_SKIPS; "
+            "files_skipped_external is exact"
+        ),
+    )
 
 
 class ScanMetadata(BaseModel):

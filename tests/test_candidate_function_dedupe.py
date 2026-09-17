@@ -111,6 +111,59 @@ def test_metrics_count_in_repo_source_once(tmp_path: Path) -> None:
     assert metrics.total_files == 1
     assert metrics.total_lines == expected_lines
     assert metrics.total_chars == expected_chars
+    assert metrics.files_skipped_external == 2
+    assert set(metrics.skipped_external) == {"escape/out.c", "abs_link/out.c"}
+
+
+def test_scan_persists_skipped_external_symlinks(tmp_path: Path) -> None:
+    """External skips must land in metrics.json and stage_stats.json, not only logs."""
+    from tacs.core.pipeline import ScanningPipeline
+
+    root, rules = _write_repo_with_symlinks(tmp_path)
+    session_dir = tmp_path / "session"
+    scanner = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "tacs"
+        / "python"
+        / "y2038scan_fast_json_group.py"
+    )
+    pipeline = ScanningPipeline(
+        scanner_path=str(scanner),
+        llm_type="none",
+        model="none",
+    )
+    pipeline.scan(
+        root_path=str(root),
+        rules_path=str(rules),
+        include_patterns=["**/*.c"],
+        exclude_patterns=[],
+        min_risk="low",
+        session_dir=str(session_dir),
+    )
+
+    metrics = json.loads((session_dir / "metrics.json").read_text(encoding="utf-8"))
+    assert metrics["files_skipped_external"] == 2
+    assert set(metrics["skipped_external"]) == {"escape/out.c", "abs_link/out.c"}
+
+    stage_stats = json.loads((session_dir / "stage_stats.json").read_text(encoding="utf-8"))
+    assert stage_stats["files"]["files_skipped_external"] == 2
+
+
+def test_candidate_id_ignores_description_wording() -> None:
+    """Same site + risk stays one candidate even when rule prose differs."""
+    a = Candidate(
+        file="/r/a.c", line=10, symbol="sleep", one_line_snippet="sleep(1);",
+        risk="high", description="Sleep until the absolute time given in an xtime struct",
+        col_start=0, col_end=5,
+    )
+    b = Candidate(
+        file="/r/a.c", line=10, symbol="sleep", one_line_snippet="sleep(1);",
+        risk="high", description="Sleep for given # of seconds in unsigned int",
+        col_start=0, col_end=5,
+    )
+    assert candidate_id_for(a, "a.c") == candidate_id_for(b, "a.c")
+    assert len(prepare_candidates([a, b])) == 1
 
 
 def test_ir_discovery_ignores_external_and_dedupes_aliases(tmp_path: Path) -> None:

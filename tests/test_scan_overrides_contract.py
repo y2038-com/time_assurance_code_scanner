@@ -543,6 +543,7 @@ def test_batch_records_the_effective_limit_and_skip_count(
     metrics = json.loads((repo_dir / "metrics.json").read_text())
     assert metrics["files_skipped_too_large"] == 1
     assert [entry["path"] for entry in metrics["skipped_too_large"]] == ["src/huge.c"]
+    assert metrics.get("files_skipped_external", 0) == 0
 
 
 def test_omitted_limit_leaves_the_run_unlimited(
