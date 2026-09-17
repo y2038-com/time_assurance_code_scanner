@@ -46,3 +46,15 @@ file public issues for exploitable bugs.
 
 By contributing, you agree that your contributions are licensed under the
 [Apache License, Version 2.0](LICENSE).
+
+New source files under `src/`, `scripts/` and `tests/` carry a two-line header,
+below any shebang, using the comment syntax of the language:
+
+```python
+# Copyright (c) 2026 Y2038.com LLC
+# SPDX-License-Identifier: Apache-2.0
+```
+
+`tests/test_license_headers.py` checks this for `.py`, `.sh`, `.c`, `.h` and
+`.cpp`. Formats that cannot carry a comment, such as JSON, and prose files are
+out of scope.

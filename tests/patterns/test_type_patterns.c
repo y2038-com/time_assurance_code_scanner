@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Y2038.com LLC
+// SPDX-License-Identifier: Apache-2.0
+
 // Test file for type declaration patterns
 // This file tests various time_t type declarations that the scanner should detect
 

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Y2038.com LLC
+// SPDX-License-Identifier: Apache-2.0
+
 // Test file for migration analysis patterns
 // This file tests patterns that would break or cause issues during config migration
 // Migration scenarios: 32→64 bit, signed→unsigned, ILP32→LP64

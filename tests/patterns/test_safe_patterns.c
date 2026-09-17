@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Y2038.com LLC
+// SPDX-License-Identifier: Apache-2.0
+
 // Test file for safe patterns
 // This file tests patterns that should NOT be flagged as Y2038 issues
 // These should be classified as NO (safe)

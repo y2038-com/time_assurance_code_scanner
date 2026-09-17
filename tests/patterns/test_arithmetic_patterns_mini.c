@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Y2038.com LLC
+// SPDX-License-Identifier: Apache-2.0
+
 // Mini test file for arithmetic patterns (~1/10th size of full test)
 // This file tests key time_t arithmetic operations
 

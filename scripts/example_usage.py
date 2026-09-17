@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Y2038.com LLC
+# SPDX-License-Identifier: Apache-2.0
+
 """
 Example command to demonstrate the Y2038 scanner usage.
 This shows how to run the scanner with different options.

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Y2038.com LLC
+# SPDX-License-Identifier: Apache-2.0
+
 """
 Inspect I/O boundary findings in scan results.
 Usage: python3 tests/patterns/inspect_io_results.py [results_file]

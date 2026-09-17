@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Y2038.com LLC
+// SPDX-License-Identifier: Apache-2.0
+
 // Test file for structures with embedded 32-bit time fields
 // This file tests structures that contain time_t fields, both signed and unsigned
 // These are critical for Y2038 detection as they represent storage of time values

@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Y2038.com LLC
+# SPDX-License-Identifier: Apache-2.0
+
 """
 Debug script to examine intermediate files and understand ID mismatches.
 """
 
 import json
-import sys
-import os
 from pathlib import Path
+
 
 def examine_intermediate_files():
     """Examine intermediate files to understand the ID mismatch issue."""
@@ -98,9 +100,16 @@ def analyze_id_patterns():
                 candidates = data['candidates']
                 if candidates:
                     print(f"  Candidates count: {len(candidates)}")
-                    print(f"  Sample IDs: {[f'{c.get(\"file\", \"NO_FILE\")}:{c.get(\"line\", \"NO_LINE\")}' for c in candidates[:3]]}")
+                    sample_ids = [
+                        f"{c.get('file', 'NO_FILE')}:{c.get('line', 'NO_LINE')}"
+                        for c in candidates[:3]
+                    ]
+                    print(f"  Sample IDs: {sample_ids}")
                     
-        except (json.JSONDecodeError, Exception) as e:
+        except (OSError, ValueError) as e:
+            # Unreadable file or unparseable JSON: report it and move to the next
+            # one, because the point of the walk is to survey what is there.
+            # json.JSONDecodeError is a ValueError, as is a bad text decode.
             print(f"  Error reading file: {e}")
 
 if __name__ == "__main__":

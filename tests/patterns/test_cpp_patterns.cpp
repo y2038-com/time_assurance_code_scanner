@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Y2038.com LLC
+// SPDX-License-Identifier: Apache-2.0
+
 // Test file for C++ specific patterns
 // This file tests various C++ features involving time_t
 

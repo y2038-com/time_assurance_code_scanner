@@ -15,7 +15,7 @@ PyPI publish, and the public visibility flip itself.
 - [x] Ollama Cloud smoke (`--llm ollama`, `gpt-oss:120b-cloud`)
 - [x] Optional extra provider smoke (OpenAI) — completed; not a blocker
 - [x] Scan leaves **tracked** files unchanged (discovery writes only under `results/scans/…`)
-- [x] Light SPDX/copyright headers on first-party `src/**/*.py`
+- [x] Light SPDX/copyright headers on every first-party source file under `src/`, `scripts/` and `tests/` (`.py`, `.sh`, `.c`, `.h`, `.cpp`), enforced by `tests/test_license_headers.py`
 - [x] PyPI metadata prepared in `pyproject.toml` (not published)
 
 ## Smoke results (2026-09-14)

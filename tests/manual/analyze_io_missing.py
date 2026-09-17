@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Y2038.com LLC
+# SPDX-License-Identifier: Apache-2.0
+
 """
 Simple script to analyze why I/O candidates are missing from final findings.
 Run after a scan: python3 tests/patterns/analyze_io_missing.py

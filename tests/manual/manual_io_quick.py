@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Y2038.com LLC
+# SPDX-License-Identifier: Apache-2.0
+
 """
 Quick test script for I/O boundary patterns.
 Run from project root: python3 tests/patterns/test_io_quick.py

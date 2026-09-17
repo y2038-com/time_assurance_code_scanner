@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Y2038.com LLC
+// SPDX-License-Identifier: Apache-2.0
+
 // Test file for I/O-boundary patterns
 // This file tests various I/O operations with time_t that the scanner should detect
 // for Y2038/Y2106 risks at I/O boundaries

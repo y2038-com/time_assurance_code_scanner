@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Y2038.com LLC
+// SPDX-License-Identifier: Apache-2.0
+
 // Test file for narrowing patterns that should fail even in LP64 configurations
 // These patterns explicitly narrow 64-bit time_t to 32-bit, which is a Y2038 risk
 // even on systems with 64-bit time_t
