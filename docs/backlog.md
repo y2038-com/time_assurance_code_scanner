@@ -18,6 +18,7 @@ When you pick up an item, remove or rewrite it here so the list stays accurate.
 - [ ] Expand LLM/provider compatibility testing and compare model quality on a fixed fixture set
 - [ ] Improve Windows hard-timeout cleanup for descendant processes (`tacs repos` scan child)
 - [ ] Consider richer skipped-file metrics beyond the current oversized-file and external-symlink fields (e.g. extension or byte totals)
+- [ ] Give candidates a stable rule/source identifier for identity and provenance (today `risk` is only severity; same-site/same-symbol/same-risk detector variants intentionally collapse — fine for the current ruleset, but insufficient if distinct rules must remain distinct)
 
 ## Analysis improvements
 
