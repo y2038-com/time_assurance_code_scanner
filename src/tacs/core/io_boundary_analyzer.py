@@ -4,12 +4,11 @@
 """I/O boundary analyzer for Y2038/Y2106 detection."""
 
 import re
-from pathlib import Path
 from typing import List, Dict, Set, Optional, Any, Tuple
-from tacs.core.file_limits import is_within_size_limit
 from tacs.core.schema import Candidate, IOCandidate, IOCandidateType, RemediationClass
 from tacs.core.io_format_parser import FormatSpecifierParser, FormatSpec
 from tacs.core.status_logger import StatusLogger
+from tacs.core.source_files import enumerate_source_files
 
 
 class IOFunctionRegistry:
@@ -275,49 +274,38 @@ class IOBoundaryAnalyzer:
     ) -> List[str]:
         """
         Quick regex pass to find files containing I/O function names.
-        
-        Args:
-            root_path: Root directory
-            include_patterns: File include patterns
-            exclude_patterns: File exclude patterns
-        
-        Returns:
-            List of file paths that likely contain I/O calls
+
+        Uses the same canonical in-repo enumeration as metrics/IR discovery so
+        symlink aliases collapse and targets outside the repository root are
+        never opened.
         """
-        from fnmatch import fnmatch
-        
-        # Build regex pattern for I/O functions
         function_names = '|'.join(re.escape(f) for f in IOFunctionRegistry.ALL_FUNCTIONS)
         io_pattern = re.compile(
             r'\b(' + function_names + r')\s*\(',
             re.IGNORECASE
         )
-        
-        files_with_io = []
-        root = Path(root_path)
-        
-        # Get files matching include patterns
-        all_files = []
-        for pattern in include_patterns or ['**/*.c', '**/*.h']:
-            for file_path in root.rglob(pattern.replace('**/', '')):
-                if file_path.is_file() and is_within_size_limit(file_path, self.max_file_size):
-                    all_files.append(file_path)
-        
-        # Filter by exclude patterns
-        for file_path in all_files:
-            rel_path = str(file_path.relative_to(root))
-            if any(fnmatch(rel_path, pattern) for pattern in exclude_patterns or []):
-                continue
-            
-            # Quick regex scan
+
+        enumeration = enumerate_source_files(
+            root_path,
+            include_patterns or ['**/*.c', '**/*.h'],
+            exclude_patterns=exclude_patterns,
+            max_file_size=self.max_file_size,
+        )
+        for display in enumeration.skipped_external:
+            StatusLogger.timestamped_debug(
+                f"Ignoring source symlink outside repository root: {display}"
+            )
+
+        files_with_io: List[str] = []
+        for file_path in enumeration.files:
             try:
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                     content = f.read(8192)  # Read first 8KB for quick check
                     if io_pattern.search(content):
                         files_with_io.append(str(file_path))
-            except Exception:
+            except OSError:
                 continue
-        
+
         return files_with_io
     
     def _analyze_file(self, file_path: str) -> List[IOCandidate]:

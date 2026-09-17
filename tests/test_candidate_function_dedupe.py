@@ -101,6 +101,88 @@ def test_enumerate_collapses_aliases_and_skips_external(tmp_path: Path) -> None:
     assert "alias2/time.c" not in skipped
 
 
+def test_io_and_assignment_walks_skip_external_symlinks(tmp_path: Path) -> None:
+    """
+    Default I/O and assignment passes must not open symlink targets outside the repo.
+
+    Absolute and relative escapes both carry distinctive markers; those markers
+    must never appear in discovered files or assignment maps.
+    """
+    from tacs.core.io_boundary_analyzer import IOBoundaryAnalyzer
+    from tacs.core.pipeline import ScanningPipeline
+
+    root = tmp_path / "repo"
+    (root / "src").mkdir(parents=True)
+    (root / "escape").mkdir(parents=True)
+    (root / "abs_link").mkdir(parents=True)
+
+    in_repo = root / "src" / "app.c"
+    in_repo.write_text(
+        "#include <stdio.h>\n#include <time.h>\n"
+        "void report(time_t t) { printf(\"%ld\\n\", (long)t); }\n"
+        "void capture(void) { time_t now = time(NULL); (void)now; }\n",
+        encoding="utf-8",
+    )
+
+    outside_io = tmp_path / "outside" / "secret_io.c"
+    outside_io.parent.mkdir(parents=True)
+    outside_io.write_text(
+        "/* EXTERNAL_IO_MARKER */\n"
+        "void leak_io(void) { printf(\"secret %ld\\n\", 0L); }\n",
+        encoding="utf-8",
+    )
+    outside_assign = tmp_path / "outside" / "secret_assign.c"
+    outside_assign.write_text(
+        "/* EXTERNAL_ASSIGN_MARKER */\n"
+        "#include <time.h>\n"
+        "void leak_assign(void) { time_t EXTERNAL_LEAK_VAR = time(NULL); (void)EXTERNAL_LEAK_VAR; }\n",
+        encoding="utf-8",
+    )
+    (root / "escape" / "out.c").symlink_to(Path("../../outside/secret_io.c"))
+    (root / "abs_link" / "out.c").symlink_to(outside_assign.resolve())
+
+    analyzer = IOBoundaryAnalyzer(
+        time_t_aliases={},
+        time_bearing_symbols={"time_t"},
+        environment_config={},
+        enable_io_analysis=True,
+        score_threshold=0.0,
+    )
+    io_files = analyzer._identify_files_with_io(str(root), ["**/*.c"], [])
+    assert len(io_files) == 1
+    assert Path(io_files[0]).resolve() == in_repo.resolve()
+    for path in io_files:
+        text = Path(path).read_text(encoding="utf-8")
+        assert "EXTERNAL_IO_MARKER" not in text
+        assert "EXTERNAL_ASSIGN_MARKER" not in text
+
+    io_candidates = analyzer.analyze_io_boundaries([], str(root), ["**/*.c"], [])
+    for cand in io_candidates:
+        assert "outside" not in cand.file
+        assert "secret" not in cand.file
+        assert "EXTERNAL_IO_MARKER" not in (cand.one_line_snippet or "")
+
+    scanner = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "tacs"
+        / "python"
+        / "y2038scan_fast_json_group.py"
+    )
+    pipeline = ScanningPipeline(
+        scanner_path=str(scanner),
+        llm_type="none",
+        model="none",
+        enable_io_analysis=True,
+    )
+    assignments = pipeline._track_time_assignments(str(root), ["**/*.c"], [])
+    assert len(assignments) == 1
+    only_path = next(iter(assignments))
+    assert Path(only_path).resolve() == in_repo.resolve()
+    assert "EXTERNAL_LEAK_VAR" not in next(iter(assignments.values()))
+    assert "now" in next(iter(assignments.values()))
+
+
 def test_metrics_count_in_repo_source_once(tmp_path: Path) -> None:
     root, _ = _write_repo_with_symlinks(tmp_path)
     expected_lines = SOURCE.count("\n")

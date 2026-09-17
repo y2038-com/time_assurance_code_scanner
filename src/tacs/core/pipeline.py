@@ -12,7 +12,7 @@ from tacs.core.schema import (
     Candidate, Finding, LLMResponse, ScanResults, ScanMetadata, Metrics,
     Y2038Issue, SeverityLevel, IOCandidate
 )
-from tacs.core.file_limits import is_within_size_limit, validate_max_file_size
+from tacs.core.file_limits import validate_max_file_size
 from tacs.core.metrics import calculate_metrics
 from tacs.core.path_utils import repo_relative_path
 from tacs.core.candidate_utils import candidate_id_for, prepare_candidates
@@ -2449,66 +2449,56 @@ Timing (ms):
         - time_t t = time(NULL);
         - int64_t ts = (int64_t)time(NULL);
         - timestamp = get_time();
-        
-        Args:
-            root_path: Root directory
-            include_patterns: File include patterns
-            exclude_patterns: File exclude patterns
-        
-        Returns:
-            Dictionary mapping file_path -> set of time-bearing variable names
+
+        File discovery uses the shared in-repo enumerator so external symlink
+        targets are never opened.
         """
         import re
-        from fnmatch import fnmatch
-        from pathlib import Path
-        
+        from tacs.core.source_files import enumerate_source_files
+
         assignments: Dict[str, Set[str]] = {}
-        root = Path(root_path)
-        
+
         # Time function patterns
         time_function_pattern = re.compile(
             r'\b(time|gettimeofday|clock_gettime|localtime|gmtime)\s*\(',
             re.IGNORECASE
         )
-        
+
         # Assignment pattern: type var = time_function(...);
         assignment_pattern = re.compile(
             r'(\w+(?:\s*\*)?)\s+(\w+)\s*=\s*(?:\([^)]+\)\s*)?(?:time|gettimeofday|clock_gettime|localtime|gmtime)\s*\(',
             re.IGNORECASE
         )
-        
-        # Get files
-        all_files = []
-        for pattern in include_patterns or ['**/*.c', '**/*.h']:
-            for file_path in root.rglob(pattern.replace('**/', '')):
-                if file_path.is_file() and is_within_size_limit(file_path, self.max_file_size):
-                    all_files.append(file_path)
-        
-        # Filter by exclude patterns
-        for file_path in all_files:
-            rel_path = str(file_path.relative_to(root))
-            if any(fnmatch(rel_path, pattern) for pattern in exclude_patterns or []):
-                continue
-            
+
+        enumeration = enumerate_source_files(
+            root_path,
+            include_patterns or ['**/*.c', '**/*.h'],
+            exclude_patterns=exclude_patterns,
+            max_file_size=self.max_file_size,
+        )
+        for display in enumeration.skipped_external:
+            StatusLogger.timestamped_debug(
+                f"Ignoring source symlink outside repository root: {display}"
+            )
+
+        for file_path in enumeration.files:
             try:
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                     lines = f.readlines()
-                
+
                 file_vars = set()
                 for line in lines:
-                    # Check for time function call
                     if time_function_pattern.search(line):
-                        # Check for assignment
                         match = assignment_pattern.search(line)
                         if match:
                             var_name = match.group(2)
                             file_vars.add(var_name)
-                
+
                 if file_vars:
                     assignments[str(file_path)] = file_vars
-            except Exception:
+            except OSError:
                 continue
-        
+
         return assignments
     
     def _extract_line_context(self, lines: List[str], target_line: int, context_lines: int) -> str:

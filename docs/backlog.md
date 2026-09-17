@@ -17,7 +17,6 @@ When you pick up an item, remove or rewrite it here so the list stays accurate.
 - [ ] Improve handling of guarded narrowing/casts and boundary-test/reference implementations
 - [ ] Expand LLM/provider compatibility testing and compare model quality on a fixed fixture set
 - [ ] Improve Windows hard-timeout cleanup for descendant processes (`tacs repos` scan child)
-- [ ] Route I/O-boundary and time-assignment file walks through the shared source enumerator (containment + in-repo alias dedupe; metrics/IR already use it)
 - [ ] Consider richer skipped-file metrics beyond the current oversized-file and external-symlink fields (e.g. extension or byte totals)
 
 ## Analysis improvements
