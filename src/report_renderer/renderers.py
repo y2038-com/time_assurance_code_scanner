@@ -64,12 +64,17 @@ def render_html(findings: list[NormalizedFinding], *, title: str, group_by: str)
     stats = Counter(f.issue_class for f in findings)
     risk_stats = Counter(f.risk for f in findings)
     grouped = _group_findings(findings, group_by)
-    payload = _json_for_script([_finding_to_json(f) for f in findings])
 
+    # Grouping re-orders findings, so the data array is built from the grouped
+    # order the cards are rendered in rather than the order they arrived in.
+    # The script pairs the two by finding index, not position, but letting the
+    # orders diverge here would be a trap for the next reader.
     sections = []
+    rendered: list[NormalizedFinding] = []
     for group_name, group_items in grouped:
         cards = []
         for f in group_items:
+            rendered.append(f)
             cards.append(_render_finding_card(f))
         sections.append(
             f"""
@@ -79,6 +84,7 @@ def render_html(findings: list[NormalizedFinding], *, title: str, group_by: str)
             </section>
             """
         )
+    payload = _json_for_script([_finding_to_json(f) for f in rendered])
 
     return f"""<!doctype html>
 <html lang="en">
@@ -162,6 +168,9 @@ def render_html(findings: list[NormalizedFinding], *, title: str, group_by: str)
 // Findings data is held in a non-executable element and parsed, so the report
 // never evaluates values that came from the scanned repository.
 const data = JSON.parse(document.getElementById('findings-data').textContent);
+// Each card names its own finding. Grouping reorders the cards, so pairing them
+// with the data by position would filter the wrong findings.
+const byIndex = new Map(data.map(f => [f.index, f]));
 const cards = [...document.querySelectorAll('.card')];
 let currentIdx = 0;
 function applyFilter() {{
@@ -169,8 +178,11 @@ function applyFilter() {{
   const issue = document.getElementById('issue').value;
   const minConfRaw = document.getElementById('minConf').value;
   const minConf = minConfRaw === '' ? null : Number(minConfRaw);
-  cards.forEach((card, i) => {{
-    const f = data[i];
+  cards.forEach(card => {{
+    const f = byIndex.get(Number(card.dataset.findingIndex));
+    // An unidentifiable card stays visible: hiding a finding the user cannot
+    // see the reason for is worse than showing one the filter did not match.
+    if (!f) {{ card.style.display = ''; return; }}
     const hay = (f.file_path + ' ' + f.rule_id + ' ' + f.reason_short).toLowerCase();
     const qOk = !q || hay.includes(q);
     const issueOk = !issue || f.issue_class === issue;
@@ -265,7 +277,7 @@ def _render_finding_card(f: NormalizedFinding) -> str:
         )
 
     return f"""
-      <details class="card" id="finding-{f.index}">
+      <details class="card" id="finding-{f.index}" data-finding-index="{f.index}">
         <summary>
           <span>
             <span class="badge {html.escape(f.issue_class)}">{html.escape(issue_display)}</span>
