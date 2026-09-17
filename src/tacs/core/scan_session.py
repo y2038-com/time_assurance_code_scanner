@@ -365,7 +365,7 @@ This scan session contains all data needed for debugging, review, and fine-tunin
     def create_latest_symlink(self):
         """Point results/scans/latest at this session's folder."""
         if self.batch_mode:
-            # The batch run's own results/batch_runs/latest covers this; a link
+            # The batch run's own results/batches/latest covers this; a link
             # inside a per-repo bundle would point at the bundle itself.
             return
         if self._output_base is not None:

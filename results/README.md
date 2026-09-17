@@ -6,7 +6,7 @@ Generated TACS output lives here (contents gitignored except this README).
 results/
 ├── scans/         # standalone tacs scan session trees
 │   └── latest ->  # symlink to the newest session
-└── batch_runs/    # tacs repos multi-repo runs (default --out-dir)
+└── batches/       # tacs repos multi-repo runs (default --out-dir)
     └── latest ->  # symlink to the newest run
 ```
 
@@ -18,7 +18,7 @@ results/
 Defaults:
 
 - `tacs scan` sessions → `results/scans/<session>/`
-- `tacs repos` → `results/batch_runs/<run_id>/` (override with `--out-dir`)
+- `tacs repos` → `results/batches/<run_id>/` (override with `--out-dir`)
 - `tacs scan --out` still writes the primary findings JSON to the path you pass
   (default `findings.json` in the current directory)
 
@@ -28,7 +28,7 @@ chronologically; the suffix keeps runs started in the same second apart.
 
 ```bash
 tacs repos --repos-file inputs/my_repos.jsonl
-tacs render results/batch_runs/latest --format text
+tacs render results/batches/latest --format text
 ```
 
 `latest` is created inside whatever `--out-dir` you use and is repointed when a
@@ -44,7 +44,7 @@ A batch run identifies each scan by run id and repo key, so the per-repo
 directory *is* that scan's artifact root — there is no session subtree inside it.
 
 ```text
-results/batch_runs/<run-id>/
+results/batches/<run-id>/
 ├── summary.json                # run-wide counters, aggregates, per-repo results
 ├── reports/                    # created by tacs render
 └── repos/<repo-key>/

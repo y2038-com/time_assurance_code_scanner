@@ -13,7 +13,7 @@ Tracked examples stay under source control (for example
 Generated output belongs under `results/` (not here).
 
 ```bash
-# Example: batch dry-run from a local list (default out-dir: results/batch_runs)
+# Example: batch dry-run from a local list (default out-dir: results/batches)
 tacs repos --repos-file inputs/my_repos.jsonl --dry-run
 ```
 

@@ -319,13 +319,13 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Render scanner findings as text or HTML. "
             "Accepts a findings JSON file or a batch run directory "
-            "(e.g. results/batch_runs/<run_id>)."
+            "(e.g. results/batches/<run_id>)."
         ),
     )
     parser.add_argument(
         "input",
         nargs="?",
-        help="Findings JSON file, or a batch run directory (e.g. results/batch_runs/<run_id>)",
+        help="Findings JSON file, or a batch run directory (e.g. results/batches/<run_id>)",
     )
     parser.add_argument(
         "--batch-run-dir",

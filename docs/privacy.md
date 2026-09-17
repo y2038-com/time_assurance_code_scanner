@@ -106,8 +106,9 @@ the file. Treat provider choice as a data-handling decision.
 
 - Do not commit `.env`, API keys, or scan outputs that may contain proprietary source
 - Prefer gitignored output paths (`findings.json`, `results/` — including
-  `results/scans/` and `results/batch_runs/` — are ignored by default; legacy
-  top-level `batch_runs/` is also ignored if present)
+  `results/scans/` and `results/batches/` — are ignored by default; legacy
+  top-level `batch_runs/` and older `results/batch_runs/` trees are also
+  ignored if present)
 - Remember that `tacs repos` leaves cloned repositories in `--cache-dir`
   (default `.repo_cache`, gitignored); delete it when you no longer need the clones
 - Debug flags that dump raw prompts (`--debug-llm-raw`, etc.) may expose secrets in the scanned tree — use carefully

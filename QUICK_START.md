@@ -14,7 +14,7 @@ in later stages, file-level context and type/macro definitions — may be sent t
 configured provider. See [docs/privacy.md](docs/privacy.md).
 
 **Local workspace:** `inputs/` for run-specific manifests and configs you supply;
-`results/` for everything TACS generates (`results/scans/`, `results/batch_runs/`).
+`results/` for everything TACS generates (`results/scans/`, `results/batches/`).
 Both are gitignored except their READMEs. Tracked fixtures under `src/tacs/fixtures/`
 and `configs/` are unchanged. Override destinations anytime with `--out` / `--out-dir`.
 
@@ -238,10 +238,10 @@ tacs render --help
 # tacs render findings.json --format text
 # tacs render findings.json --format html --out results/report.html
 
-# Batch run directory (default repos out-dir is results/batch_runs;
+# Batch run directory (default repos out-dir is results/batches;
 # "latest" is a symlink to the newest run):
-# tacs render results/batch_runs/latest --format text
-# tacs render results/batch_runs/<run_id> --format html --out-dir results/reports
+# tacs render results/batches/latest --format text
+# tacs render results/batches/<run_id> --format html --out-dir results/reports
 ```
 
 Prefer an explicit `config_override` / env config per repo when known. `tacs detect`

@@ -819,8 +819,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--out-dir",
-        default="results/batch_runs",
-        help="Batch output root directory (default: results/batch_runs)",
+        default="results/batches",
+        help="Batch output root directory (default: results/batches)",
     )
     parser.add_argument("--continue-on-error", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--fail-fast", action="store_true", help="Stop on first repository failure")
