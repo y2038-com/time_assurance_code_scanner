@@ -1838,7 +1838,8 @@ class ScanningPipeline:
         # Collect token statistics
         token_stats = self._collect_token_stats()
         
-        # Create summary
+        # Create summary (total_ms was finalized in save_metadata)
+        total_ms = session.timing.get("total_ms", 0)
         summary = f"""Y2038 Scan Summary
 ==================
 
@@ -1896,7 +1897,7 @@ Token Usage:
         
         summary += f"""
 Timing (ms):
-- Total: {session.timing.get('total_ms', 0)}
+- Total: {total_ms}
 - Metrics: {session.timing.get('metrics_ms', 0)}
 - Prescan: {session.timing.get('prescan_ms', 0)}
 - IR: {session.timing.get('ir_ms', 0)}

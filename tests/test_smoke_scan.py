@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
+import re
 import tempfile
 import subprocess
 import sys
@@ -109,6 +110,16 @@ int main() {
         )
         assert "Timing (ms):" in summary_text
         assert "- Total:" in summary_text
+        # summary.txt and scan meta.json must share the same finalized wall clock.
+        total_match = re.search(r"- Total:\s*(\d+)", summary_text)
+        assert total_match, "Expected '- Total: <ms>' in summary.txt"
+        summary_total = int(total_match.group(1))
+        meta_total = int(session_meta.get("timing_ms", {}).get("total", 0))
+        assert summary_total > 0, "summary.txt Total must not be zero after a real scan"
+        assert meta_total > 0, "scan metadata timing_ms.total must not be zero"
+        assert summary_total == meta_total, (
+            f"summary Total ({summary_total}) must match metadata total ({meta_total})"
+        )
 
         assert "confidence_floor" in meta, "Missing 'confidence_floor' in meta"
         assert "metrics" in meta, "Missing 'metrics' in meta"

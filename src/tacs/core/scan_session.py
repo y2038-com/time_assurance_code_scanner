@@ -149,6 +149,22 @@ This scan session contains all data needed for debugging, review, and fine-tunin
         if start_key in self.timing:
             duration_ms = int((time.time() - self.timing[start_key]) * 1000)
             self.timing[f"{stage}_ms"] = duration_ms
+
+    def finalize_total_timing(self) -> int:
+        """
+        Record wall-clock scan duration once and return ``total_ms``.
+
+        Stage timers use ``start_timing`` / ``end_timing``. The overall scan
+        duration is measured from session construction (``start_time``) and must
+        be finalized before metadata, summary.txt, and the scans index are
+        written so every artifact sees the same value.
+        """
+        existing = self.timing.get("total_ms")
+        if existing is not None:
+            return int(existing)
+        total_ms = int((time.time() - self.start_time) * 1000)
+        self.timing["total_ms"] = total_ms
+        return total_ms
     
     def log_typedef(self, alias: str, resolves_to: str, depth: int, defined_in: str, line: int):
         """Log a typedef discovery."""
@@ -258,7 +274,7 @@ This scan session contains all data needed for debugging, review, and fine-tunin
     
     def save_metadata(self, config: Dict[str, Any], metrics: Dict[str, Any], versions: Dict[str, str]):
         """Save scan metadata."""
-        total_duration_ms = int((time.time() - self.start_time) * 1000)
+        total_duration_ms = self.finalize_total_timing()
         
         meta = {
             "scan_id": self.scan_id,
@@ -293,7 +309,7 @@ This scan session contains all data needed for debugging, review, and fine-tunin
             },
             "timing_ms": {
                 "total": total_duration_ms,
-                **{k: v for k, v in self.timing.items() if k.endswith("_ms")}
+                **{k: v for k, v in self.timing.items() if k.endswith("_ms") and k != "total_ms"}
             }
         }
         
@@ -542,7 +558,7 @@ This scan session contains all data needed for debugging, review, and fine-tunin
             "timestamp": self.created_utc,
             "root": str(self.root_path),
             "folder": str(self.scan_folder),
-            "total_duration_ms": self.timing.get("total_ms", 0),
+            "total_duration_ms": self.finalize_total_timing(),
             "findings_count": 0  # Will be updated when findings are saved
         }
         

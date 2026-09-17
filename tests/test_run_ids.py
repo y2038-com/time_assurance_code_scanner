@@ -123,6 +123,19 @@ def test_batch_mode_session_does_not_mint_a_directory_name(tmp_path: Path) -> No
     assert RUN_ID_PATTERN.match(session.scan_id), session.scan_id
 
 
+def test_finalize_total_timing_is_idempotent(tmp_path: Path) -> None:
+    """summary.txt and meta.json must share one wall-clock total, set once."""
+    import time
+
+    session = ScanSession(root_path=str(tmp_path), output_base=str(tmp_path))
+    time.sleep(0.01)
+    first = session.finalize_total_timing()
+    second = session.finalize_total_timing()
+    assert first > 0
+    assert first == second
+    assert session.timing["total_ms"] == first
+
+
 # --- tacs repos batch run directories ---------------------------------------
 
 SOURCE = """#include <time.h>
