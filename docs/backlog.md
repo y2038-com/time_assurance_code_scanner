@@ -63,6 +63,7 @@ When you pick up an item, remove or rewrite it here so the list stays accurate.
 - [ ] Expand typing coverage and consider shipping `py.typed` only when the public surface is ready
 - [ ] Continue pruning obsolete manual/debug tooling under `tests/manual/` as it becomes unnecessary
 - [ ] Improve default exclude patterns for common harness directories (`t/`, `test/`, `*_test.c`, etc.) without hiding real product code
+- [ ] Fix remaining Stage 8/9 console grammar (`N functions` / `function(s)` → singular when N is 1)
 
 ## Longer-term
 
