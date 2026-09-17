@@ -111,6 +111,11 @@ Evidence:
 
 ## Phase 2 Features (Completed)
 
+`tacs detect --llm` reaches the hybrid detector, but the review workflow, cache
+controls and confidence-threshold knobs below are exposed only on the module entry
+point (`python -m config_detector.cli`), not on `tacs detect`.
+
+
 - ✅ LLM-based analysis for complex build systems
 - ✅ Hybrid approach: keyword-based first, LLM when needed
 - ✅ Automatic LLM triggering based on confidence thresholds
@@ -143,8 +148,9 @@ There is no supported `--auto-detect-config` flag on `tacs scan`; use `tacs dete
 ## Architecture
 
 ```
-config_detector/
+src/config_detector/
 ├── cli.py                    # CLI entry point
+├── likelihoods.py            # Entry point `tacs detect` calls
 ├── detector.py               # Phase 1: Keyword-based detection orchestrator
 ├── hybrid_detector.py         # Phase 2: Hybrid detector (keyword + LLM)
 ├── llm_analyzer.py          # Phase 2: LLM-based build file analysis

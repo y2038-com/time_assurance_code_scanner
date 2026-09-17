@@ -40,6 +40,11 @@ batch_runs/
 findings_*.json
 *_findings.json
 findings.json
+# Ad-hoc outputs the pattern/test docs tell you to write into the working dir
+test_results.json
+test_*_results.json
+report.html
+*_report.html
 
 # Local working directories (contents gitignored)
 inputs/*

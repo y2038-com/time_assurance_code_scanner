@@ -56,7 +56,7 @@ TACS is an AI-assisted review aid, not an authoritative compliance oracle. Treat
 - Wrong or missing environment config can mis-rank risk (prefer an explicit ABI/`time_t` config).
 - `tacs detect` is experimental and often low-confidence — not ground truth.
 - Preprocessor-agnostic scanning means guarded/dead code may still appear as candidates.
-- Structural filtering is heuristic today; tree-sitter AST analysis is **not** implemented in v0.1.0 (an optional `.[full]` extra may appear in packaging for future work only).
+- Structural filtering is heuristic today; tree-sitter AST analysis is **not** implemented in v0.1.0. The `.[full]` extra installs tree-sitter for that future work, but installing it changes nothing yet — the filter stays a no-op either way.
 - No findings ≠ “no time-assurance risk.”
 - Experts should review severity and remediation before changing production code or ABI choices.
 

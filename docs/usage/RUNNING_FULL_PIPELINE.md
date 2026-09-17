@@ -98,14 +98,16 @@ tacs scan \
   --env-config results/env_config.json \
   --batch-size-stage1 100 \
   --confidence-floor 0.7 \
-  --enable-stage1 \
+  --no-disable-stage1 \
   --no-function-first \
   --log-llm \
   --out findings.json
 ```
 
 **Key flags:**
-- `--enable-stage1`: Enables Stage S1 (single-line line-level analysis)
+- `--no-disable-stage1`: Restores Stage S1 (single-line line-level analysis), which
+  is off by default because it drops candidates before the function-level passes
+  see them. `--disable-stage1` is the default state.
 - `--no-function-first`: Disables function-first pipeline (uses legacy pipeline)
 - `--batch-size-stage1 100`: Sets batch size to 100 candidates per Stage S1 request (default: 100)
 
@@ -170,9 +172,13 @@ To verify that time_t aliases are being passed to Stage S1, Pass P1:
    ```
    Look for "Known time_t aliases" section in the prompt.
 
-3. **Check scan session logs:**
+3. **Check scan session artifacts:**
    ```bash
-   cat results/scans/latest/scan_metadata.json | jq '.time_t_aliases'
+   # How many aliases the scan discovered
+   jq '.prescan.time_t_aliases' results/scans/latest/stage_stats.json
+
+   # Which ones, and where they were defined
+   jq '.typedef_aliases | keys' results/scans/latest/prescan/discovery_report.json
    ```
 
 ## Performance Considerations
@@ -214,7 +220,7 @@ tacs scan \
   --env-config results/env_config.json \
   --batch-size-stage1 100 \
   --confidence-floor 0.7 \
-  --enable-stage1 \
+  --no-disable-stage1 \
   --no-function-first \
   --log-llm \
   --out wolfssl_findings.json
@@ -237,7 +243,7 @@ tacs scan \
 ### Stage S1 Not Running
 
 If Stage S1 doesn't run, check:
-1. `--enable-stage1` flag is set
+1. `--no-disable-stage1` flag is set (Stage S1 is off by default)
 2. `--no-function-first` flag is set (or `--function-first` is NOT set)
 3. `--llm` is not set to `none`
 

@@ -93,10 +93,10 @@ The narrowing patterns are included in the multi-configuration test framework:
 
 ```bash
 # Test narrowing patterns with all configurations
-python tests/patterns/test_multi_config.py --llm ollama
+python tests/manual/manual_multi_config.py --llm ollama
 
 # Quick test (one config, one file)
-python tests/patterns/test_multi_config.py --llm ollama --limit-configs 1 --limit-files 1
+python tests/manual/manual_multi_config.py --llm ollama --limit-configs 1 --limit-files 1
 ```
 
 The test framework will verify that:

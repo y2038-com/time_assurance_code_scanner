@@ -131,12 +131,14 @@ tacs scan \
 - `-D_FILE_OFFSET_BITS=64` (hint for 64-bit)
 - Architecture inference (LP64 → 64-bit, ILP32 → 32-bit)
 
-## Limitations (Phase 1)
+## Limitations
 
-- **time_t signedness**: Not detected in Phase 1 (requires Phase 2)
-- **C library**: Not detected in Phase 1 (requires Phase 2)
+- **time_t signedness**: Detected only from explicit defines and cflags such as
+  `-D_TIME_T_UNSIGNED`; nothing is inferred from the architecture, so most
+  projects leave it undetermined
+- **C library**: Not detected from build files; supply it in an env config
 - **Complex build systems**: Basic parsing only (Meson, Bazel not supported yet)
-- **Conditional builds**: Not analyzed (Phase 3)
+- **Conditional builds**: Not analyzed
 
 ## Troubleshooting
 
@@ -147,7 +149,8 @@ The detector couldn't find any Makefiles or CMakeLists.txt files. This could mea
 - Build files are in a non-standard location
 - The project path is incorrect
 
-**Solution**: Manually create an environment config using `envui/cli/env_wizard.py`
+**Solution**: Manually create an environment config with `python scripts/run_env_wizard.py`,
+or copy and edit one of the examples in `configs/`
 
 ### Low confidence scores
 
@@ -161,7 +164,10 @@ If all configurations show low confidence (25%), it means:
 - `-D_TIME_BITS=32` or `-D_TIME_BITS=64` defines
 - `CMAKE_SYSTEM_PROCESSOR` variable (for CMake)
 
-## Next Steps
+## Possible future work
 
-- **Phase 2**: Will add Zephyr-specific parsing, C library detection, and time_t signedness heuristics
-- **Phase 3**: Will add code pattern analysis and hardware/chip knowledge database
+- Zephyr-specific parsing and C library detection from build files
+- Signedness heuristics beyond explicit defines
+- Code pattern analysis and a hardware/chip knowledge database
+
+None of these are scheduled; prefer an explicit `--env-config` when the target is known.

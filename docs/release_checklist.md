@@ -17,6 +17,9 @@ PyPI publish, and the public visibility flip itself.
 - [x] Scan leaves **tracked** files unchanged (discovery writes only under `results/scans/…`)
 - [x] Light SPDX/copyright headers on every first-party source file under `src/`, `scripts/` and `tests/` (`.py`, `.sh`, `.c`, `.h`, `.cpp`), enforced by `tests/test_license_headers.py`
 - [x] PyPI metadata prepared in `pyproject.toml` (not published)
+- [x] GitHub Actions CI (`.github/workflows/ci.yml`): Python 3.12, `pytest`, and a
+      blocking `ruff check --select E9,F63,F7`. The full `ruff check` runs as an
+      informational step because the tree does not pass a complete lint yet.
 
 ## Smoke results (2026-09-14)
 
@@ -66,9 +69,17 @@ git status --porcelain --untracked-files=no
 
 **Before flipping public:**
 
-- [ ] Confirm no secrets in git history (`.env`, API keys, private trees)
-- [ ] Confirm `findings*.json` / `results/` are not tracked
-- [ ] Confirm LICENSE is Apache-2.0 and copyright year is correct
+- [x] Confirm no secrets in git history — `gitleaks detect --source . --log-opts="--all"`
+      (gitleaks 8.30.1, 2026-09-16): 49 commits, ~1.9 MB scanned, **no leaks found**.
+      The only env file ever committed is the `.env.example` template, which holds
+      empty placeholders. Re-run this after any further commits.
+- [x] Confirm `findings*.json` / `results/` are not tracked — `git ls-files` shows
+      only `results/README.md`; `.gitignore` also covers the ad-hoc `test_*_results.json`
+      and `*_report.html` outputs the docs tell you to create
+- [x] Confirm LICENSE is Apache-2.0 and copyright year is correct — Apache-2.0 with
+      `Copyright (c) 2026 Y2038.com LLC`, matching the SPDX identifier in every header
+      and the `license` field in `pyproject.toml`. No `NOTICE` file, and none is
+      required: no vendored third-party source is redistributed here.
 - [ ] Set description + topics above
 - [ ] Link sibling `tads` in About / README (already in README)
 - [ ] Flip visibility to Public when ready
@@ -81,6 +92,21 @@ Requires: Python >= 3.12
 
 Prepared in `pyproject.toml`: keywords, classifiers, Issues/Documentation URLs.  
 Publish later with maintainer credentials (`twine` / Trusted Publishing) — **not** part of this checklist’s automation.
+
+## Known gaps carried into the public release
+
+None of these block the visibility flip, but a first outside reader may notice them.
+
+- **Lint debt.** `ruff check` reports ~1.3k findings under the rule set current ruff
+  enables by default, ~148 of them under ruff's classic `E4,E7,E9,F` selection
+  (unused imports, empty f-strings, unused variables). CI gates only on the
+  breakage subset until that is paid down. The `dev` extra pins `ruff>=0.1.0`, so
+  the informational number moves with the installed version.
+- **Dead code in `pipeline.py`.** `_track_time_assignments` is defined twice; the
+  earlier definition is unreachable and would raise `NameError` on `re` if it were
+  reached. The live copy imports `re` locally and works.
+- **`tacs scan --log-dir` is accepted and ignored.** `--log-llm` writes into the scan
+  session instead. The option is kept for compatibility and its help text now says so.
 
 ## Manual test harnesses
 

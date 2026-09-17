@@ -4,12 +4,17 @@ This directory contains an extended test framework that validates the Y2038 scan
 
 ## Overview
 
-The multi-configuration test framework tests the scanner with four different environment configurations:
+The multi-configuration test framework tests the scanner with all eight environment
+configurations — every combination of ABI (ILP32, LP64), `time_t` width (32, 64) and
+signedness. The four that carry most of the signal are:
 
 1. **ILP32 signed 32-bit time_t** - 32-bit ABI with signed 32-bit time_t (highest Y2038 risk)
 2. **ILP32 unsigned 32-bit time_t** - 32-bit ABI with unsigned 32-bit time_t (Y2106 risk, not Y2038)
 3. **LP64 signed 64-bit time_t** - 64-bit ABI with signed 64-bit time_t (Y2038 safe)
 4. **LP64 unsigned 64-bit time_t** - 64-bit ABI with unsigned 64-bit time_t (Y2038 safe, rare)
+
+The remaining four (`ilp32_signed_64bit`, `ilp32_unsigned_64bit`, `lp64_signed_32bit`,
+`lp64_unsigned_32bit`) are rarer pairings and are exercised too.
 
 ## Test Files
 
@@ -39,12 +44,12 @@ The multi-configuration test framework tests the scanner with four different env
 ### Test Framework Files
 
 - **`test_config_fixtures.py`** - Environment configuration fixtures
-  - Pre-configured environment configs for all 4 scenarios
+  - Pre-configured environment configs for all 8 scenarios
   - Helper functions to create and manage configs
   - Config file generation utilities
 
-- **`test_multi_config.py`** - Multi-configuration test runner
-  - Runs tests with all 4 environment configurations
+- **`../manual/manual_multi_config.py`** - Multi-configuration test runner
+  - Runs tests with all 8 environment configurations
   - Validates pattern detection across configurations
   - Reports results grouped by configuration and test file
 
@@ -56,11 +61,11 @@ The multi-configuration test framework tests the scanner with four different env
 
 ```bash
 # Run tests with all configurations (IR-only, no LLM)
-python tests/patterns/test_multi_config.py
+python tests/manual/manual_multi_config.py
 ```
 
 This will:
-1. Test each pattern file with all 4 environment configurations
+1. Test each pattern file with all 8 environment configurations
 2. Verify that patterns are detected correctly (IR candidate discovery)
 3. Verify Stage 3 (IR Candidate Discovery) ran
 4. Report results grouped by configuration and test file
@@ -69,13 +74,13 @@ This will:
 
 ```bash
 # Run tests with LLM (full pipeline)
-python tests/patterns/test_multi_config.py --llm ollama
+python tests/manual/manual_multi_config.py --llm ollama
 
 # Run with specific model
-python tests/patterns/test_multi_config.py --llm ollama --model qwen3-coder:480b-cloud
+python tests/manual/manual_multi_config.py --llm ollama --model qwen3-coder:480b-cloud
 
 # Run with verbose output (shows scanner progress in real-time)
-python tests/patterns/test_multi_config.py --llm ollama --verbose
+python tests/manual/manual_multi_config.py --llm ollama --verbose
 ```
 
 **Prerequisites for LLM testing:**
@@ -92,14 +97,14 @@ python tests/patterns/test_multi_config.py --llm ollama --verbose
 
 This will:
 1. Check that Ollama is running and accessible
-2. Test each pattern file with all 4 environment configurations
+2. Test each pattern file with all 8 environment configurations
 3. Show scanner progress in real-time (so you can see what's happening)
 4. Verify that patterns are detected correctly (IR candidate discovery)
 5. Verify all pipeline stages ran:
    - Stage 3: IR Candidate Discovery
-   - Stage 5: LLM Pass 1 (single-line triage)
-   - Stage 6: LLM Pass 2 (widened context) - if abstains from Pass 1
-   - Stage 7: LLM Pass 3 (file-leading context) - if abstains from Pass 2
+   - Stage 8, Pass 2a: function-level analysis
+   - Stage 8, Pass 2b: widened context - if Pass 2a left abstains
+   - Stage 9, Pass 1: file-leading context - if abstains remain
 6. Report LLM classifications (yes/no/abstain) for each configuration
 7. Report results grouped by configuration and test file
 
@@ -133,7 +138,7 @@ This will:
 **For faster testing:**
 ```bash
 # Test just one configuration and one file (much faster)
-python tests/patterns/test_multi_config.py --llm ollama --limit-configs 1 --limit-files 1
+python tests/manual/manual_multi_config.py --llm ollama --limit-configs 1 --limit-files 1
 ```
 
 ### Generate Environment Config Files
@@ -143,17 +148,26 @@ python tests/patterns/test_multi_config.py --llm ollama --limit-configs 1 --limi
 python tests/patterns/test_config_fixtures.py
 ```
 
-This creates JSON files in `tests/patterns/env_configs/`:
+This creates one JSON file per configuration in `tests/patterns/env_configs/`:
 - `ilp32_signed_32bit.json`
 - `ilp32_unsigned_32bit.json`
+- `ilp32_signed_64bit.json`
+- `ilp32_unsigned_64bit.json`
+- `lp64_signed_32bit.json`
+- `lp64_unsigned_32bit.json`
 - `lp64_signed_64bit.json`
 - `lp64_unsigned_64bit.json`
+
+All eight are committed, so the fixtures are reviewable and the schema-integrity
+tests validate a fixed set rather than whatever happens to be on disk. If you change
+a config in `test_config_fixtures.py`, regenerate and commit all eight —
+`test_the_pattern_fixture_directory_matches_the_generator` fails on any drift.
 
 ### Run Standard Pattern Detection Tests
 
 ```bash
 # Run standard pattern detection (uses default config)
-python tests/patterns/test_pattern_detection.py
+python tests/manual/manual_pattern_detection.py
 ```
 
 ## Test Coverage
@@ -230,26 +244,27 @@ When using `--llm ollama`, the test framework verifies that all pipeline stages 
 - Verifies `ir/candidates.jsonl` exists and contains candidates
 - This stage always runs (even with `--llm none`)
 
-### Stage 5: LLM Pass 1 (Single-line Triage)
-- Verifies `llm/pass1/batches/*_output.jsonl` files exist
-- Checks that Pass 1 processed candidates
+### Stage 8, Pass 2a: function-level analysis
+- Verifies `llm/stage_8_pass_2a/batches/*_output.json` files exist
+- Checks that the pass processed candidates
 - Only runs when `--llm ollama` is used
 
-### Stage 6: LLM Pass 2 (Widened Context)
-- Verifies `llm/pass2/batches/*_output.jsonl` files exist
-- Only runs if there were abstain candidates from Pass 1
-- Checks that Pass 2 processed abstain candidates
+### Stage 8, Pass 2b: widened context
+- Verifies `llm/stage_8_pass_2b/batches/*_output.json` files exist
+- Only runs if Pass 2a left abstains to enrich
 
-### Stage 7: LLM Pass 3 (File-leading Context)
-- Verifies `llm/pass3/batches/*_output.jsonl` files exist
-- Only runs if there were still abstain candidates after Pass 2
-- Checks that Pass 3 processed remaining abstain candidates
+### Stage 9, Pass 1: file-leading context
+- Verifies `llm/stage_9_pass_1/batches/*_output.json` files exist
+- Only runs if abstains remain after Stage 8
+
+The line-level Stage S1 pre-filter is off by default, so a default run produces no
+Stage S1 artifacts at all.
 
 ## Integration with Existing Tests
 
 The multi-configuration test framework extends the existing test framework:
 
-- Uses the same pattern detection logic from `test_pattern_detection.py`
+- Uses the same pattern detection logic from `tests/manual/manual_pattern_detection.py`
 - Reuses the same test files and rules
 - Adds environment configuration support
 - Validates results across different configurations

@@ -95,7 +95,7 @@ tacs scan \
 
 ### Inspect I/O Results
 ```bash
-python tests/patterns/inspect_io_results.py test_io_results.json
+python tests/manual/inspect_io_results.py test_io_results.json
 ```
 
 ## 3. Migration Analysis Tests
@@ -185,8 +185,7 @@ tacs scan \
 
 ### Pattern Detection Validation
 ```bash
-cd tests/patterns
-python test_pattern_detection.py
+python tests/manual/manual_pattern_detection.py
 ```
 
 **What this tests:**
@@ -196,8 +195,7 @@ python test_pattern_detection.py
 
 ### Quick I/O Test Script
 ```bash
-cd tests/patterns
-python test_io_quick.py
+python tests/manual/manual_io_quick.py
 ```
 
 **What this tests:**
@@ -216,7 +214,7 @@ tacs scan \
   --out test_typedef_results.json
 ```
 
-Check `results/discovery_report.json` for discovered typedefs.
+Check `results/scans/latest/prescan/discovery_report.json` for discovered typedefs.
 
 ### Test Macro Discovery
 ```bash
@@ -283,14 +281,14 @@ tacs scan \
   --out test_debug_llm_results.json
 ```
 
-Check `results/scans/` directory for LLM interaction logs.
+Check `results/scans/latest/llm/<pass>/batches/` for the per-batch LLM artifacts,
+where `<pass>` is `stage_8_pass_2a`, `stage_8_pass_2b` or `stage_9_pass_1`.
 
 ## 10. Multi-Config Testing
 
 ### Test All 8 Configurations
 ```bash
-cd tests/patterns
-python test_multi_config.py
+python tests/manual/manual_multi_config.py
 ```
 
 **What this tests:**
@@ -329,23 +327,25 @@ python test_multi_config.py
 
 ### View Results Summary
 ```bash
+# The scan writes {"meta": ..., "findings": [...]}, so filters start at .findings
+
 # Count findings by classification
-jq '[.[] | .y2038_issue] | group_by(.) | map({issue: .[0], count: length})' test_results.json
+jq '[.findings[] | .y2038_issue] | group_by(.) | map({issue: .[0], count: length})' test_results.json
 
 # Count I/O findings
-jq '[.[] | select(.io_category != null)] | length' test_results.json
+jq '[.findings[] | select(.io_category != null)] | length' test_results.json
 
 # Count migration risks
-jq '[.[] | select(.migration_risk_type != null)] | length' test_results.json
+jq '[.findings[] | select(.migration_risk_type != null)] | length' test_results.json
 ```
 
 ### Inspect Specific Findings
 ```bash
 # View all "yes" findings
-jq '[.[] | select(.y2038_issue == "yes")]' test_results.json
+jq '[.findings[] | select(.y2038_issue == "yes")]' test_results.json
 
 # View I/O findings
-python tests/patterns/inspect_io_results.py test_results.json
+python tests/manual/inspect_io_results.py test_results.json
 ```
 
 ## Tips

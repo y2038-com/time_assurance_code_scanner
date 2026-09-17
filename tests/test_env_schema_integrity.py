@@ -228,6 +228,34 @@ def test_the_pattern_fixture_generator_also_composes_valid_configs(schema: dict[
         assert not errors, f"{name}: {errors}"
 
 
+def test_the_pattern_fixture_directory_matches_the_generator(tmp_path: Path) -> None:
+    """``tests/patterns/env_configs`` is committed, so it must equal the generator.
+
+    The directory once held five of the eight configs, because files were added
+    to ``get_all_test_configs`` without regenerating. Tracking a subset makes
+    ``git status`` dirty the moment anyone runs the generator, and the schema
+    tests below then cover whichever files happen to be on disk.
+    """
+    sys.path.insert(0, str(REPO_ROOT / "tests/patterns"))
+    from test_config_fixtures import get_all_test_configs, save_config_to_file
+
+    committed_dir = REPO_ROOT / "tests/patterns/env_configs"
+    configs = get_all_test_configs()
+
+    assert {path.name for path in committed_dir.glob("*.json")} == {
+        f"{name}.json" for name in configs
+    }
+
+    for name, config in configs.items():
+        save_config_to_file(config, tmp_path / f"{name}.json")
+        assert (committed_dir / f"{name}.json").read_text(encoding="utf-8") == (
+            tmp_path / f"{name}.json"
+        ).read_text(encoding="utf-8"), (
+            f"{name}.json has drifted from test_config_fixtures.py; regenerate with "
+            "`python tests/patterns/test_config_fixtures.py`"
+        )
+
+
 def test_shipped_configs_and_fixtures_validate(
     schema: dict[str, Any], envui_validator, detector_validator
 ) -> None:

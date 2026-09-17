@@ -67,9 +67,11 @@ error message is redacted to `https://***@host/...` before it is printed or writ
 ### Optional LLM logging (`--log-llm`)
 
 - Disabled by default
-- When enabled, may write prompt/response artifacts under `--log-dir` (default `results/llm_logs`)
+- When enabled, adds prompt text to the per-batch artifacts described below, inside
+  the scan session (`results/scans/<run-id>/llm/…`) or the batch repo directory —
+  not in a separate log directory
 - Prefer `--redact-prompts` (default on) so paths/code spans are minimized in logs
-- Treat log directories as sensitive if the scanned tree was
+- Treat those directories as sensitive if the scanned tree was
 
 #### Function-batch artifacts
 

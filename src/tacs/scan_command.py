@@ -68,7 +68,7 @@ def _default_model() -> str:
 @click.option('--io-analysis/--no-io-analysis', default=True, help='Enable I/O-boundary analysis (default: enabled)')
 @click.option('--io-score-threshold', type=float, default=6.0, help='Minimum score for I/O-boundary candidates (default: 6.0)')
 @click.option('--io-check-literal-widths/--no-io-check-literal-widths', default=True, help='Check for suspicious literal widths (4/8) in I/O operations (default: enabled)')
-@click.option('--log-dir', default='results/llm_logs', help='LLM log directory (default: results/llm_logs)')
+@click.option('--log-dir', default='results/llm_logs', help='Accepted but unused; --log-llm writes into the scan session under results/scans/<run-id>/llm/')
 @click.option(
     '--log-level',
     type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR'], case_sensitive=False),
@@ -216,7 +216,7 @@ def main(
             bypass_pass1=bypass_stage1,
             bypass_pass3=bypass_stage3,
             function_first=function_first,
-            enable_pass1=not disable_stage1,  # Stage S1 enabled by default, can be disabled with --disable-stage1
+            enable_pass1=not disable_stage1,  # Stage S1 is off by default; --no-disable-stage1 restores it
             detect_y2106=detect_y2106,
             max_function_iters=max_function_iters,
             batch_size_func=batch_size_func,

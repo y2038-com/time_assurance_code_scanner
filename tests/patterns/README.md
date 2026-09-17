@@ -228,7 +228,7 @@ The test suite covers:
 To add a new test pattern:
 
 1. Add the pattern to the appropriate test file (or create a new one)
-2. Update `EXPECTED_PATTERNS` in `test_pattern_detection.py` if needed
+2. Update `EXPECTED_PATTERNS` in `tests/manual/manual_pattern_detection.py` if needed
 3. Run the validation script to verify detection
 4. Document the pattern in this README
 

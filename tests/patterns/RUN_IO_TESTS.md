@@ -24,7 +24,7 @@ tacs scan \
 - Raw I/O pattern matching
 - Scoring and filtering
 
-**Expected output:**
+**Expected output** (with `--log-level debug`; these lines are DEBUG-level):
 - Status messages showing "Stage 5: I/O boundary analysis..."
 - Number of I/O-boundary candidates found
 - Candidates above the score threshold
@@ -56,8 +56,7 @@ tacs scan \
 The automated test script will include the I/O test file, but it uses `--llm none`:
 
 ```bash
-cd tests/patterns
-python test_pattern_detection.py
+python tests/manual/manual_pattern_detection.py
 ```
 
 **Note:** The automated script checks for basic symbol detection (time_t, time(), etc.) but doesn't specifically verify I/O-boundary candidates. For I/O-specific testing, use the manual commands above.
@@ -68,7 +67,7 @@ After running a scan, check the results:
 
 ### 1. Check Console Output
 
-Look for these messages:
+These messages are logged at DEBUG level, so add `--log-level debug` to see them:
 ```
 Stage 5: I/O boundary analysis...
 Found X files with I/O function calls
@@ -97,14 +96,14 @@ Look for findings with:
 The scanner saves intermediate results in the scan session folder:
 
 ```bash
-# Find the latest scan session
-ls -lt results/scan_*/
+# Find the latest scan session ("latest" is a symlink to the newest one)
+ls -lt results/scans/
 
 # Check candidates (includes I/O candidates)
-cat results/scan_*/ir/candidates.jsonl | grep -i "io_boundary"
+grep -i "io_boundary" results/scans/latest/ir/candidates.jsonl
 
-# Check LLM logs (if --log-llm was used)
-cat results/scan_*/llm_logs/*.json | grep -i "io"
+# Check the per-batch LLM artifacts (only written when an LLM ran)
+grep -il "io" results/scans/latest/llm/*/batches/*.json
 ```
 
 ## Testing Specific Patterns
@@ -170,7 +169,7 @@ tacs scan \
   --include "test_io_boundary_patterns.c" \
   --llm none \
   --io-analysis \
-  --io-score-threshold 3.0 \  # Lower threshold
+  --io-score-threshold 3.0 \
   --out test_io_results.json
 ```
 
@@ -183,7 +182,7 @@ tacs scan \
   --include "test_io_boundary_patterns.c" \
   --llm none \
   --io-analysis \
-  --no-io-check-literal-widths \  # Disable literal width checks
+  --no-io-check-literal-widths \
   --out test_io_results.json
 ```
 
@@ -195,7 +194,7 @@ tacs scan \
   --rules tests/patterns/test_patterns_rules.json \
   --include "test_io_boundary_patterns.c" \
   --llm none \
-  --no-io-analysis \  # Disable I/O analysis
+  --no-io-analysis \
   --out test_baseline_results.json
 ```
 

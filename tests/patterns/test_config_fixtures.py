@@ -214,9 +214,14 @@ def get_all_test_configs() -> Dict[str, Dict[str, Any]]:
 
 
 def save_config_to_file(config: Dict[str, Any], file_path: Path) -> None:
-    """Save an environment configuration to a JSON file."""
+    """Save an environment configuration to a JSON file.
+
+    The trailing newline keeps the committed fixtures under
+    ``tests/patterns/env_configs`` diffable as ordinary text files.
+    """
     with open(file_path, 'w') as f:
         json.dump(config, f, indent=2)
+        f.write('\n')
 
 
 def load_config_from_file(file_path: Path) -> Dict[str, Any]:
