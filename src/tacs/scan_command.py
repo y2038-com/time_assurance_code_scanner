@@ -68,7 +68,6 @@ def _default_model() -> str:
 @click.option('--io-analysis/--no-io-analysis', default=True, help='Enable I/O-boundary analysis (default: enabled)')
 @click.option('--io-score-threshold', type=float, default=6.0, help='Minimum score for I/O-boundary candidates (default: 6.0)')
 @click.option('--io-check-literal-widths/--no-io-check-literal-widths', default=True, help='Check for suspicious literal widths (4/8) in I/O operations (default: enabled)')
-@click.option('--log-dir', default='results/llm_logs', help='Accepted but unused; --log-llm writes into the scan session under results/scans/<run-id>/llm/')
 @click.option(
     '--log-level',
     type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR'], case_sensitive=False),
@@ -79,7 +78,7 @@ def _default_model() -> str:
 @click.option('--migration-mode', is_flag=True, default=False, help='Enable migration analysis mode (default: disabled)')
 @click.option('--migration-from', help='Source config JSON file for migration (required if --migration-mode)')
 @click.option('--migration-to', help='Target config JSON file for migration (required if --migration-mode)')
-@click.option('--log-llm', is_flag=True, default=False, help='Enable LLM logging (default: disabled)')
+@click.option('--log-llm', is_flag=True, default=False, help='Record prompts in the scan session under results/scans/<run-id>/llm/ (default: disabled)')
 @click.option(
     '--llm',
     type=click.Choice(['none', 'ollama', 'openai', 'anthropic', 'gemini']),
@@ -119,7 +118,6 @@ def main(
     timeout_sec: int,
     out: str,
     log_llm: bool,
-    log_dir: str,
     log_level: str,
     redact_prompts: bool,
     no_enable_discovery: bool,

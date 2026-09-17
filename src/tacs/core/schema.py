@@ -191,18 +191,3 @@ class ScanResults(BaseModel):
     """Complete scan results."""
     meta: ScanMetadata = Field(..., description="Scan metadata")
     findings: List[Finding] = Field(..., description="List of findings")
-
-
-class LLMLogEntry(BaseModel):
-    """LLM request/response log entry."""
-    repo_id_hash: str = Field(..., description="Repository hash")
-    model: str = Field(..., description="Model name")
-    model_version: Optional[str] = Field(default=None, description="Model version")
-    prompt_preamble_hash: str = Field(..., description="Prompt preamble hash")
-    items: List[str] = Field(..., description="List of item IDs")
-    request_tokens: int = Field(..., description="Request token count")
-    response_tokens: int = Field(..., description="Response token count")
-    latency_ms: int = Field(..., description="Request latency in milliseconds")
-    prompt: str = Field(..., description="Full prompt (may be redacted)")
-    response: str = Field(..., description="Full response")
-    timestamp: str = Field(..., description="UTC ISO 8601 timestamp")

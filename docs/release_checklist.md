@@ -102,11 +102,9 @@ None of these block the visibility flip, but a first outside reader may notice t
   (unused imports, empty f-strings, unused variables). CI gates only on the
   breakage subset until that is paid down. The `dev` extra pins `ruff>=0.1.0`, so
   the informational number moves with the installed version.
-- **Dead code in `pipeline.py`.** `_track_time_assignments` is defined twice; the
-  earlier definition is unreachable and would raise `NameError` on `re` if it were
-  reached. The live copy imports `re` locally and works.
-- **`tacs scan --log-dir` is accepted and ignored.** `--log-llm` writes into the scan
-  session instead. The option is kept for compatibility and its help text now says so.
+- **Unused imports in `src/tacs/core/schema.py`.** `json`, `os`, `datetime`, `Union`
+  and `validator` have no users. They predate the `LLMLogEntry` removal rather than
+  resulting from it, so they are left with the rest of the lint debt above.
 
 ## Manual test harnesses
 

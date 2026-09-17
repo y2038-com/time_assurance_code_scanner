@@ -7,7 +7,7 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, Set
 from tacs.core.schema import (
     Candidate, Finding, LLMResponse, ScanResults, ScanMetadata, Metrics,
     Y2038Issue, SeverityLevel, IOCandidate
@@ -2256,80 +2256,6 @@ Timing (ms):
             context += "\n... [function truncated at 100 lines]"
         
         return context
-    
-    def _track_time_assignments(
-        self,
-        root_path: str,
-        include_patterns: List[str],
-        exclude_patterns: List[str]
-    ) -> Dict[str, Set[str]]:
-        """
-        Track variables assigned from time functions (enhanced time-bearing detection).
-        
-        Patterns:
-        - time_t t = time(NULL);
-        - int64_t ts = (int64_t)time(NULL);
-        - timestamp = get_time();
-        
-        Args:
-            root_path: Root directory
-            include_patterns: File include patterns
-            exclude_patterns: File exclude patterns
-        
-        Returns:
-            Dictionary mapping file_path -> set of time-bearing variable names
-        """
-        from fnmatch import fnmatch
-        from pathlib import Path
-        
-        assignments: Dict[str, Set[str]] = {}
-        root = Path(root_path)
-        
-        # Time function patterns
-        time_function_pattern = re.compile(
-            r'\b(time|gettimeofday|clock_gettime|localtime|gmtime)\s*\(',
-            re.IGNORECASE
-        )
-        
-        # Assignment pattern: type var = time_function(...);
-        assignment_pattern = re.compile(
-            r'(\w+(?:\s*\*)?)\s+(\w+)\s*=\s*(?:\([^)]+\)\s*)?(?:time|gettimeofday|clock_gettime|localtime|gmtime)\s*\(',
-            re.IGNORECASE
-        )
-        
-        # Get files
-        all_files = []
-        for pattern in include_patterns or ['**/*.c', '**/*.h']:
-            for file_path in root.rglob(pattern.replace('**/', '')):
-                if file_path.is_file() and is_within_size_limit(file_path, self.max_file_size):
-                    all_files.append(file_path)
-        
-        # Filter by exclude patterns
-        for file_path in all_files:
-            rel_path = str(file_path.relative_to(root))
-            if any(fnmatch(rel_path, pattern) for pattern in exclude_patterns or []):
-                continue
-            
-            try:
-                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    lines = f.readlines()
-                
-                file_vars = set()
-                for line in lines:
-                    # Check for time function call
-                    if time_function_pattern.search(line):
-                        # Check for assignment
-                        match = assignment_pattern.search(line)
-                        if match:
-                            var_name = match.group(2)
-                            file_vars.add(var_name)
-                
-                if file_vars:
-                    assignments[str(file_path)] = file_vars
-            except Exception:
-                continue
-        
-        return assignments
     
     def _attach_io_metadata_to_finding(self, finding: Finding, file_path: str, line_num: int) -> bool:
         """
