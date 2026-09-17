@@ -90,7 +90,11 @@ class ScanningPipeline:
             model: Model name to use
             confidence_floor: Minimum confidence threshold
             batch_size_pass1: Batch size for Stage S1 (line-level analysis)
-            timeout_sec: Timeout for operations
+            timeout_sec: Timeout for a single LLM request, handed to the LLM
+                clients. It bounds one request, not the scan: the scan makes as
+                many as the code needs, and the scanner subprocess runs
+                unbounded. tacs repos enforces a whole-scan deadline by running
+                the scan in a process it can terminate.
         """
         self.scanner_path = scanner_path
         self.llm_type = llm_type

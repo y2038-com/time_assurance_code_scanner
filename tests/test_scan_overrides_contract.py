@@ -378,21 +378,26 @@ def test_per_repo_provider_and_model_override_together(
     assert options["model"] == "repo-model"
 
 
-def test_effective_provider_and_model_reach_the_constructed_client(
+def test_effective_provider_and_model_reach_the_scan(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Metadata agreeing with itself is not evidence the client was configured."""
-    seen: list[dict] = []
-    real_build = bsr._build_pipeline
+    """Metadata agreeing with itself is not evidence the scan was configured.
 
-    def record(**kwargs):
-        seen.append(dict(kwargs))
-        pipeline = real_build(**kwargs)
-        assert pipeline.function_llm_client.llm_type == kwargs["llm_type"]
-        assert pipeline.function_llm_client.model == kwargs["model"]
-        return pipeline
+    The scan runs in a child process, so the pipeline object is out of this
+    process's reach; the job handed to that child is the crossing point. The
+    scan itself is not expected to finish here, since no gemini endpoint is
+    reachable from a test run, so only the crossing is asserted. Its other half
+    -- that these values configure the client -- is the next test down.
+    """
+    seen: list[tuple] = []
+    real_run = bsr._run_repo_scan
 
-    monkeypatch.setattr(bsr, "_build_pipeline", record)
+    def capture(job, *, deadline_sec):
+        outcome = real_run(job, deadline_sec=deadline_sec)
+        seen.append((job, outcome))
+        return outcome
+
+    monkeypatch.setattr(bsr, "_run_repo_scan", capture)
 
     _run_batch(
         tmp_path,
@@ -402,8 +407,35 @@ def test_effective_provider_and_model_reach_the_constructed_client(
     )
 
     assert len(seen) == 1
-    assert seen[0]["llm_type"] == "gemini"
-    assert seen[0]["model"] == "repo-model"
+    job, _outcome = seen[0]
+    assert job.llm_type == "gemini"
+    assert job.model == "repo-model"
+
+
+def test_build_pipeline_configures_the_client_from_its_arguments(
+    tmp_path: Path,
+) -> None:
+    """The other half: what _build_pipeline is given is what the client gets."""
+    env_config = tmp_path / "env_config.json"
+    env_config.write_text(
+        json.dumps(bsr._config_id_to_env_json("ilp32_signed_32bit")), encoding="utf-8"
+    )
+
+    pipeline = bsr._build_pipeline(
+        include_no_findings=False,
+        enable_llm=True,
+        llm_type="gemini",
+        model="repo-model",
+        disable_stage1=True,
+        detect_y2106=False,
+        confidence_floor=0.7,
+        timeout_sec=30,
+        environment_config_path=str(env_config),
+    )
+
+    assert pipeline.llm_type == "gemini"
+    assert pipeline.function_llm_client.llm_type == "gemini"
+    assert pipeline.function_llm_client.model == "repo-model"
 
 
 def test_invalid_provider_fails_that_repo_cleanly(
@@ -438,19 +470,21 @@ def test_disabled_llm_prevents_execution_despite_provider_overrides(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """enable_llm=false still decides whether anything is sent to a provider."""
-    real_build = bsr._build_pipeline
-    built: list = []
+    seen: list[tuple] = []
+    real_run = bsr._run_repo_scan
 
-    def record(**kwargs):
-        pipeline = real_build(**kwargs)
-        built.append(pipeline)
-        return pipeline
+    def capture(job, *, deadline_sec):
+        outcome = real_run(job, deadline_sec=deadline_sec)
+        seen.append((job, outcome))
+        return outcome
 
-    monkeypatch.setattr(bsr, "_build_pipeline", record)
+    monkeypatch.setattr(bsr, "_run_repo_scan", capture)
 
     def explode(*args, **kwargs):  # pragma: no cover - must never run
         raise AssertionError("an LLM request was attempted with enable_llm=false")
 
+    # The scan child is forked, so this guard is inherited by the process that
+    # would make the call.
     monkeypatch.setattr("requests.post", explode)
 
     _, run_dir = _run_batch(
@@ -464,11 +498,16 @@ def test_disabled_llm_prevents_execution_despite_provider_overrides(
         cli_args=["--enable-llm"],
     )
 
-    assert len(built) == 1
-    # The overridden provider must not reach the pipeline or its client: the
-    # pipeline decides whether to call out by reading llm_type off both.
-    assert built[0].llm_type == "none", "no provider should be configured"
-    assert built[0].function_llm_client.llm_type == "none"
+    assert len(seen) == 1
+    job, outcome = seen[0]
+    # The requested provider crosses into the scan for the record, but the
+    # pipeline the child built has no provider configured: it decides whether to
+    # call out by reading llm_type off itself.
+    assert job.enable_llm is False
+    assert job.llm_type == "openai"
+    assert outcome.status == "completed", outcome
+    assert outcome.payload["effective"]["llm_type"] == "none", "no provider configured"
+    assert outcome.payload["effective"]["enable_llm"] is False
 
     options = _effective_options(run_dir)
     assert options["enable_llm"] is False

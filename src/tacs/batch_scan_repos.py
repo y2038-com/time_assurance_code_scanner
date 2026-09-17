@@ -15,6 +15,13 @@ from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import urlparse
 
+from tacs.batch_repo_scan import (
+    DEFAULT_GRACE_SEC,
+    RepoScanJob,
+    RepoScanOutcome,
+    discard_staged_findings,
+    run_repo_scan_with_deadline,
+)
 from tacs.core.file_limits import validate_max_file_size
 from tacs.core.include_patterns import build_include_patterns
 from tacs.core.path_utils import update_latest_symlink
@@ -23,6 +30,32 @@ from tacs.core.status_logger import StatusLogger, format_count
 
 
 LOGGER = logging.getLogger("tacs.batch_scan_repos")
+
+
+class RepoScanTimeout(Exception):
+    """One repository's scan outran the ``--scanner-timeout-sec`` wall clock."""
+
+
+class RepoScanFailed(Exception):
+    """One repository's scan process failed rather than timing out."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        error_code: str = "SCAN_FAILED",
+        detail: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+        # The child's traceback, shown only at DEBUG: the failure happened in
+        # another process, so printing its stack with the error would be noise.
+        self.detail = detail
+
+
+def _run_repo_scan(job: RepoScanJob, *, deadline_sec: float) -> RepoScanOutcome:
+    """Seam for running one repository's scan under the deadline."""
+    return run_repo_scan_with_deadline(job, deadline_sec=deadline_sec)
 
 DEFAULT_FALLBACK_CONFIG_ID = "ilp32_signed_32bit"
 VALID_CONFIG_IDS = {
@@ -791,7 +824,31 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--repo", action="append", default=[], help="Filter repos by substring (repeatable)")
     parser.add_argument("--limit", type=int, help="Maximum repositories to process")
     parser.add_argument("--dry-run", action="store_true", help="Resolve/plan only, do not clone/scan")
-    parser.add_argument("--scanner-timeout-sec", type=int, default=3600, help="Per-repo scan timeout")
+    parser.add_argument(
+        "--scanner-timeout-sec",
+        type=int,
+        default=3600,
+        help=(
+            "Per-repository scan timeout in seconds (default: 3600). The scan "
+            "phase runs in its own process and is terminated once this deadline "
+            "passes; cloning, ref resolution and config detection happen before "
+            "it starts and are not counted. This is when termination begins, not "
+            "the total elapsed time: shutting the process down can add up to "
+            f"{int(DEFAULT_GRACE_SEC)}s more."
+        ),
+    )
+    parser.add_argument(
+        "--request-timeout-sec",
+        type=int,
+        default=300,
+        help=(
+            "Timeout in seconds for a single LLM request inside a scan "
+            "(default: 300, matching tacs scan --timeout-sec). Ollama Cloud "
+            "requests get twice this, and a failed request is retried up to 3 "
+            "times, so one batch can take several multiples of this value "
+            "before the per-repository deadline ends it."
+        ),
+    )
     parser.add_argument(
         "--log-level",
         default=None,
@@ -821,13 +878,24 @@ def main(argv: list[str] | None = None) -> int:
 
     from tacs.core.logging_config import configure_logging, resolve_log_level
 
-    configure_logging(
-        resolve_log_level(log_level=args.log_level, verbose=bool(args.verbose))
+    effective_log_level = resolve_log_level(
+        log_level=args.log_level, verbose=bool(args.verbose)
     )
+    configure_logging(effective_log_level)
 
     fallback_config_id = args.fallback_config.strip().lower()
     if fallback_config_id not in VALID_CONFIG_IDS:
         raise SystemExit(f"invalid --fallback-config: {args.fallback_config}")
+    if args.scanner_timeout_sec <= 0:
+        raise SystemExit(
+            "error: --scanner-timeout-sec must be greater than 0 "
+            f"(got {args.scanner_timeout_sec})"
+        )
+    if args.request_timeout_sec <= 0:
+        raise SystemExit(
+            "error: --request-timeout-sec must be greater than 0 "
+            f"(got {args.request_timeout_sec})"
+        )
 
     # Logging already configured above; keep verbose flag for summary metadata only.
 
@@ -1039,7 +1107,21 @@ def main(argv: list[str] | None = None) -> int:
             config_source_counts[config_source] = config_source_counts.get(config_source, 0) + 1
 
             stage = "scan"
-            pipeline = _build_pipeline(
+            rules_path = (Path(__file__).resolve().parent / "rules" / "y2038_sample_rules.json")
+            if not rules_path.exists():
+                raise FileNotFoundError(f"rules path not found: {rules_path}")
+
+            # The scan runs in a child process so the deadline below is a real
+            # wall clock: nothing inside a scan (subprocesses, provider sockets,
+            # C extensions) can be interrupted reliably from within.
+            job = RepoScanJob(
+                repo_key=per_repo_dir.name,
+                repo_root=str(repo_dir),
+                rules_path=str(rules_path),
+                per_repo_dir=str(per_repo_dir.resolve()),
+                env_config_path=str(env_config_path),
+                include_patterns=list(include_patterns),
+                exclude_patterns=list(exclude_patterns),
                 include_no_findings=include_no_findings,
                 enable_llm=enable_llm,
                 llm_type=llm_type,
@@ -1047,41 +1129,49 @@ def main(argv: list[str] | None = None) -> int:
                 disable_stage1=disable_stage1,
                 detect_y2106=detect_y2106,
                 confidence_floor=confidence_floor,
-                timeout_sec=args.scanner_timeout_sec,
-                environment_config_path=str(env_config_path),
                 max_file_size=max_file_size,
+                # Bounds one LLM request; the deadline below bounds the
+                # repository. A wedged request should not spend the whole
+                # repository budget, so these are set separately.
+                request_timeout_sec=args.request_timeout_sec,
+                log_level=effective_log_level,
             )
-
-            rules_path = (Path(__file__).resolve().parent / "rules" / "y2038_sample_rules.json")
-            if not rules_path.exists():
-                raise FileNotFoundError(f"rules path not found: {rules_path}")
-
-            # The per-repo directory is the scan's artifact root: the batch run id
-            # and repo key already identify this scan, so no session-history
-            # folder is nested inside it.
-            scan_out = per_repo_dir / "findings.json"
-            results_obj = pipeline.scan(
-                root_path=str(repo_dir),
-                rules_path=str(rules_path),
-                include_patterns=include_patterns,
-                exclude_patterns=exclude_patterns,
-                min_risk="medium",
-                session_dir=str(per_repo_dir.resolve()),
-            )
-            pipeline.save_results(results_obj, str(scan_out))
-            finding_summary = _parse_findings_summary(scan_out)
-            classification_counts = _classification_counts_payload(pipeline)
-            if not enable_llm:
-                LOGGER.info("%s", _format_no_llm_repo_summary(per_repo_dir.name, finding_summary))
-            else:
-                LOGGER.info(
-                    "%s",
-                    _format_llm_repo_summary(
-                        per_repo_dir.name, finding_summary, classification_counts
-                    ),
+            outcome = _run_repo_scan(job, deadline_sec=args.scanner_timeout_sec)
+            if outcome.timed_out:
+                raise RepoScanTimeout(
+                    f"scan exceeded timeout ({args.scanner_timeout_sec}s)"
                 )
-            repo_metrics = _extract_scan_metrics(results_obj)
-            stage_stats = _extract_stage_stats(per_repo_dir)
+            if outcome.status == "crashed":
+                raise RepoScanFailed(
+                    "scan process exited without a result "
+                    f"(exit code {outcome.exit_code})",
+                    error_code="SCAN_CRASHED",
+                )
+            if not outcome.payload.get("ok"):
+                error_type = str(outcome.payload.get("error_type") or "Exception")
+                message = str(outcome.payload.get("error_message") or "scan failed")
+                # A scanner subprocess that ran out of time inside the child is
+                # still a timeout, as it was when the scan ran in the parent.
+                if error_type == "TimeoutExpired":
+                    raise RepoScanTimeout(message)
+                raise RepoScanFailed(
+                    f"{error_type}: {message}",
+                    detail=outcome.payload.get("error_traceback"),
+                )
+
+            finding_summary = outcome.payload.get("findings_summary") or {}
+            classification_counts = outcome.payload.get("classification_counts")
+            repo_metrics = outcome.payload.get("scan_metrics") or repo_metrics
+            stage_stats = outcome.payload.get("stage_stats") or stage_stats
+            # Read off the pipeline the child actually built, so this says how the
+            # scan was configured rather than what was requested.
+            effective = outcome.payload.get("effective") or {}
+            LOGGER.debug(
+                "scan finished in %.1fs: llm_type=%s model=%s",
+                outcome.duration_sec,
+                effective.get("llm_type"),
+                effective.get("model"),
+            )
             if repo_metrics.get("total_files", 0) > 0 or repo_metrics.get("total_lines", 0) > 0:
                 aggregate_metrics["repos_with_metrics"] += 1
             aggregate_metrics["total_files_scanned"] += int(repo_metrics.get("total_files", 0) or 0)
@@ -1172,7 +1262,20 @@ def main(argv: list[str] | None = None) -> int:
                     "stage_stats": stage_stats,
                 }
             )
+        except RepoScanTimeout as e:
+            status = "timeout"
+            error_code = "SCAN_TIMEOUT"
+            error_message = str(e)
+            counters["timeout"] += 1
+        except RepoScanFailed as e:
+            status = "failed"
+            error_code = e.error_code
+            error_message = str(e)
+            if e.detail:
+                LOGGER.debug("scan process failure detail:\n%s", e.detail)
+            counters["failed"] += 1
         except subprocess.TimeoutExpired:
+            # Git operations during preparation carry their own timeout.
             status = "timeout"
             error_code = "SCAN_TIMEOUT"
             error_message = f"scan exceeded timeout ({args.scanner_timeout_sec}s)"
@@ -1209,6 +1312,11 @@ def main(argv: list[str] | None = None) -> int:
         if status != "success":
             repo_key = _repo_key(identity, resolved_ref or resolved_sha or (args.ref_override or task.ref or "default")) if identity else f"line_{task.source_line}"
             LOGGER.error("repo failed [%s]: %s (%s)", repo_key, error_message, error_code)
+            # A killed child can leave the staged findings file behind. Artifacts
+            # it finished writing are kept; this one was never complete, and
+            # publishing it would claim a scan that did not finish.
+            if per_repo_dir is not None:
+                discard_staged_findings(per_repo_dir)
             results.append(
                 {
                     "repo_key": repo_key,
@@ -1262,6 +1370,7 @@ def main(argv: list[str] | None = None) -> int:
             "limit": args.limit,
             "dry_run": args.dry_run,
             "scanner_timeout_sec": args.scanner_timeout_sec,
+            "request_timeout_sec": args.request_timeout_sec,
             "enable_llm": args.enable_llm,
             "llm_type": args.llm_type,
             "model": args.model,

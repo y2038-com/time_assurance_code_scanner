@@ -102,7 +102,7 @@ def _default_model() -> str:
 @click.option('--no-enable-discovery', is_flag=True, default=False, help='Disable typedef/macro discovery (default: enabled)')
 @click.option('--out', default='findings.json', help='Output file path (default: findings.json)')
 @click.option('--redact-prompts/--no-redact-prompts', default=True, help='Redact prompts in logs (default: enabled)')
-@click.option('--timeout-sec', type=int, default=300, help='Timeout in seconds (default: 300)')
+@click.option('--timeout-sec', type=int, default=300, help='Timeout in seconds for a single LLM request (default: 300; Ollama Cloud gets twice this, and a failed request is retried up to 3 times). It does not bound the scan as a whole, which makes as many requests as the code needs, nor the scanner subprocess. For a deadline on a whole repository scan, use tacs repos --scanner-timeout-sec.')
 @click.option('--token-budget', type=int, default=250000, help='Token budget per scan (default: 250000)')
 def main(
     root: str,

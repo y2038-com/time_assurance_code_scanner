@@ -46,6 +46,23 @@ def _findings_path(repo_dir: Path) -> Path:
     return canonical
 
 
+def _skip_reason(repo_dir: Path) -> str:
+    """Say why a repo has no findings, using the status the batch recorded.
+
+    A timed-out or failed scan is the usual reason there is nothing to render,
+    and "missing findings.json" would describe the symptom rather than say so.
+    """
+    try:
+        status = json.loads((repo_dir / "status.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "missing findings.json"
+    state = status.get("status")
+    if state in {"timeout", "failed"}:
+        code = status.get("error_code") or "unknown"
+        return f"scan {state} ({code}); no findings to render"
+    return "missing findings.json"
+
+
 def _resolve_input_path(args: argparse.Namespace) -> Path:
     positional = getattr(args, "input", None)
     batch_alias = getattr(args, "batch_run_dir", None)
@@ -194,8 +211,9 @@ def _run_batch(args: argparse.Namespace, batch_run_dir: Path) -> int:
         StatusLogger.always(f"[{idx}/{len(repos)}] {repo_key}")
         findings = _findings_path(repo_dir)
         if not findings.exists():
-            skipped.append({"repo_key": repo_key, "reason": "missing findings.json"})
-            log.debug("skip %s: missing findings.json", repo_key)
+            reason = _skip_reason(repo_dir)
+            skipped.append({"repo_key": repo_key, "reason": reason})
+            log.debug("skip %s: %s", repo_key, reason)
             continue
 
         if args.format == "html":

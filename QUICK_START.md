@@ -188,6 +188,50 @@ tacs repos --repos-file src/tacs/fixtures/repo_lists/test_repos.jsonl --dry-run
 #   --detect-y2106        also assess 32-bit unsigned time_t overflow in 2106
 #   --no-disable-stage1   restore the line-level LLM pre-filter (drops candidates)
 
+```
+
+### Timeouts in `tacs repos`
+
+Each repository's scan runs in its own process, so one repository cannot hang
+the batch. Two separate limits apply:
+
+| Option | Default | What it bounds |
+| --- | --- | --- |
+| `--scanner-timeout-sec` | 3600s | **Per-repository scan timeout.** The deadline after which that repository's scan process is terminated. |
+| `--request-timeout-sec` | 300s | One LLM request inside a scan. Ollama Cloud gets twice this, and a failed request is retried up to 3 times. |
+
+The deadline covers the scan phase only: the deterministic scanner, parsing and
+function analysis, every LLM stage, and the artifact writes that finish the
+scan. Cloning, ref resolution and config detection happen first and are not
+counted against it; git commands there have their own 300-second limit.
+
+The deadline is when termination begins, not the total elapsed time. The scan is
+asked to stop, then killed if it has not exited within a 10-second grace period,
+so a wedged repository can take up to `--scanner-timeout-sec` plus that grace.
+
+A repository that outstays the deadline is recorded as `status: "timeout"` with
+`error_code: "SCAN_TIMEOUT"` in its `status.json` and in the run's
+`summary.json`; no `findings.json` is published for it, and `tacs render` skips
+it. The batch continues unless `--fail-fast` or `--no-continue-on-error` is set,
+and the run exits non-zero.
+
+For reference, a ten-repository validation batch against Ollama Cloud
+(`gpt-oss:120b-cloud`) spent 0.4-60s per repository, so the defaults leave
+considerable headroom; lower them only if you know your corpus.
+
+On Linux and macOS the scan runs in its own process group, so terminating it
+also stops the scanner subprocess and anything else the scan started. On Windows
+the fallback terminates the Python scan child only, and a scanner subprocess it
+had already started may survive, so the descendant-process guarantee is weaker
+there.
+
+`tacs scan --timeout-sec` is the standalone equivalent of `--request-timeout-sec`
+alone: it bounds one LLM request, not the scan, which runs as long as its work
+takes.
+
+### Render
+
+```bash
 tacs render --help
 
 # Single findings JSON (e.g. from tacs scan --out):
