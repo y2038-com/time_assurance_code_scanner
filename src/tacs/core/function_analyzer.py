@@ -10,7 +10,7 @@ import hashlib
 from pathlib import Path
 from typing import List, Dict, Set, Optional, Tuple, Any
 from tacs.core.function_schemas import FunctionBody, FunctionAnalysis, ContextNeed
-from tacs.core.path_utils import repo_relative_path
+from tacs.core.path_utils import repo_relative_path, canonical_source_path
 from tacs.core.schema import Candidate
 from tacs.core.status_logger import StatusLogger
 
@@ -66,16 +66,19 @@ class FunctionAnalyzer:
         Returns:
             List of function bodies containing candidates
         """
-        # Group candidates by file
-        file_candidates = {}
+        # Group candidates by resolved file path so symlink aliases of one
+        # physical file are functionized once.
+        file_candidates: Dict[str, List[Candidate]] = {}
         for candidate in candidates:
-            file_path = candidate.file
-            if file_path not in file_candidates:
-                file_candidates[file_path] = []
-            file_candidates[file_path].append(candidate)
+            file_path = canonical_source_path(candidate.file) or candidate.file
+            file_candidates.setdefault(file_path, []).append(
+                candidate if candidate.file == file_path
+                else candidate.model_copy(update={"file": file_path})
+            )
         
         functions = []
-        for file_path, file_candidates_list in file_candidates.items():
+        for file_path in sorted(file_candidates.keys()):
+            file_candidates_list = file_candidates[file_path]
             try:
                 file_functions = self._extract_functions_from_file(file_path, file_candidates_list)
                 # Split large functions if needed
@@ -92,8 +95,22 @@ class FunctionAnalyzer:
                 for func in file_functions:
                     split_functions.extend(self._split_large_function_if_needed(func))
                 functions.extend(split_functions)
-        
-        return functions
+
+        return self._dedupe_functions(functions)
+
+    def _dedupe_functions(self, functions: List[FunctionBody]) -> List[FunctionBody]:
+        """Keep one FunctionBody per function_id, merging candidate_lines."""
+        by_id: Dict[str, FunctionBody] = {}
+        order: List[str] = []
+        for func in functions:
+            existing = by_id.get(func.function_id)
+            if existing is None:
+                by_id[func.function_id] = func
+                order.append(func.function_id)
+                continue
+            merged_lines = sorted(set(existing.candidate_lines or []) | set(func.candidate_lines or []))
+            by_id[func.function_id] = existing.model_copy(update={"candidate_lines": merged_lines})
+        return [by_id[fid] for fid in order]
     
     def _extract_functions_from_file(self, file_path: str, candidates: List[Candidate]) -> List[FunctionBody]:
         """Extract functions from a file using tree-sitter."""

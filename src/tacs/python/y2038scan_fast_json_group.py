@@ -340,65 +340,72 @@ def detect_time_t_casts(cleaned: str, original: str, time_t_aliases: List[str],
 def iter_source_files(root: str, include_patterns: List[str] = None, exclude_patterns: List[str] = None,
                       max_file_size: int = None):
     """
-    Iterate over source files in the directory tree, respecting include/exclude patterns.
-    
-    Args:
-        root: Root directory to scan
-        include_patterns: List of glob patterns to include (e.g., ['**/*.c', 'test_*.c'])
-        exclude_patterns: List of glob patterns to exclude (e.g., ['**/tests/**'])
-        max_file_size: Optional per-file byte limit; larger files are not yielded.
-            A file exactly at the threshold is yielded, and a file whose size
-            cannot be read is yielded rather than dropped silently.
-    
-    Yields:
-        File paths matching the patterns
+    Iterate over unique in-repo source files, respecting include/exclude patterns.
+
+    Symlink aliases inside the repository collapse to one real path. Symlinks that
+    resolve outside the repository root are skipped.
     """
-    root_path = os.path.abspath(root)
+    patterns = include_patterns or [f"**/*{ext}" for ext in sorted(SRC_EXTS)]
+    try:
+        from tacs.core.source_files import enumerate_source_files
+
+        enumeration = enumerate_source_files(
+            root,
+            patterns,
+            exclude_patterns=exclude_patterns,
+            max_file_size=max_file_size,
+            allowed_extensions=SRC_EXTS,
+        )
+        for display in enumeration.skipped_external:
+            print(f"Ignoring source symlink outside repository root: {display}", file=sys.stderr)
+        for file_path in enumeration.files:
+            yield str(file_path)
+        return
+    except ImportError:
+        pass
+
+    # Fallback when the package is not importable (standalone script use).
+    root_path = os.path.realpath(root)
     all_files = set()
-    
-    # If include patterns are provided, use glob to find matching files
-    if include_patterns:
-        for pattern in include_patterns:
-            # Convert relative pattern to absolute
-            if not pattern.startswith('/') and not os.path.isabs(pattern):
-                # Pattern relative to root
-                pattern_path = os.path.join(root_path, pattern)
-            else:
-                pattern_path = pattern
-            
-            # Use glob to find matching files
-            matches = glob.glob(pattern_path, recursive=True)
-            for match in matches:
-                if os.path.isfile(match):
-                    ext = os.path.splitext(match)[1].lower()
-                    if ext in SRC_EXTS:
-                        all_files.add(os.path.abspath(match))
-    else:
-        # No include patterns: walk directory and find all source files
-        for base, _dirs, files in os.walk(root_path):
-            for fn in files:
-                ext = os.path.splitext(fn)[1].lower()
-                if ext in SRC_EXTS:
-                    all_files.add(os.path.abspath(os.path.join(base, fn)))
-    
-    # Apply exclude patterns
+    for pattern in patterns:
+        if not pattern.startswith('/') and not os.path.isabs(pattern):
+            pattern_path = os.path.join(root_path, pattern)
+        else:
+            pattern_path = pattern
+        for match in glob.glob(pattern_path, recursive=True):
+            if not os.path.isfile(match):
+                continue
+            ext = os.path.splitext(match)[1].lower()
+            if ext not in SRC_EXTS:
+                continue
+            real = os.path.realpath(match)
+            try:
+                common = os.path.commonpath([root_path, real])
+            except ValueError:
+                print(
+                    f"Ignoring source symlink outside repository root: {match}",
+                    file=sys.stderr,
+                )
+                continue
+            if common != root_path:
+                print(
+                    f"Ignoring source symlink outside repository root: {match}",
+                    file=sys.stderr,
+                )
+                continue
+            all_files.add(real)
+
     if exclude_patterns:
         excluded_files = set()
         for pattern in exclude_patterns:
-            # Convert relative pattern to absolute
             if not pattern.startswith('/') and not os.path.isabs(pattern):
                 pattern_path = os.path.join(root_path, pattern)
             else:
                 pattern_path = pattern
-            
-            matches = glob.glob(pattern_path, recursive=True)
-            for match in matches:
-                excluded_files.add(os.path.abspath(match))
-        
-        # Remove excluded files
-        all_files = all_files - excluded_files
-    
-    # Yield files in sorted order for consistent output
+            for match in glob.glob(pattern_path, recursive=True):
+                excluded_files.add(os.path.realpath(match))
+        all_files -= excluded_files
+
     for file_path in sorted(all_files):
         if max_file_size is not None:
             try:

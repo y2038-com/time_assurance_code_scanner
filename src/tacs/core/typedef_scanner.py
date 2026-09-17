@@ -9,8 +9,6 @@ from pathlib import Path
 from typing import Dict, List, Set, Tuple, Optional
 from collections import defaultdict
 
-from tacs.core.file_limits import is_within_size_limit
-
 
 class TypedefScanner:
     """Scanner for typedef statements that create time_t aliases."""
@@ -81,41 +79,21 @@ class TypedefScanner:
         return dict(typedef_map)
     
     def _get_files(self, root_path: str, include_patterns: List[str], exclude_patterns: List[str]) -> List[Path]:
-        """Get list of files matching include/exclude patterns."""
-        import glob
-        
-        root = Path(root_path).resolve()
-        all_files = set()
-        
-        # Collect files matching include patterns
-        for pattern in include_patterns:
-            if not pattern.startswith('/'):
-                pattern = str(root / pattern)
-            else:
-                pattern = str(root / pattern.lstrip('/'))
-            
-            matches = glob.glob(pattern, recursive=True)
-            all_files.update(matches)
-        
-        # Apply exclude patterns
-        excluded_files = set()
-        for pattern in exclude_patterns:
-            if not pattern.startswith('/'):
-                pattern = str(root / pattern)
-            else:
-                pattern = str(root / pattern.lstrip('/'))
-            
-            matches = glob.glob(pattern, recursive=True)
-            excluded_files.update(matches)
-        
-        # Return only included files that are not excluded
-        return [
-            Path(f)
-            for f in all_files
-            if f not in excluded_files
-            and Path(f).is_file()
-            and is_within_size_limit(f, self.max_file_size)
-        ]
+        """Get unique in-repo source files matching include/exclude patterns."""
+        from tacs.core.source_files import enumerate_source_files
+        from tacs.core.status_logger import StatusLogger
+
+        enumeration = enumerate_source_files(
+            root_path,
+            include_patterns,
+            exclude_patterns=exclude_patterns,
+            max_file_size=self.max_file_size,
+        )
+        for display in enumeration.skipped_external:
+            StatusLogger.timestamped_debug(
+                f"Ignoring source symlink outside repository root: {display}"
+            )
+        return enumeration.files
     
     def _find_typedefs(self, content: str, file_path: str) -> Dict[str, List[str]]:
         """Find typedef statements in file content."""

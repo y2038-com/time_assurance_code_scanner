@@ -22,6 +22,30 @@ from typing import Optional, Union
 PathInput = Union[str, os.PathLike]
 
 
+def canonical_source_path(path: Optional[PathInput]) -> str:
+    """
+    Resolve ``path`` to a unique absolute location for a source file.
+
+    Symlink aliases of the same file (common in vendored trees) collapse to one
+    real path so IR discovery and functionization see the file once. A path that
+    cannot be resolved is returned as an absolute path without following links.
+    """
+    if path is None:
+        return ""
+
+    text = os.fspath(path)
+    if not text:
+        return ""
+
+    try:
+        return str(Path(text).resolve())
+    except OSError:
+        try:
+            return os.path.abspath(text)
+        except OSError:
+            return text
+
+
 def repo_relative_path(path: Optional[PathInput], root: Optional[PathInput]) -> str:
     """
     Express ``path`` relative to the scan root ``root``.

@@ -828,16 +828,61 @@ IMPORTANT:
         note: str,
     ) -> List[FunctionAnalysis]:
         """Ensure one FunctionAnalysis per input function (pipeline zips by position)."""
+        from tacs.core.candidate_utils import summary_value
+
         by_id: Dict[str, FunctionAnalysis] = {}
+        conflict_ids: set[str] = set()
         for a in analyses:
             fid = (a.function_id or "").strip()
-            if fid and fid not in by_id:
+            if not fid:
+                continue
+            existing = by_id.get(fid)
+            if existing is None:
                 by_id[fid] = a
+                continue
+            if summary_value(existing.y2038_summary) == summary_value(a.y2038_summary):
+                # Identical duplicate verdict: keep the higher-confidence copy.
+                if float(a.confidence or 0) > float(existing.confidence or 0):
+                    by_id[fid] = a
+                continue
+            # Conflicting duplicate outputs for one function are ambiguous model
+            # behavior — collapse to a single abstain rather than picking a side.
+            conflict_ids.add(fid)
+            line0 = 1
+            for func in functions:
+                if func.function_id == fid:
+                    line0 = func.start_line or 1
+                    break
+            by_id[fid] = FunctionAnalysis(
+                function_id=fid,
+                y2038_summary=Y2038Summary.ABSTAIN,
+                confidence=0.0,
+                issues=[
+                    {
+                        "type": "duplicate_conflict",
+                        "description": (
+                            f"Model returned conflicting {pass_name} outputs for this "
+                            f"function ({summary_value(existing.y2038_summary)} vs "
+                            f"{summary_value(a.y2038_summary)}); treating as abstain."
+                        ),
+                        "line": line0,
+                    }
+                ],
+                needs_more_context=True,
+                needs=[],
+            )
+        if conflict_ids:
+            StatusLogger.timestamped_warning(
+                f"{pass_name}: model returned conflicting duplicate outputs for "
+                f"{len(conflict_ids)} function(s); collapsed each to abstain"
+            )
         out: List[FunctionAnalysis] = []
         missing = 0
         for func in functions:
             hit = by_id.get(func.function_id)
             if hit is not None:
+                if hit.function_id != func.function_id:
+                    hit = hit.model_copy(update={"function_id": func.function_id})
                 out.append(hit)
                 continue
             missing += 1

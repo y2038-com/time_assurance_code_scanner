@@ -4,16 +4,18 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Set
-from tacs.core.file_limits import is_within_size_limit
 from tacs.core.schema import Candidate
 from tacs.core.status_logger import StatusLogger
 from tacs.core.define_scanner import DefineScanner, DefineMatch
 from tacs.core.arithmetic_scanner import ArithmeticScanner, ArithmeticMatch
+from tacs.core.path_utils import canonical_source_path
+from tacs.core.candidate_utils import prepare_candidates
 
 
 class IRAdapter:
@@ -164,9 +166,10 @@ class IRAdapter:
                 if isinstance(symbols, str):
                     symbols = [symbols]
                 
+                file_path = canonical_source_path(item['file'])
                 for symbol in symbols:
                     candidate = Candidate(
-                        file=item['file'],
+                        file=file_path,
                         line=item['line'],
                         symbol=symbol,
                         one_line_snippet=item['lineText'],
@@ -182,8 +185,11 @@ class IRAdapter:
             # Scan for arithmetic operations on time_t
             arithmetic_candidates = self._scan_for_arithmetic(root_path, include_patterns, exclude_patterns, time_t_aliases)
             candidates.extend(arithmetic_candidates)
-            
-            return candidates
+
+            # Symlink aliases and overlapping detectors can emit the same hit more
+            # than once; collapse exact duplicates and stabilize order here so
+            # functionization and candidates.jsonl see one logical population.
+            return prepare_candidates(candidates)
             
         finally:
             # Clean up temporary files
@@ -243,7 +249,7 @@ class IRAdapter:
         candidates = []
         for match in define_matches:
             candidate = Candidate(
-                file=match.file_path,
+                file=canonical_source_path(match.file_path),
                 line=match.line_number,
                 symbol=match.macro_name,
                 one_line_snippet=match.full_line,
@@ -261,40 +267,20 @@ class IRAdapter:
         exclude_patterns: List[str],
         max_file_size: Optional[int] = None,
     ) -> List[Path]:
-        """Get list of files matching include/exclude patterns, within the size limit."""
-        import glob
-        
-        root = Path(root_path).resolve()
-        all_files = set()
-        
-        # Collect files matching include patterns
-        for pattern in include_patterns:
-            if not pattern.startswith('/'):
-                pattern = str(root / pattern)
-            else:
-                pattern = str(root / pattern.lstrip('/'))
-            matches = glob.glob(pattern, recursive=True)
-            all_files.update(matches)
-        
-        # Apply exclude patterns
-        excluded_files = set()
-        for pattern in exclude_patterns:
-            if not pattern.startswith('/'):
-                pattern = str(root / pattern)
-            else:
-                pattern = str(root / pattern.lstrip('/'))
-            matches = glob.glob(pattern, recursive=True)
-            excluded_files.update(matches)
-        
-        # Return only included files that are not excluded
-        return [
-            Path(f)
-            for f in all_files
-            if f not in excluded_files
-            and Path(f).is_file()
-            and is_within_size_limit(f, max_file_size)
-        ]
-    
+        """Get unique in-repo source files matching include/exclude patterns."""
+        from tacs.core.source_files import enumerate_source_files
+
+        enumeration = enumerate_source_files(
+            root_path,
+            include_patterns,
+            exclude_patterns=exclude_patterns,
+            max_file_size=max_file_size,
+        )
+        for display in enumeration.skipped_external:
+            StatusLogger.timestamped_debug(
+                f"Ignoring source symlink outside repository root: {display}"
+            )
+        return enumeration.files    
     def _scan_for_arithmetic(self, root_path: str, include_patterns: List[str] = None, 
                              exclude_patterns: List[str] = None, 
                              time_t_aliases: Dict[str, List[str]] = None) -> List[Candidate]:
@@ -350,7 +336,7 @@ class IRAdapter:
             # Only include high and medium risk operations
             if match.risk_level in ('high', 'medium'):
                 candidate = Candidate(
-                    file=match.file_path,
+                    file=canonical_source_path(match.file_path),
                     line=match.line_number,
                     symbol=f"arithmetic_{match.operation}",
                     one_line_snippet=match.full_line,

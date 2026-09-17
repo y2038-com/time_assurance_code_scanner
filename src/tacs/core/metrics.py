@@ -3,13 +3,12 @@
 
 from __future__ import annotations
 
-import os
-import glob
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
-from tacs.core.file_limits import MAX_RECORDED_SKIPS, is_within_size_limit
-from tacs.core.path_utils import repo_relative_path
+from typing import Any, Dict, List, Optional
+
+from tacs.core.file_limits import MAX_RECORDED_SKIPS
 from tacs.core.schema import Metrics
+from tacs.core.source_files import enumerate_source_files
+from tacs.core.status_logger import StatusLogger
 
 
 def calculate_metrics(
@@ -20,110 +19,60 @@ def calculate_metrics(
 ) -> Metrics:
     """
     Calculate code metrics for the given root path with include/exclude patterns.
-    
-    Args:
-        root_path: Root directory to scan
-        include_patterns: List of glob patterns to include
-        exclude_patterns: List of glob patterns to exclude
-        max_file_size: Optional per-file byte limit; larger files are skipped
-        
-    Returns:
-        Metrics object with calculated values
 
-    This pass already visits every file the scan will consider, so it also serves
-    as the audit of what ``max_file_size`` excluded. Metrics then describe the
-    files that were actually scanned.
+    Uses the same canonical file-enumeration contract as IR discovery: one
+    underlying in-repo source file is counted once, and symlink targets outside
+    the repository root are skipped.
     """
-    skipped_count = 0
-    skipped_detail: List[Dict[str, Any]] = []
+    enumeration = enumerate_source_files(
+        root_path,
+        include_patterns,
+        exclude_patterns=exclude_patterns,
+        max_file_size=max_file_size,
+    )
+
+    for display in enumeration.skipped_external:
+        StatusLogger.timestamped_debug(
+            f"Ignoring source symlink outside repository root: {display}"
+        )
+
+    skipped_count = len(enumeration.skipped_too_large)
+    skipped_detail: List[Dict[str, Any]] = enumeration.skipped_too_large[:MAX_RECORDED_SKIPS]
+
     total_files = 0
     total_lines = 0
     total_chars = 0
     total_words = 0
     max_line_length = 0
     max_file_length = 0
-    file_lengths = []
-    
-    # Convert patterns to absolute paths
-    root = Path(root_path).resolve()
-    
-    # Collect all files matching include patterns
-    all_files = set()
-    for pattern in include_patterns:
-        # Convert relative pattern to absolute
-        if not pattern.startswith('/'):
-            pattern = str(root / pattern)
-        else:
-            pattern = str(root / pattern.lstrip('/'))
-        
-        # Use glob to find matching files
-        matches = glob.glob(pattern, recursive=True)
-        all_files.update(matches)
-    
-    # Apply exclude patterns
-    excluded_files = set()
-    for pattern in exclude_patterns:
-        if not pattern.startswith('/'):
-            pattern = str(root / pattern)
-        else:
-            pattern = str(root / pattern.lstrip('/'))
-        
-        matches = glob.glob(pattern, recursive=True)
-        excluded_files.update(matches)
-    
-    # Process files
-    for file_path in all_files:
-        if file_path in excluded_files:
-            continue
-            
-        if not os.path.isfile(file_path):
-            continue
+    file_lengths: List[int] = []
 
-        if not is_within_size_limit(file_path, max_file_size):
-            skipped_count += 1
-            if len(skipped_detail) < MAX_RECORDED_SKIPS:
-                try:
-                    size_bytes = os.path.getsize(file_path)
-                except OSError:
-                    size_bytes = None
-                skipped_detail.append(
-                    {
-                        "path": repo_relative_path(file_path, root),
-                        "size_bytes": size_bytes,
-                    }
-                )
-            continue
-
+    for file_path in enumeration.files:
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                 file_lines = 0
                 file_chars = 0
                 file_words = 0
-                
+
                 for line in f:
-                    line = line.rstrip('\n\r')
+                    line = line.rstrip("\n\r")
                     file_lines += 1
                     file_chars += len(line)
                     file_words += len(line.split())
-                    
-                    # Track max line length
                     max_line_length = max(max_line_length, len(line))
-                
+
                 total_files += 1
                 total_lines += file_lines
                 total_chars += file_chars
                 total_words += file_words
                 file_lengths.append(file_lines)
                 max_file_length = max(max_file_length, file_lines)
-                
-        except Exception:
-            # Skip files that can't be read
+        except OSError:
             continue
-    
-    # Calculate averages
+
     avg_line_length = total_chars / total_lines if total_lines > 0 else 0.0
     avg_file_length = sum(file_lengths) / len(file_lengths) if file_lengths else 0.0
-    
+
     return Metrics(
         total_files=total_files,
         total_lines=total_lines,
@@ -135,5 +84,5 @@ def calculate_metrics(
         avg_file_length=avg_file_length,
         max_file_size=max_file_size,
         files_skipped_too_large=skipped_count,
-        skipped_too_large=sorted(skipped_detail, key=lambda entry: entry["path"]),
+        skipped_too_large=skipped_detail,
     )

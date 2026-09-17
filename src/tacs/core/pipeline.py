@@ -15,6 +15,7 @@ from tacs.core.schema import (
 from tacs.core.file_limits import is_within_size_limit, validate_max_file_size
 from tacs.core.metrics import calculate_metrics
 from tacs.core.path_utils import repo_relative_path
+from tacs.core.candidate_utils import candidate_id_for, prepare_candidates
 from tacs.core.discovery_manager import DiscoveryManager
 from tacs.core.ir_adapter import IRAdapter
 from tacs.core.struct_filter import StructuralFilter
@@ -562,6 +563,10 @@ class ScanningPipeline:
             time_t_aliases=typedef_aliases if self.enable_discovery else {},
             time_functions=time_functions
         )
+        # Belt-and-suspenders: IRAdapter already prepares, but Stage 4/5 may
+        # append more candidates later; re-prepare immediately after discovery
+        # so the logged IR population is unique and ordered.
+        candidates = prepare_candidates(candidates)
         StatusLogger.timestamped_print(f"Found {_format_count(len(candidates), 'candidate')}")
         session.end_timing("ir")
         session.log_message("INFO", f"IR: Found {_format_count(len(candidates), 'candidate')}")
@@ -573,7 +578,8 @@ class ScanningPipeline:
         
         # Log candidates to session
         for candidate in candidates:
-            candidate_id = f"{session.relative_path(candidate.file)}:{candidate.line}"
+            rel = session.relative_path(candidate.file)
+            candidate_id = candidate_id_for(candidate, rel)
             session.log_candidate(
                 candidate_id=candidate_id,
                 file=candidate.file,
@@ -858,6 +864,8 @@ class ScanningPipeline:
         # Functionization (preparation for Stage S2)
         session.start_timing("functionization")
         StatusLogger.timestamped_debug("Functionization - extracting functions with candidates...")
+        # Re-prepare after Stage 4/5 may have appended I/O or migration candidates.
+        candidates = prepare_candidates(candidates)
         functions = self.function_analyzer.extract_functions_with_candidates(candidates)
         StatusLogger.timestamped_print(
             f"Extracted {_format_count(len(functions), 'function')} containing candidates"
@@ -866,6 +874,13 @@ class ScanningPipeline:
         
         # Create mapping from function_id to FunctionBody for later passes
         function_map = {func.function_id: func for func in functions}
+        if len(function_map) != len(functions):
+            StatusLogger.timestamped_warning(
+                f"Functionization produced {len(functions) - len(function_map)} duplicate "
+                f"function_id(s); continuing with {len(function_map)} unique functions"
+            )
+            functions = list(function_map.values())
+            function_map = {func.function_id: func for func in functions}
         
         # Stage 8: LLM Pass 2 - Function-level analysis, Pass 2a (initial function analysis)
         StatusLogger.timestamped_debug("Stage 8: LLM Pass 2 (function-level analysis), Pass 2a - initial analysis...")
@@ -972,6 +987,19 @@ class ScanningPipeline:
             
             # Analyze functions
             analyses = self.function_llm_client.analyze_functions_pass_f1(function_batch)
+
+            # Accounting: one analysis per unique input function after alignment.
+            unique_input_ids = [f.function_id for f in batch_functions]
+            if len(unique_input_ids) != len(set(unique_input_ids)):
+                raise RuntimeError(
+                    f"Stage 8 batch {batch_num} contains duplicate function_id inputs: "
+                    f"{len(unique_input_ids)} entries, {len(set(unique_input_ids))} unique"
+                )
+            if len(analyses) != len(batch_functions):
+                raise RuntimeError(
+                    f"Stage 8 batch {batch_num} analysis count {len(analyses)} != "
+                    f"function count {len(batch_functions)}"
+                )
             
             # Save batch to scan session
             response_data = None
@@ -1005,16 +1033,38 @@ class ScanningPipeline:
             batch_findings = self._convert_analyses_to_findings(analyses, batch_functions)
             findings.extend(batch_findings)
             
-            # Log batch results
-            batch_yes = sum(1 for f in batch_findings if f.y2038_issue == Y2038Issue.YES)
-            batch_no = sum(1 for f in batch_findings if f.y2038_issue == Y2038Issue.NO)
-            batch_abstain = sum(1 for f in batch_findings if f.y2038_issue == Y2038Issue.ABSTAIN)
-            StatusLogger.timestamped_print(f"Stage 8, Pass 2a: Batch {batch_num} results: {batch_yes} yes, {batch_no} no, {batch_abstain} abstain")
+            # Log batch results by unique function classification (not per-issue findings)
+            batch_yes = sum(
+                1 for a in analyses
+                if (a.y2038_summary.value if hasattr(a.y2038_summary, "value") else str(a.y2038_summary)) == "yes"
+            )
+            batch_no = sum(
+                1 for a in analyses
+                if (a.y2038_summary.value if hasattr(a.y2038_summary, "value") else str(a.y2038_summary)) == "no"
+            )
+            batch_abstain = sum(
+                1 for a in analyses
+                if (a.y2038_summary.value if hasattr(a.y2038_summary, "value") else str(a.y2038_summary)) == "abstain"
+            )
+            if batch_yes + batch_no + batch_abstain != len(batch_functions):
+                raise RuntimeError(
+                    f"Stage 8 batch {batch_num} classification total "
+                    f"{batch_yes}+{batch_no}+{batch_abstain} != {len(batch_functions)} functions"
+                )
+            StatusLogger.timestamped_print(
+                f"Stage 8, Pass 2a: Batch {batch_num} results: "
+                f"{batch_yes} yes, {batch_no} no, {batch_abstain} abstain"
+            )
         
-        # Log Stage 8, Pass 2a summary
-        yes_count = sum(1 for f in findings if f.y2038_issue == Y2038Issue.YES)
-        no_count = sum(1 for f in findings if f.y2038_issue == Y2038Issue.NO)
-        abstain_count = sum(1 for f in findings if f.y2038_issue == Y2038Issue.ABSTAIN)
+        # Log Stage 8, Pass 2a summary (one classification per unique function_id)
+        by_fn: Dict[str, Y2038Issue] = {}
+        for finding in findings:
+            fid = finding.function_id or f"{finding.file}:{finding.lines}"
+            if fid not in by_fn:
+                by_fn[fid] = finding.y2038_issue
+        yes_count = sum(1 for v in by_fn.values() if v == Y2038Issue.YES)
+        no_count = sum(1 for v in by_fn.values() if v == Y2038Issue.NO)
+        abstain_count = sum(1 for v in by_fn.values() if v == Y2038Issue.ABSTAIN)
         StatusLogger.timestamped_print(
             f"Stage 8, Pass 2a results: {yes_count} yes, {no_count} no, {abstain_count} abstain"
         )
