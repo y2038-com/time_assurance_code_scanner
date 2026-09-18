@@ -26,12 +26,11 @@ def _write_env_config(tmp_path: Path, config_id: str) -> Path:
     return path
 
 
-def _batch_pipeline(env_config_path: Path, *, enable_llm: bool = False):
+def _batch_pipeline(env_config_path: Path, *, llm: str = "none"):
     return _build_pipeline(
         include_no_findings=False,
-        enable_llm=enable_llm,
-        llm_type="ollama",
-        model="none",
+        llm=llm,
+        model="none" if llm == "none" else "stub-model",
         disable_stage1=True,
         detect_y2106=True,
         confidence_floor=0.85,
@@ -95,8 +94,7 @@ def test_build_pipeline_requires_environment_config_path() -> None:
     with pytest.raises(TypeError):
         _build_pipeline(
             include_no_findings=False,
-            enable_llm=False,
-            llm_type="ollama",
+            llm="none",
             model="none",
             disable_stage1=True,
             detect_y2106=True,
@@ -224,7 +222,7 @@ def test_batch_repo_failure_reports_error_without_crashing(
     assert status["status"] == "failed"
     assert status["error_code"] == "CLONE_FAILED"
     assert "boom" in status["error_message"]
-    assert status["llm_type"] == "none"
+    assert status["llm"] == "none"
 
 
 # --- 3. config id -> environment config mapping ------------------------------

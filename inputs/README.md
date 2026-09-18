@@ -26,8 +26,14 @@ Each JSONL entry takes `repo_url`, an optional `name` and `ref`, and an optional
 the batch-wide CLI default; anything the entry leaves out keeps the CLI value.
 Unsupported keys are reported as a warning and ignored.
 
+LLM selection matches `tacs scan` and the batch CLI: use `llm` for the provider
+(`none` | `ollama` | `openai` | `anthropic` | `gemini`) and `model` for the model
+id. There is no separate enable/disable flag — `llm: "none"` turns LLM analysis
+off for that repository.
+
 ```jsonl
-{"repo_url":"https://github.com/example/lib.git","scan_overrides":{"config_override":"ilp32_signed_32bit","llm_type":"anthropic","model":"claude-sonnet-4-5","max_file_size":5242880}}
+{"repo_url":"https://github.com/example/lib.git","scan_overrides":{"config_override":"ilp32_signed_32bit","llm":"anthropic","model":"claude-sonnet-4-5","max_file_size":5242880}}
+{"repo_url":"https://github.com/example/other.git","scan_overrides":{"llm":"none"}}
 ```
 
 | Key | Type | Meaning |
@@ -36,20 +42,27 @@ Unsupported keys are reported as a warning and ignored.
 | `file_extensions` | list | Source extensions to scan, e.g. `[".c", ".h"]` |
 | `exclude_patterns` | list | Glob patterns to skip |
 | `max_file_size` | integer | Byte limit per source file; omit for no limit |
-| `enable_llm` | bool | Whether LLM analysis runs for this repository |
-| `llm_type` | string | `ollama`, `openai`, `anthropic`, or `gemini` |
-| `model` | string | Model name for the selected provider |
+| `llm` | string | Provider: `none`, `ollama`, `openai`, `anthropic`, or `gemini` |
+| `model` | string | Model name for the selected provider (ignored when `llm` is `none`) |
 | `disable_stage1` | bool | Skip the Stage S1 line-level pre-filter |
 | `detect_y2106` | bool | Also assess 2106 overflow of unsigned 32-bit `time_t` |
 | `confidence_floor` | float | Minimum confidence for a classification; the LLM prompts quote it |
 | `confidence_threshold` | float | Alias for `confidence_floor`, which wins if both appear |
 | `include_no_findings` | bool | Keep findings classified as safe |
 
-`llm_type` and `model` are recorded either way, so a run stays reproducible, but
-`enable_llm: false` still decides whether anything is sent to a provider. A
-rejected value (an unknown provider, a `max_file_size` that is not a positive
-integer) fails that one repository with `error_code: INVALID_SCAN_OVERRIDE` in
-its `status.json` and leaves the rest of the batch running.
+When `llm` is `none`, effective settings record both `llm` and `model` as
+`none` — metadata does not name a dormant provider. An unknown provider, a
+`max_file_size` that is not a positive integer, or a legacy override key
+(`enable_llm`, `llm_type`) fails that one repository with
+`error_code: INVALID_SCAN_OVERRIDE` in its `status.json` and leaves the rest of
+the batch running.
+
+Batch-wide defaults use the same flags as a single-repo scan:
+
+```bash
+tacs repos --repos-file inputs/my_repos.jsonl --llm ollama --model gpt-oss:120b-cloud
+tacs repos --repos-file inputs/my_repos.jsonl --llm none
+```
 
 `max_file_size` is enforced while files are enumerated, so an oversized file is
 never parsed or sent to a model. Each repository records the limit it applied and

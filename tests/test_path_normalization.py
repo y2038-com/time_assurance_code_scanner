@@ -393,7 +393,7 @@ def test_stage_9_info_output_has_no_host_paths(
     root = _run_stage_9(tmp_path, "INFO")
     err = capsys.readouterr().err
 
-    assert "Stage 9 results:" in err
+    assert "Stage 9 function classifications:" in err
     assert str(root) not in err
     assert "../" not in err
 

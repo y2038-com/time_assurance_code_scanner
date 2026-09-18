@@ -143,7 +143,7 @@ def test_pass_2b_info_keeps_only_progress_and_results(
     err = capsys.readouterr().err
 
     assert "Stage 8, Pass 2b: enriching 1 abstained function" in err
-    assert "Stage 8, Pass 2b results: 0 yes, 0 no, 1 abstain" in err
+    assert "Stage 8, Pass 2b function classifications: 0 yes, 0 no, 1 abstain" in err
 
     # Extracted context detail belongs at DEBUG.
     assert "Extracted" not in err
@@ -195,7 +195,7 @@ def test_stage_9_info_keeps_only_results(
     _run_pass(tmp_path, "INFO", "f3", Y2038Summary.NO)
     err = capsys.readouterr().err
 
-    assert "Stage 9 results: 0 yes, 1 no, 0 abstain" in err
+    assert "Stage 9 function classifications: 0 yes, 1 no, 0 abstain" in err
     # Per-batch chatter carries long absolute/cache-relative paths.
     assert "Stage 9: Processing batch" not in err
     assert str(tmp_path / "benchmark.c") not in err
@@ -207,7 +207,7 @@ def test_stage_9_debug_keeps_batch_detail(
     _run_pass(tmp_path, "DEBUG", "f3", Y2038Summary.ABSTAIN)
     err = capsys.readouterr().err
 
-    assert "Stage 9 results: 0 yes, 0 no, 1 abstain" in err
+    assert "Stage 9 function classifications: 0 yes, 0 no, 1 abstain" in err
     assert "Stage 9: Processing batch 1 of 1" in err
     assert "final abstain(s) after file context" in err
 
@@ -218,7 +218,7 @@ def test_stage_9_final_abstain_ids_not_at_info(
     _run_pass(tmp_path, "INFO", "f3", Y2038Summary.ABSTAIN)
     err = capsys.readouterr().err
 
-    assert "Stage 9 results: 0 yes, 0 no, 1 abstain" in err
+    assert "Stage 9 function classifications: 0 yes, 0 no, 1 abstain" in err
     assert "final abstain(s) after file context" not in err
     assert "benchmark.c@measure_window" not in err
 

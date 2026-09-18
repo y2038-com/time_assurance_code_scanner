@@ -96,6 +96,23 @@ def test_stage1_is_reachable_from_both_commands() -> None:
     assert "--no-disable-stage1" in repos_flags
 
 
+def test_both_commands_expose_llm_provider_flag() -> None:
+    scan_flags = {
+        opt for p in scan_command.params for opt in p.opts + p.secondary_opts
+    }
+    repos_flags = {
+        opt for a in _build_parser()._actions for opt in a.option_strings
+    }
+
+    assert "--llm" in scan_flags
+    assert "--llm" in repos_flags
+    assert "--model" in scan_flags
+    assert "--model" in repos_flags
+    assert "--enable-llm" not in repos_flags
+    assert "--llm-type" not in repos_flags
+    assert "--no-llm" not in repos_flags
+
+
 def test_y2106_is_reachable_from_both_commands() -> None:
     scan_flags = {
         opt for p in scan_command.params for opt in p.opts + p.secondary_opts
@@ -123,8 +140,7 @@ def _batch_pipeline(tmp_path: Path, **overrides: object) -> ScanningPipeline:
     )
     kwargs: dict[str, object] = {
         "include_no_findings": repos_defaults["include_no_findings"],
-        "enable_llm": True,
-        "llm_type": "ollama",
+        "llm": "ollama",
         "model": "stub-model",
         "disable_stage1": repos_defaults["disable_stage1"],
         "detect_y2106": repos_defaults["detect_y2106"],
@@ -147,9 +163,9 @@ def test_batch_pipeline_analysis_settings_match_the_engine_defaults(
 
 
 def test_batch_no_disable_stage1_actually_enables_stage1(tmp_path: Path) -> None:
-    """The flag used to be ANDed with enable_llm, so it could not turn Stage S1 on.
+    """The flag used to be ANDed with LLM opt-in, so it could not turn Stage S1 on.
 
-    Stage S1 needs an LLM, but the pipeline already skips it when llm_type is
+    Stage S1 needs an LLM, but the pipeline already skips it when llm is
     "none", so the extra coupling only made the flag mean something different in
     batch than in standalone.
     """
@@ -162,7 +178,7 @@ def test_batch_stage1_flag_is_not_silently_tied_to_llm_opt_in(
     tmp_path: Path,
 ) -> None:
     """--no-disable-stage1 reads the same with the LLM off as tacs scan does."""
-    pipeline = _batch_pipeline(tmp_path, disable_stage1=False, enable_llm=False)
+    pipeline = _batch_pipeline(tmp_path, disable_stage1=False, llm="none")
 
     assert pipeline.enable_pass1 is True
     # The LLM stages are still off, so Stage S1 cannot run; that guard lives in

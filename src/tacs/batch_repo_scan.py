@@ -79,8 +79,7 @@ class RepoScanJob:
     include_patterns: list[str]
     exclude_patterns: list[str]
     include_no_findings: bool
-    enable_llm: bool
-    llm_type: str
+    llm: str
     model: str
     disable_stage1: bool
     detect_y2106: bool
@@ -123,14 +122,14 @@ def run_repo_scan(job: RepoScanJob) -> dict[str, Any]:
         _extract_stage_stats,
         _format_llm_repo_summary,
         _format_no_llm_repo_summary,
+        _function_classification_counts_payload,
         _parse_findings_summary,
     )
 
     per_repo_dir = Path(job.per_repo_dir)
     pipeline = _build_pipeline(
         include_no_findings=job.include_no_findings,
-        enable_llm=job.enable_llm,
-        llm_type=job.llm_type,
+        llm=job.llm,
         model=job.model,
         disable_stage1=job.disable_stage1,
         detect_y2106=job.detect_y2106,
@@ -159,29 +158,39 @@ def run_repo_scan(job: RepoScanJob) -> dict[str, Any]:
 
     finding_summary = _parse_findings_summary(scan_out)
     classification_counts = _classification_counts_payload(pipeline)
+    function_classification_counts = _function_classification_counts_payload(pipeline)
     # Logged from the child so it still lands right after that repository's scan
     # output, as it did when the scan ran in the parent.
-    if not job.enable_llm:
+    if job.llm == "none":
         LOGGER.info("%s", _format_no_llm_repo_summary(per_repo_dir.name, finding_summary))
     else:
         LOGGER.info(
             "%s",
             _format_llm_repo_summary(
-                per_repo_dir.name, finding_summary, classification_counts
+                per_repo_dir.name,
+                finding_summary,
+                classification_counts,
+                function_classification_counts,
             ),
         )
 
+    effective_llm = getattr(pipeline, "llm_type", job.llm)
+    effective_model = (
+        "none"
+        if effective_llm == "none"
+        else getattr(pipeline, "model", job.model)
+    )
     return {
         "findings_summary": finding_summary,
         "classification_counts": classification_counts,
+        "function_classification_counts": function_classification_counts,
         "scan_metrics": _extract_scan_metrics(results_obj),
         "stage_stats": _extract_stage_stats(per_repo_dir),
         # What the pipeline was actually configured with, so the parent can
         # record effective settings without reaching into the child's objects.
         "effective": {
-            "enable_llm": job.enable_llm,
-            "llm_type": getattr(pipeline, "llm_type", job.llm_type),
-            "model": getattr(pipeline, "model", job.model),
+            "llm": effective_llm,
+            "model": effective_model,
             "max_file_size": job.max_file_size,
             "request_timeout_sec": job.request_timeout_sec,
         },

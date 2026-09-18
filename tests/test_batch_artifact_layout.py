@@ -86,7 +86,7 @@ def _run_batch(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     *,
-    enable_llm: bool = False,
+    llm: str = "none",
     fail_repo: bool = False,
 ) -> Path:
     """Run a batch over one local repository and return the per-repo directory."""
@@ -104,7 +104,7 @@ def _run_batch(
     )
     monkeypatch.setattr(bsr, "_checkout_clean", lambda repo, ref, sha: None)
 
-    if enable_llm:
+    if llm != "none":
         real_build = bsr._build_pipeline
 
         def build_with_stub(**kwargs):
@@ -131,8 +131,8 @@ def _run_batch(
         "--log-level",
         "error",
     ]
-    if enable_llm:
-        argv += ["--enable-llm", "--llm-type", "ollama", "--model", "stub"]
+    if llm != "none":
+        argv += ["--llm", llm, "--model", "stub"]
 
     assert bsr.main(argv) == 0
 
@@ -269,7 +269,7 @@ def test_llm_batch_manifests_sit_under_repo_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """LLM artifacts land at repos/<repo-key>/llm/stage_8_pass_2a/batches/."""
-    repo_dir = _run_batch(tmp_path, monkeypatch, enable_llm=True)
+    repo_dir = _run_batch(tmp_path, monkeypatch, llm="ollama")
 
     manifest = repo_dir / "llm" / "stage_8_pass_2a" / "batches" / "0001_input.json"
     assert manifest.is_file(), sorted(

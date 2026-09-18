@@ -165,6 +165,9 @@ class ScanningPipeline:
         # filtering drops safe ("no") findings. Summary lines and the batch runner
         # read this so a dropped "no" is not reported as a "no" verdict count.
         self.last_classification_counts: Optional[Dict[str, int]] = None
+        # Same timing as last_classification_counts, but one verdict per
+        # function_id — comparable to Stage 8/9 "function classifications" lines.
+        self.last_function_classification_counts: Optional[Dict[str, int]] = None
         self.migration_from_config = None
         self.migration_to_config = None
         
@@ -779,8 +782,14 @@ class ScanningPipeline:
         else:
             findings = self._run_legacy_analysis(filtered_candidates, session)
 
-        # Record verdicts before filtering; "no" findings are dropped below.
+        # Verdict counts before filtering. Finding-level counts keep dropped
+        # "no" records visible in batch status; function-level counts match
+        # Stage 8/9 summaries (one verdict per function_id) so the final CLI
+        # line is not compared to a different granularity.
         self.last_classification_counts = self._classification_counts(findings)
+        self.last_function_classification_counts = self._function_classification_counts(
+            findings
+        )
         
         # Default behavior: do not save "no"/safe findings unless explicitly requested.
         findings = self._filter_findings_for_output(findings)
@@ -794,12 +803,27 @@ class ScanningPipeline:
 
     @staticmethod
     def _classification_counts(findings: List[Finding]) -> Dict[str, int]:
-        """Count Y2038 verdicts across findings."""
+        """Count Y2038 verdicts across finding records (not unique functions)."""
         return {
             "yes": sum(1 for f in findings if f.y2038_issue == Y2038Issue.YES),
             "no": sum(1 for f in findings if f.y2038_issue == Y2038Issue.NO),
             "abstain": sum(1 for f in findings if f.y2038_issue == Y2038Issue.ABSTAIN),
             "total": len(findings),
+        }
+
+    @staticmethod
+    def _function_classification_counts(findings: List[Finding]) -> Dict[str, int]:
+        """Count Y2038 verdicts once per function_id (Stage 8/9 granularity)."""
+        by_fn: Dict[str, Y2038Issue] = {}
+        for finding in findings:
+            fid = finding.function_id or f"{finding.file}:{finding.lines}"
+            if fid not in by_fn:
+                by_fn[fid] = finding.y2038_issue
+        return {
+            "yes": sum(1 for v in by_fn.values() if v == Y2038Issue.YES),
+            "no": sum(1 for v in by_fn.values() if v == Y2038Issue.NO),
+            "abstain": sum(1 for v in by_fn.values() if v == Y2038Issue.ABSTAIN),
+            "total": len(by_fn),
         }
 
     def _filter_findings_for_output(self, findings: List[Finding]) -> List[Finding]:
@@ -1080,7 +1104,8 @@ class ScanningPipeline:
         no_count = sum(1 for v in by_fn.values() if v == Y2038Issue.NO)
         abstain_count = sum(1 for v in by_fn.values() if v == Y2038Issue.ABSTAIN)
         StatusLogger.timestamped_print(
-            f"Stage 8, Pass 2a results: {yes_count} yes, {no_count} no, {abstain_count} abstain"
+            f"Stage 8, Pass 2a function classifications: "
+            f"{yes_count} yes, {no_count} no, {abstain_count} abstain"
         )
         
         # Log abstain details
@@ -1561,17 +1586,19 @@ class ScanningPipeline:
         final_findings = [f for f in findings if f not in abstain_findings]
         final_findings.extend(new_findings)
         
-        # Log Pass F2 results with detailed abstain tracking
-        yes_count = sum(1 for f in new_findings if f.y2038_issue == Y2038Issue.YES)
-        no_count = sum(1 for f in new_findings if f.y2038_issue == Y2038Issue.NO)
-        abstain_count = sum(1 for f in new_findings if f.y2038_issue == Y2038Issue.ABSTAIN)
+        # Log Pass F2 results (function-level: one verdict per function_id among
+        # the enriched set this pass produced)
+        f2_fn = self._function_classification_counts(new_findings)
         StatusLogger.timestamped_print(
-            f"Stage 8, Pass 2b results: {yes_count} yes, {no_count} no, {abstain_count} abstain"
+            f"Stage 8, Pass 2b function classifications: "
+            f"{f2_fn['yes']} yes, {f2_fn['no']} no, {f2_fn['abstain']} abstain"
         )
         
         # Log abstain details if any remain
-        if abstain_count > 0:
-            StatusLogger.timestamped_debug(f"Stage 8, Pass 2b: {abstain_count} abstain(s) remaining after enrichment:")
+        if f2_fn["abstain"] > 0:
+            StatusLogger.timestamped_debug(
+                f"Stage 8, Pass 2b: {f2_fn['abstain']} abstain(s) remaining after enrichment:"
+            )
             for finding in new_findings:
                 if finding.y2038_issue == Y2038Issue.ABSTAIN:
                     StatusLogger.timestamped_debug(f"  - {finding.function_id}: confidence={finding.confidence:.2f}, reason={finding.reason[:80]}")
@@ -1701,17 +1728,18 @@ class ScanningPipeline:
         final_findings = [f for f in findings if f not in abstain_findings]
         final_findings.extend(new_findings)
         
-        # Log Pass F3 results with detailed abstain tracking
-        yes_count = sum(1 for f in new_findings if f.y2038_issue == Y2038Issue.YES)
-        no_count = sum(1 for f in new_findings if f.y2038_issue == Y2038Issue.NO)
-        abstain_count = sum(1 for f in new_findings if f.y2038_issue == Y2038Issue.ABSTAIN)
+        # Log Pass F3 results (function-level among this pass's outputs)
+        f3_fn = self._function_classification_counts(new_findings)
         StatusLogger.timestamped_print(
-            f"Stage 9 results: {yes_count} yes, {no_count} no, {abstain_count} abstain"
+            f"Stage 9 function classifications: "
+            f"{f3_fn['yes']} yes, {f3_fn['no']} no, {f3_fn['abstain']} abstain"
         )
         
         # Log abstain details if any remain (these are final)
-        if abstain_count > 0:
-            StatusLogger.timestamped_debug(f"Stage 9: {abstain_count} final abstain(s) after file context:")
+        if f3_fn["abstain"] > 0:
+            StatusLogger.timestamped_debug(
+                f"Stage 9: {f3_fn['abstain']} final abstain(s) after file context:"
+            )
             for finding in new_findings:
                 if finding.y2038_issue == Y2038Issue.ABSTAIN:
                     StatusLogger.timestamped_debug(f"  - {finding.function_id}: confidence={finding.confidence:.2f}, reason={finding.reason[:80]}")
@@ -1735,8 +1763,39 @@ class ScanningPipeline:
         
         # Verdict counts from before "no" findings were dropped from the output set.
         classified = self.last_classification_counts or self._classification_counts(findings)
+        function_classified = (
+            self.last_function_classification_counts
+            or self._function_classification_counts(findings)
+        )
         
-        if self.detect_y2106:
+        if self.llm_type == "none":
+            if len(findings) == 0:
+                StatusLogger.timestamped_print("No Y2038 candidate findings detected")
+            else:
+                StatusLogger.timestamped_print(
+                    f"Scan complete: {_format_count(len(findings), 'finding')}"
+                )
+                StatusLogger.timestamped_print(
+                    f"{yes_count} confirmed Y2038 issues; "
+                    f"{_format_count(abstain_count, 'candidate finding')} "
+                    f"{'remains' if abstain_count == 1 else 'remain'} "
+                    f"unclassified (LLM disabled)"
+                )
+            if self.detect_y2106:
+                y2106_yes = sum(
+                    1
+                    for f in findings
+                    if f.issue_type in [TimeIssueType.Y2106, TimeIssueType.BOTH]
+                )
+                y2106_no = sum(1 for f in findings if f.issue_type == TimeIssueType.NONE)
+                y2106_abstain = sum(
+                    1 for f in findings if f.issue_type == TimeIssueType.ABSTAIN
+                )
+                StatusLogger.timestamped_debug(
+                    f"  Y2106 (LLM disabled): {y2106_yes} yes, {y2106_no} no, "
+                    f"{y2106_abstain} abstain"
+                )
+        elif self.detect_y2106:
             # Count Y2106 findings
             y2106_yes = sum(1 for f in findings if f.issue_type in [TimeIssueType.Y2106, TimeIssueType.BOTH])
             y2106_no = sum(1 for f in findings if f.issue_type == TimeIssueType.NONE)
@@ -1746,11 +1805,15 @@ class ScanningPipeline:
             total_issues = yes_count + y2106_yes - sum(1 for f in findings if f.issue_type == TimeIssueType.BOTH)
             
             StatusLogger.timestamped_print(
-                f"Scan complete: {_format_count(len(findings), 'finding')}"
+                f"Scan complete: {_format_count(len(findings), 'finding record')} retained"
+            )
+            StatusLogger.timestamped_print(
+                f"  Final function classifications: {function_classified['yes']} yes, "
+                f"{function_classified['no']} no, {function_classified['abstain']} abstain"
             )
             StatusLogger.timestamped_debug(
-                f"  Y2038: {classified['yes']} yes, {classified['no']} no, "
-                f"{classified['abstain']} abstain"
+                f"  Finding classifications (pre-filter): {classified['yes']} yes, "
+                f"{classified['no']} no, {classified['abstain']} abstain"
             )
             StatusLogger.timestamped_debug(
                 f"  Y2106: {y2106_yes} yes, {y2106_no} no, {y2106_abstain} abstain"
@@ -1758,27 +1821,16 @@ class ScanningPipeline:
             StatusLogger.timestamped_debug(
                 f"  Total issues: {total_issues} ({yes_count} Y2038, {y2106_yes} Y2106)"
             )
-        elif self.llm_type == "none":
-            if len(findings) == 0:
-                StatusLogger.timestamped_print("No Y2038 candidate findings detected")
-            else:
-                StatusLogger.timestamped_print(
-                f"Scan complete: {_format_count(len(findings), 'finding')}"
-            )
-                StatusLogger.timestamped_print(
-                    f"{yes_count} confirmed Y2038 issues; "
-                    f"{_format_count(abstain_count, 'candidate finding')} "
-                    f"{'remains' if abstain_count == 1 else 'remain'} "
-                    f"unclassified (LLM disabled)"
-                )
         else:
-            # Report verdicts and retained records separately: safe ("no") findings
-            # are dropped from the output set, so a "0 no" in the retained set would
-            # otherwise read as "nothing was classified safe".
+            # Function classifications match Stage 8/9 lines (one verdict per
+            # function). Retained records are persisted findings after dropping
+            # safe "no" results — one function yes can expand to several records.
             StatusLogger.timestamped_print(
-                f"Scan complete: {classified['yes']} yes, {classified['no']} no, "
-                f"{classified['abstain']} abstain; "
-                f"{_format_count(len(findings), 'finding')} retained"
+                f"Final function classifications: {function_classified['yes']} yes, "
+                f"{function_classified['no']} no, {function_classified['abstain']} abstain"
+            )
+            StatusLogger.timestamped_print(
+                f"Retained finding records: {len(findings)}"
             )
         
         # Log final abstain summary
@@ -1845,6 +1897,19 @@ class ScanningPipeline:
         # Create summary (total_ms was finalized in save_metadata)
         total_ms = session.timing.get("total_ms", 0)
         display_root = display_scan_root(root_path)
+        if api_llm_type == "none":
+            pipeline_results = (
+                f"- Candidate findings retained: {len(findings)} (LLM disabled)"
+            )
+        else:
+            pipeline_results = (
+                f"- Final function classifications: {function_classified['yes']} yes, "
+                f"{function_classified['no']} no, {function_classified['abstain']} abstain\n"
+                f"- Retained finding records: {len(findings)}\n"
+                f"  - Yes: {yes_count}\n"
+                f"  - No: {no_count}\n"
+                f"  - Abstain: {abstain_count}"
+            )
         summary = f"""Y2038 Scan Summary
 ==================
 
@@ -1858,11 +1923,7 @@ Metrics:
 - Characters: {metrics.total_chars}
 
 Pipeline Results:
-- Classified: {classified['yes']} yes, {classified['no']} no, {classified['abstain']} abstain
-- Retained findings: {len(findings)}
-  - Yes: {yes_count}
-  - No: {no_count}
-  - Abstain: {abstain_count}"""
+{pipeline_results}"""
         
         # Add token statistics to summary
         if token_stats:

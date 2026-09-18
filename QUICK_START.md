@@ -185,7 +185,8 @@ tacs repos --help
 tacs repos --repos-file src/tacs/fixtures/repo_lists/test_repos.jsonl --dry-run
 
 # LLM is opt-in for batch (same privacy default as tacs scan):
-# tacs repos ... --enable-llm --llm-type ollama
+# tacs repos ... --llm ollama --model gpt-oss:120b-cloud
+# tacs repos ... --llm none   # discovery-only (default when TACS_LLM_PROVIDER unset)
 
 # Note: tacs repos clones each repo into --cache-dir (default .repo_cache,
 # gitignored) and keeps it for reuse. Delete that directory to discard the clones.

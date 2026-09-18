@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
 from tacs.batch_scan_repos import main as batch_main
@@ -49,9 +50,39 @@ def test_tacs_repos_forwards_argv_to_batch_main(tmp_path: Path) -> None:
     summaries = list(out_dir.glob("*/summary.json"))
     assert summaries, "expected batch summary under --out-dir"
     summary = json.loads(summaries[0].read_text(encoding="utf-8"))
-    assert summary["args"]["enable_llm"] is False, (
+    assert summary["args"]["llm"] == "none", (
         "batch LLM must be opt-in by default (privacy-safe)"
     )
+    assert summary["args"]["model"] == "none"
+
+
+def test_tacs_repos_records_explicit_llm_provider(tmp_path: Path) -> None:
+    repos_file = tmp_path / "repos.jsonl"
+    repos_file.write_text("", encoding="utf-8")
+    out_dir = tmp_path / "batch_out"
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "repos",
+            "--repos-file",
+            str(repos_file),
+            "--out-dir",
+            str(out_dir),
+            "--dry-run",
+            "--limit",
+            "0",
+            "--llm",
+            "ollama",
+            "--model",
+            "stub-model",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    summary = json.loads(next(out_dir.glob("*/summary.json")).read_text(encoding="utf-8"))
+    assert summary["args"]["llm"] == "ollama"
+    assert summary["args"]["model"] == "stub-model"
 
 
 def test_batch_pipeline_uses_packaged_tacs_scanner(tmp_path: Path) -> None:
@@ -65,8 +96,7 @@ def test_batch_pipeline_uses_packaged_tacs_scanner(tmp_path: Path) -> None:
 
     pipeline = _build_pipeline(
         include_no_findings=False,
-        enable_llm=False,
-        llm_type="ollama",
+        llm="none",
         model="none",
         disable_stage1=True,
         detect_y2106=True,
@@ -197,9 +227,30 @@ def test_tacs_repos_help_shows_argparse_options() -> None:
     result = runner.invoke(app, ["repos", "--help"])
     assert result.exit_code == 0, result.output
     assert "--repos-file" in result.output
-    assert "--enable-llm" in result.output
+    assert "--llm" in result.output
+    assert "--enable-llm" not in result.output
+    assert "--llm-type" not in result.output
     assert "results/batches" in result.output
     assert "Usage: app repos" not in result.output
+
+
+@pytest.mark.parametrize("flag", ["--enable-llm", "--llm-type"])
+def test_tacs_repos_rejects_removed_llm_flags(flag: str, tmp_path: Path) -> None:
+    """Pre-public cleanup: old batch-only LLM flags must fail, not be aliases."""
+    repos = tmp_path / "repos.jsonl"
+    repos.write_text("", encoding="utf-8")
+    argv = [
+        "--repos-file",
+        str(repos),
+        "--out-dir",
+        str(tmp_path / "out"),
+        flag,
+    ]
+    if flag == "--llm-type":
+        argv.append("ollama")
+    with pytest.raises(SystemExit) as excinfo:
+        batch_main(argv)
+    assert excinfo.value.code != 0
 
 
 def test_tacs_render_help_shows_argparse_options() -> None:

@@ -220,7 +220,7 @@ def test_batch_output_artifact_holds_result_metadata(tmp_path: Path) -> None:
 
 
 def test_batch_pipeline_privacy_flags_match_standalone_defaults(tmp_path: Path) -> None:
-    """tacs repos --enable-llm must get the same privacy posture as tacs scan."""
+    """tacs repos --llm must get the same privacy posture as tacs scan."""
     from tacs.batch_scan_repos import _build_pipeline, _config_id_to_env_json
 
     env_config = tmp_path / "env_config.json"
@@ -229,8 +229,7 @@ def test_batch_pipeline_privacy_flags_match_standalone_defaults(tmp_path: Path) 
     )
     pipeline = _build_pipeline(
         include_no_findings=False,
-        enable_llm=True,
-        llm_type="ollama",
+        llm="ollama",
         model="none",
         disable_stage1=False,
         detect_y2106=False,

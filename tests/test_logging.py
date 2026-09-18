@@ -325,9 +325,10 @@ def test_scan_y2106_breakdown_is_debug_only(tmp_path: Path) -> None:
     )
     assert debug.exit_code == 0, debug.stderr
     debug_err = debug.stderr or ""
-    assert "  Y2038:" in debug_err
-    assert "  Y2106:" in debug_err
-    assert "Total issues:" in debug_err
+    # Discovery-only (--llm none): candidate wording, not function classifications.
+    assert "unclassified (LLM disabled)" in debug_err
+    assert "Final function classifications:" not in debug_err
+    assert "Y2106 (LLM disabled):" in debug_err
 
 
 def test_format_no_llm_repo_summary_wording() -> None:
@@ -363,8 +364,12 @@ def test_format_llm_repo_summary_separates_verdicts_from_retained() -> None:
             "github__evalEmpire__y2038__master",
             {"total_findings": 12, "yes_findings": 12, "no_findings": 0, "abstain_findings": 0},
             {"yes": 12, "no": 32, "abstain": 0, "total": 44},
+            {"yes": 6, "no": 19, "abstain": 0, "total": 25},
         )
-        == "github__evalEmpire__y2038__master: 12 yes, 32 no, 0 abstain; 12 findings retained"
+        == (
+            "github__evalEmpire__y2038__master: final function classifications: "
+            "6 yes, 19 no, 0 abstain; retained finding records: 12"
+        )
     )
     assert (
         _format_llm_repo_summary(
@@ -372,7 +377,10 @@ def test_format_llm_repo_summary_separates_verdicts_from_retained() -> None:
             {"total_findings": 1, "yes_findings": 1, "no_findings": 0, "abstain_findings": 0},
             {"yes": 1, "no": 3, "abstain": 0, "total": 4},
         )
-        == "repo_b: 1 yes, 3 no, 0 abstain; 1 finding retained"
+        == (
+            "repo_b: finding classifications: 1 yes, 3 no, 0 abstain; "
+            "retained finding records: 1"
+        )
     )
 
 
@@ -386,7 +394,7 @@ def test_format_llm_repo_summary_without_verdict_counts() -> None:
             {"total_findings": 11, "yes_findings": 11, "no_findings": 0, "abstain_findings": 0},
             None,
         )
-        == "repo_c: 11 findings retained"
+        == "repo_c: retained finding records: 11"
     )
 
 
@@ -400,27 +408,29 @@ def _scan_results_pipeline(tmp_path: Path, **kwargs):
         / "python"
         / "y2038scan_fast_json_group.py"
     )
-    return ScanningPipeline(
-        scanner_path=str(scanner_path),
-        llm_type="ollama",
-        model="none",
-        function_first=True,
-        **kwargs,
-    )
+    options = {
+        "scanner_path": str(scanner_path),
+        "llm_type": "ollama",
+        "model": "none",
+        "function_first": True,
+    }
+    options.update(kwargs)
+    return ScanningPipeline(**options)
 
 
-def _finding(issue: str):
+def _finding(issue: str, *, function_id: str | None = None, line: int = 1):
     from tacs.core.schema import Finding, Y2038Issue
 
     return Finding(
         file="t.c",
-        region={"start_line": 1, "end_line": 2},
-        lines=[1],
+        region={"start_line": line, "end_line": line + 1},
+        lines=[line],
         symbol="main",
         confidence=0.9,
         reason="test",
         source_snippet="time_t t = time(NULL);",
         y2038_issue=Y2038Issue(issue),
+        function_id=function_id,
     )
 
 
@@ -446,8 +456,14 @@ def test_scan_complete_reports_verdicts_and_retained(tmp_path: Path, capsys) -> 
     configure_logging("INFO")
     pipeline = _scan_results_pipeline(tmp_path)
 
-    classified = [_finding("yes")] * 12 + [_finding("no")] * 32
+    classified = (
+        [_finding("yes", function_id=f"t.c@y{i}:1-2", line=i) for i in range(12)]
+        + [_finding("no", function_id=f"t.c@n{i}:1-2", line=100 + i) for i in range(32)]
+    )
     pipeline.last_classification_counts = pipeline._classification_counts(classified)
+    pipeline.last_function_classification_counts = pipeline._function_classification_counts(
+        classified
+    )
     retained = pipeline._filter_findings_for_output(classified)
     assert len(retained) == 12
 
@@ -455,8 +471,10 @@ def test_scan_complete_reports_verdicts_and_retained(tmp_path: Path, capsys) -> 
     pipeline._create_scan_results(retained, _metrics(), session, str(tmp_path), "rules.json")
 
     err = capsys.readouterr().err
-    assert "Scan complete: 12 yes, 32 no, 0 abstain; 12 findings retained" in err
+    assert "Final function classifications: 12 yes, 32 no, 0 abstain" in err
+    assert "Retained finding records: 12" in err
     assert "12 findings (12 yes, 0 no, 0 abstain)" not in err
+    assert "Scan complete: 12 yes, 32 no, 0 abstain; 12 findings retained" not in err
 
 
 def test_scan_complete_retained_is_singular_for_one(tmp_path: Path, capsys) -> None:
@@ -465,36 +483,116 @@ def test_scan_complete_retained_is_singular_for_one(tmp_path: Path, capsys) -> N
     configure_logging("INFO")
     pipeline = _scan_results_pipeline(tmp_path)
 
-    classified = [_finding("yes"), _finding("no"), _finding("no")]
+    classified = [
+        _finding("yes", function_id="t.c@a:1-2", line=1),
+        _finding("no", function_id="t.c@b:3-4", line=3),
+        _finding("no", function_id="t.c@c:5-6", line=5),
+    ]
     pipeline.last_classification_counts = pipeline._classification_counts(classified)
+    pipeline.last_function_classification_counts = pipeline._function_classification_counts(
+        classified
+    )
     retained = pipeline._filter_findings_for_output(classified)
 
     session = ScanSession(root_path=str(tmp_path), output_base=str(tmp_path))
     pipeline._create_scan_results(retained, _metrics(), session, str(tmp_path), "rules.json")
 
     err = capsys.readouterr().err
-    assert "Scan complete: 1 yes, 2 no, 0 abstain; 1 finding retained" in err
+    assert "Final function classifications: 1 yes, 2 no, 0 abstain" in err
+    assert "Retained finding records: 1" in err
+
+
+def test_scan_complete_distinguishes_function_yes_from_finding_records(
+    tmp_path: Path, capsys
+) -> None:
+    """One function-level yes can expand into multiple retained finding records."""
+    from tacs.core.scan_session import ScanSession
+
+    configure_logging("INFO")
+    pipeline = _scan_results_pipeline(tmp_path)
+
+    classified = [
+        _finding("yes", function_id="t.c@fn:10-20", line=11),
+        _finding("yes", function_id="t.c@fn:10-20", line=14),
+        _finding("yes", function_id="t.c@fn:10-20", line=17),
+        _finding("no", function_id="t.c@safe:30-40", line=31),
+    ]
+    pipeline.last_classification_counts = pipeline._classification_counts(classified)
+    pipeline.last_function_classification_counts = pipeline._function_classification_counts(
+        classified
+    )
+    retained = pipeline._filter_findings_for_output(classified)
+    assert pipeline.last_function_classification_counts["yes"] == 1
+    assert pipeline.last_classification_counts["yes"] == 3
+    assert len(retained) == 3
+
+    session = ScanSession(root_path=str(tmp_path), output_base=str(tmp_path))
+    pipeline._create_scan_results(retained, _metrics(), session, str(tmp_path), "rules.json")
+
+    err = capsys.readouterr().err
+    assert "Final function classifications: 1 yes, 1 no, 0 abstain" in err
+    assert "Retained finding records: 3" in err
+    # Must not look like function-yes grew from 1 to 3 on the same line.
+    assert "Scan complete: 3 yes" not in err
 
 
 def test_session_summary_separates_classified_and_retained(
     tmp_path: Path,
 ) -> None:
-    """The persisted summary must show verdicts as well as retained records."""
+    """The persisted summary must show function verdicts as well as retained records."""
     from tacs.core.scan_session import ScanSession
 
     configure_logging("ERROR")
     pipeline = _scan_results_pipeline(tmp_path)
 
-    classified = [_finding("yes")] * 2 + [_finding("no")] * 5
+    classified = [
+        _finding("yes", function_id="t.c@a:1-2", line=1),
+        _finding("yes", function_id="t.c@b:3-4", line=3),
+        _finding("no", function_id="t.c@c:5-6", line=5),
+        _finding("no", function_id="t.c@d:7-8", line=7),
+        _finding("no", function_id="t.c@e:9-10", line=9),
+        _finding("no", function_id="t.c@f:11-12", line=11),
+        _finding("no", function_id="t.c@g:13-14", line=13),
+    ]
     pipeline.last_classification_counts = pipeline._classification_counts(classified)
+    pipeline.last_function_classification_counts = pipeline._function_classification_counts(
+        classified
+    )
     retained = pipeline._filter_findings_for_output(classified)
 
     session = ScanSession(root_path=str(tmp_path), output_base=str(tmp_path))
     pipeline._create_scan_results(retained, _metrics(), session, str(tmp_path), "rules.json")
 
     summary = (session.findings_dir / "summary.txt").read_text(encoding="utf-8")
-    assert "- Classified: 2 yes, 5 no, 0 abstain" in summary
-    assert "- Retained findings: 2" in summary
+    assert "- Final function classifications: 2 yes, 5 no, 0 abstain" in summary
+    assert "- Retained finding records: 2" in summary
+
+
+def test_session_summary_no_llm_uses_candidate_wording(
+    tmp_path: Path,
+) -> None:
+    """When LLM did not run, summary.txt must not imply abstain classifications."""
+    from tacs.core.scan_session import ScanSession
+
+    configure_logging("ERROR")
+    pipeline = _scan_results_pipeline(tmp_path, llm_type="none", model="none")
+
+    findings = [
+        _finding("abstain", function_id="t.c@a:1-2", line=1),
+        _finding("abstain", function_id="t.c@b:3-4", line=3),
+    ]
+    pipeline.last_classification_counts = pipeline._classification_counts(findings)
+    pipeline.last_function_classification_counts = pipeline._function_classification_counts(
+        findings
+    )
+
+    session = ScanSession(root_path=str(tmp_path), output_base=str(tmp_path))
+    pipeline._create_scan_results(findings, _metrics(), session, str(tmp_path), "rules.json")
+
+    summary = (session.findings_dir / "summary.txt").read_text(encoding="utf-8")
+    assert "- Candidate findings retained: 2 (LLM disabled)" in summary
+    assert "Final function classifications" not in summary
+    assert "Retained finding records" not in summary
 
 
 def test_scan_debug_shows_debug_lines(tmp_path: Path) -> None:

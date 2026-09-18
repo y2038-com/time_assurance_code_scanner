@@ -615,8 +615,7 @@ def test_request_timeout_reaches_the_llm_client(tmp_path: Path) -> None:
 
     pipeline = bsr._build_pipeline(
         include_no_findings=False,
-        enable_llm=True,
-        llm_type="ollama",
+        llm="ollama",
         model="test-model",
         disable_stage1=True,
         detect_y2106=False,

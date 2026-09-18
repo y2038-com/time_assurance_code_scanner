@@ -130,7 +130,10 @@ class FunctionLLMClient:
                 no_count = sum(1 for a in analyses if a.y2038_summary == Y2038Summary.NO)
                 abstain_count = sum(1 for a in analyses if a.y2038_summary == Y2038Summary.ABSTAIN)
                 
-                StatusLogger.timestamped_print(f"Stage 8, Pass 2a results: {yes_count} yes, {no_count} no, {abstain_count} abstain")
+                StatusLogger.timestamped_print(
+                    f"Stage 8, Pass 2a function classifications: "
+                    f"{yes_count} yes, {no_count} no, {abstain_count} abstain"
+                )
                 if prompt_tokens > 0 or completion_tokens > 0:
                     StatusLogger.timestamped_print(f"Token usage: {prompt_tokens} prompt + {completion_tokens} completion = {prompt_tokens + completion_tokens} total")
                 
@@ -221,7 +224,10 @@ class FunctionLLMClient:
                 no_count = sum(1 for a in analyses if a.y2038_summary == Y2038Summary.NO)
                 abstain_count = sum(1 for a in analyses if a.y2038_summary == Y2038Summary.ABSTAIN)
                 
-                StatusLogger.timestamped_print(f"Stage 8, Pass 2b iteration {iteration} results: {yes_count} yes, {no_count} no, {abstain_count} abstain")
+                StatusLogger.timestamped_print(
+                    f"Stage 8, Pass 2b iteration {iteration} function classifications: "
+                    f"{yes_count} yes, {no_count} no, {abstain_count} abstain"
+                )
                 if prompt_tokens > 0 or completion_tokens > 0:
                     StatusLogger.timestamped_print(f"Token usage: {prompt_tokens} prompt + {completion_tokens} completion = {prompt_tokens + completion_tokens} total")
                 
@@ -307,7 +313,10 @@ class FunctionLLMClient:
                 no_count = sum(1 for a in analyses if a.y2038_summary == Y2038Summary.NO)
                 abstain_count = sum(1 for a in analyses if a.y2038_summary == Y2038Summary.ABSTAIN)
                 
-                StatusLogger.timestamped_print(f"Stage 9, Pass 1 results: {yes_count} yes, {no_count} no, {abstain_count} abstain")
+                StatusLogger.timestamped_print(
+                    f"Stage 9, Pass 1 function classifications: "
+                    f"{yes_count} yes, {no_count} no, {abstain_count} abstain"
+                )
                 if prompt_tokens > 0 or completion_tokens > 0:
                     StatusLogger.timestamped_print(f"Token usage: {prompt_tokens} prompt + {completion_tokens} completion = {prompt_tokens + completion_tokens} total")
                 

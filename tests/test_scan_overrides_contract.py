@@ -3,10 +3,9 @@
 
 """Regression tests for the per-repository ``scan_overrides`` contract.
 
-Two keys were half-implemented. ``llm_type`` and ``model`` were read when a
-repository was scanned but stripped by ``_scan_overrides()`` first, so a repos
-file could not actually select a provider and got an "unknown key" warning for
-trying. ``max_file_size`` was accepted and then ignored entirely.
+Provider selection uses ``llm`` (including ``none``) and ``model``, matching
+``tacs scan --llm`` / ``--model``. Former keys ``enable_llm`` and ``llm_type``
+are rejected. ``max_file_size`` must reach enumeration and be recorded.
 
 These tests pin the contract: which keys are supported, that per-repo values beat
 the batch-wide CLI defaults and reach the constructed client, that an invalid
@@ -53,8 +52,7 @@ def test_supported_keys_are_exactly_the_documented_contract() -> None:
         "file_extensions",
         "exclude_patterns",
         "max_file_size",
-        "enable_llm",
-        "llm_type",
+        "llm",
         "model",
         "disable_stage1",
         "detect_y2106",
@@ -65,13 +63,19 @@ def test_supported_keys_are_exactly_the_documented_contract() -> None:
     }
 
 
-@pytest.mark.parametrize("key", ["llm_type", "model", "max_file_size"])
+@pytest.mark.parametrize("key", ["llm", "model", "max_file_size"])
 def test_newly_supported_keys_survive_cleaning(key: str) -> None:
     """These used to be dropped with an "unknown key" warning, or ignored."""
     cleaned, warnings = bsr._scan_overrides({key: "value"})
 
     assert key in cleaned
     assert warnings == []
+
+
+@pytest.mark.parametrize("key", ["enable_llm", "llm_type"])
+def test_removed_override_keys_fail_clearly(key: str) -> None:
+    with pytest.raises(ValueError, match=key):
+        bsr._scan_overrides({key: "anything"})
 
 
 def test_unknown_keys_are_still_reported_and_dropped() -> None:
@@ -316,65 +320,120 @@ def _effective_options(run_dir: Path) -> dict:
     return json.loads((_repo_dir(run_dir) / "meta.json").read_text())["effective_options"]
 
 
+def _stub_successful_scan(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Complete the scan phase without calling a real provider.
+
+    Precedence tests only need the parent to record the job's effective LLM
+    settings; reaching a remote endpoint would make them flaky.
+    """
+    from tacs.batch_repo_scan import RepoScanOutcome
+
+    def fake_run(job, *, deadline_sec):  # noqa: ANN001
+        return RepoScanOutcome(
+            status="completed",
+            payload={
+                "ok": True,
+                "findings_summary": {
+                    "total_findings": 0,
+                    "yes_findings": 0,
+                    "no_findings": 0,
+                    "abstain_findings": 0,
+                },
+                "classification_counts": {"yes": 0, "no": 0, "abstain": 0},
+                "function_classification_counts": {"yes": 0, "no": 0, "abstain": 0},
+                "scan_metrics": {
+                    "total_files": 0,
+                    "total_lines": 0,
+                    "total_chars": 0,
+                    "total_words": 0,
+                },
+                "stage_stats": {
+                    "prescan": {"time_t_aliases": 0},
+                    "ir": {"candidates": 0, "after_structural_filter": None},
+                    "io_boundary": {"candidates": None},
+                    "llm": {
+                        "total_tokens": 0,
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "requests": 0,
+                        "by_pass": {},
+                    },
+                },
+                "effective": {
+                    "llm": job.llm,
+                    "model": job.model,
+                    "max_file_size": job.max_file_size,
+                    "request_timeout_sec": job.request_timeout_sec,
+                },
+            },
+        )
+
+    monkeypatch.setattr(bsr, "_run_repo_scan", fake_run)
+
+
 # --- provider and model precedence -----------------------------------------
 
 
 def test_without_overrides_the_cli_provider_and_model_are_used(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _stub_successful_scan(monkeypatch)
     _, run_dir = _run_batch(
         tmp_path,
         monkeypatch,
-        cli_args=["--llm-type", "openai", "--model", "cli-model"],
+        cli_args=["--llm", "openai", "--model", "cli-model"],
     )
 
     options = _effective_options(run_dir)
-    assert options["llm_type"] == "openai"
+    assert options["llm"] == "openai"
     assert options["model"] == "cli-model"
 
 
-def test_per_repo_llm_type_overrides_the_cli_provider(
+def test_per_repo_llm_overrides_the_cli_provider(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _stub_successful_scan(monkeypatch)
     _, run_dir = _run_batch(
         tmp_path,
         monkeypatch,
-        scan_overrides={"llm_type": "anthropic"},
-        cli_args=["--llm-type", "ollama", "--model", "cli-model"],
+        scan_overrides={"llm": "anthropic"},
+        cli_args=["--llm", "ollama", "--model", "cli-model"],
     )
 
     options = _effective_options(run_dir)
-    assert options["llm_type"] == "anthropic"
+    assert options["llm"] == "anthropic"
     assert options["model"] == "cli-model", "the model default should be untouched"
 
 
 def test_per_repo_model_overrides_the_cli_model(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _stub_successful_scan(monkeypatch)
     _, run_dir = _run_batch(
         tmp_path,
         monkeypatch,
         scan_overrides={"model": "repo-model"},
-        cli_args=["--llm-type", "ollama", "--model", "cli-model"],
+        cli_args=["--llm", "ollama", "--model", "cli-model"],
     )
 
     options = _effective_options(run_dir)
-    assert options["llm_type"] == "ollama"
+    assert options["llm"] == "ollama"
     assert options["model"] == "repo-model"
 
 
 def test_per_repo_provider_and_model_override_together(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _stub_successful_scan(monkeypatch)
     _, run_dir = _run_batch(
         tmp_path,
         monkeypatch,
-        scan_overrides={"llm_type": "gemini", "model": "repo-model"},
-        cli_args=["--llm-type", "ollama", "--model", "cli-model"],
+        scan_overrides={"llm": "gemini", "model": "repo-model"},
+        cli_args=["--llm", "ollama", "--model", "cli-model"],
     )
 
     options = _effective_options(run_dir)
-    assert options["llm_type"] == "gemini"
+    assert options["llm"] == "gemini"
     assert options["model"] == "repo-model"
 
 
@@ -384,16 +443,14 @@ def test_effective_provider_and_model_reach_the_scan(
     """Metadata agreeing with itself is not evidence the scan was configured.
 
     The scan runs in a child process, so the pipeline object is out of this
-    process's reach; the job handed to that child is the crossing point. The
-    scan itself is not expected to finish here, since no gemini endpoint is
-    reachable from a test run, so only the crossing is asserted. Its other half
-    -- that these values configure the client -- is the next test down.
+    process's reach; the job handed to that child is the crossing point.
     """
     seen: list[tuple] = []
-    real_run = bsr._run_repo_scan
+    _stub_successful_scan(monkeypatch)
+    stub = bsr._run_repo_scan
 
     def capture(job, *, deadline_sec):
-        outcome = real_run(job, deadline_sec=deadline_sec)
+        outcome = stub(job, deadline_sec=deadline_sec)
         seen.append((job, outcome))
         return outcome
 
@@ -402,13 +459,13 @@ def test_effective_provider_and_model_reach_the_scan(
     _run_batch(
         tmp_path,
         monkeypatch,
-        scan_overrides={"llm_type": "gemini", "model": "repo-model"},
-        cli_args=["--enable-llm", "--llm-type", "ollama", "--model", "cli-model"],
+        scan_overrides={"llm": "gemini", "model": "repo-model"},
+        cli_args=["--llm", "ollama", "--model", "cli-model"],
     )
 
     assert len(seen) == 1
     job, _outcome = seen[0]
-    assert job.llm_type == "gemini"
+    assert job.llm == "gemini"
     assert job.model == "repo-model"
 
 
@@ -423,8 +480,7 @@ def test_build_pipeline_configures_the_client_from_its_arguments(
 
     pipeline = bsr._build_pipeline(
         include_no_findings=False,
-        enable_llm=True,
-        llm_type="gemini",
+        llm="gemini",
         model="repo-model",
         disable_stage1=True,
         detect_y2106=False,
@@ -442,15 +498,14 @@ def test_invalid_provider_fails_that_repo_cleanly(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     code, run_dir = _run_batch(
-        tmp_path, monkeypatch, scan_overrides={"llm_type": "not-a-provider"}
+        tmp_path, monkeypatch, scan_overrides={"llm": "not-a-provider"}
     )
 
     status = json.loads((_repo_dir(run_dir) / "status.json").read_text())
     assert status["status"] == "failed"
     assert status["error_code"] == "INVALID_SCAN_OVERRIDE"
     assert "not-a-provider" in status["error_message"]
-    # The message should point at the accepted values.
-    for provider in bsr.SUPPORTED_LLM_TYPES:
+    for provider in bsr.SUPPORTED_LLM_PROVIDERS:
         assert provider in status["error_message"]
     assert code != 0 or status["status"] == "failed"
 
@@ -466,10 +521,10 @@ def test_invalid_max_file_size_fails_that_repo_cleanly(
     assert "max_file_size" in status["error_message"]
 
 
-def test_disabled_llm_prevents_execution_despite_provider_overrides(
+def test_llm_none_disables_execution_and_records_none_metadata(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """enable_llm=false still decides whether anything is sent to a provider."""
+    """``llm=none`` is the only batch disable switch; metadata must not name a dormant provider."""
     seen: list[tuple] = []
     real_run = bsr._run_repo_scan
 
@@ -481,40 +536,50 @@ def test_disabled_llm_prevents_execution_despite_provider_overrides(
     monkeypatch.setattr(bsr, "_run_repo_scan", capture)
 
     def explode(*args, **kwargs):  # pragma: no cover - must never run
-        raise AssertionError("an LLM request was attempted with enable_llm=false")
+        raise AssertionError("an LLM request was attempted with llm=none")
 
-    # The scan child is forked, so this guard is inherited by the process that
-    # would make the call.
     monkeypatch.setattr("requests.post", explode)
 
     _, run_dir = _run_batch(
         tmp_path,
         monkeypatch,
-        scan_overrides={
-            "enable_llm": False,
-            "llm_type": "openai",
-            "model": "repo-model",
-        },
-        cli_args=["--enable-llm"],
+        scan_overrides={"llm": "none"},
+        cli_args=["--llm", "openai", "--model", "repo-model"],
     )
 
     assert len(seen) == 1
     job, outcome = seen[0]
-    # The requested provider crosses into the scan for the record, but the
-    # pipeline the child built has no provider configured: it decides whether to
-    # call out by reading llm_type off itself.
-    assert job.enable_llm is False
-    assert job.llm_type == "openai"
+    assert job.llm == "none"
+    assert job.model == "none"
     assert outcome.status == "completed", outcome
-    assert outcome.payload["effective"]["llm_type"] == "none", "no provider configured"
-    assert outcome.payload["effective"]["enable_llm"] is False
+    assert outcome.payload["effective"]["llm"] == "none"
+    assert outcome.payload["effective"]["model"] == "none"
 
     options = _effective_options(run_dir)
-    assert options["enable_llm"] is False
-    assert options["llm_executed"] is False
-    # Requested values stay recorded for reproducibility.
-    assert options["llm_type"] == "openai"
-    assert options["model"] == "repo-model"
+    assert options["llm"] == "none"
+    assert options["model"] == "none"
+    assert "enable_llm" not in options
+    assert "llm_type" not in options
+    assert "llm_executed" not in options
+
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    assert summary["args"]["llm"] == "openai"
+    assert summary["args"]["model"] == "repo-model"
+    assert summary["aggregates"]["llm_enabled_count"] == 0
+
+
+@pytest.mark.parametrize("removed_key", ["enable_llm", "llm_type"])
+def test_removed_scan_override_keys_fail_the_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, removed_key: str
+) -> None:
+    _, run_dir = _run_batch(
+        tmp_path, monkeypatch, scan_overrides={removed_key: False}
+    )
+
+    status = json.loads((_repo_dir(run_dir) / "status.json").read_text())
+    assert status["status"] == "failed"
+    assert status["error_code"] == "INVALID_SCAN_OVERRIDE"
+    assert removed_key in status["error_message"]
 
 
 # --- max_file_size end to end ----------------------------------------------

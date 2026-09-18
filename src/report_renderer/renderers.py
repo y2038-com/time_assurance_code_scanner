@@ -141,7 +141,7 @@ def render_html(findings: list[NormalizedFinding], *, title: str, group_by: str)
   <div class="top">
     <div>
       <h1 style="margin: 0;">{html.escape(title)}</h1>
-      <div class="meta">Total findings: {len(findings)}</div>
+      <div class="meta">Total finding records: {len(findings)}</div>
       <div class="meta" style="max-width: 52rem; margin-top: 6px;">{html.escape(_ASSURANCE_DISCLAIMER)}</div>
     </div>
     <div class="stats">

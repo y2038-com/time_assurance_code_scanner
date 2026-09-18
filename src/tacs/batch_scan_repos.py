@@ -29,6 +29,7 @@ from tacs.core.include_patterns import build_include_patterns
 from tacs.core.path_utils import display_local_path, update_latest_symlink
 from tacs.core.run_ids import new_run_id
 from tacs.core.status_logger import StatusLogger, format_count
+from tacs.llm.env import DEFAULT_MODEL, default_llm_type, default_model_id
 
 
 LOGGER = logging.getLogger("tacs.batch_scan_repos")
@@ -332,29 +333,44 @@ def _format_llm_repo_summary(
     repo_key: str,
     finding_summary: dict[str, int],
     classification: dict[str, int] | None,
+    function_classification: dict[str, int] | None = None,
 ) -> str:
     """Build the per-repo INFO summary line when LLM classification ran.
 
-    Safe ("no") verdicts are dropped before findings are persisted, so verdict
-    counts are reported separately from the retained record count. Reporting only
-    the retained set would show "0 no" for a repo where many functions were in
-    fact classified safe.
+    Safe ("no") verdicts are dropped before findings are persisted. Function
+    classifications (one verdict per function_id) are reported separately from
+    the retained finding-record count, because one function-level yes can expand
+    into multiple retained records.
     """
     retained = int(finding_summary.get("total_findings", 0) or 0)
-    retained_text = f"{format_count(retained, 'finding')} retained"
-    if not classification:
+    retained_text = f"retained finding records: {retained}"
+    counts = function_classification if function_classification else classification
+    if not counts:
         return f"{repo_key}: {retained_text}"
+    label = (
+        "final function classifications"
+        if function_classification
+        else "finding classifications"
+    )
     return (
-        f"{repo_key}: {int(classification.get('yes', 0) or 0)} yes, "
-        f"{int(classification.get('no', 0) or 0)} no, "
-        f"{int(classification.get('abstain', 0) or 0)} abstain; "
+        f"{repo_key}: {label}: {int(counts.get('yes', 0) or 0)} yes, "
+        f"{int(counts.get('no', 0) or 0)} no, "
+        f"{int(counts.get('abstain', 0) or 0)} abstain; "
         f"{retained_text}"
     )
 
 
 def _classification_counts_payload(pipeline: Any) -> dict[str, int] | None:
-    """Read verdict counts recorded by the pipeline before output filtering."""
+    """Read finding-level verdict counts recorded before output filtering."""
     counts = getattr(pipeline, "last_classification_counts", None)
+    if not isinstance(counts, dict):
+        return None
+    return {k: int(v) for k, v in counts.items() if isinstance(v, int)}
+
+
+def _function_classification_counts_payload(pipeline: Any) -> dict[str, int] | None:
+    """Read function-level verdict counts recorded before output filtering."""
+    counts = getattr(pipeline, "last_function_classification_counts", None)
     if not isinstance(counts, dict):
         return None
     return {k: int(v) for k, v in counts.items() if isinstance(v, int)}
@@ -442,8 +458,7 @@ SUPPORTED_SCAN_OVERRIDES = (
     "file_extensions",
     "exclude_patterns",
     "max_file_size",
-    "enable_llm",
-    "llm_type",
+    "llm",
     "model",
     "disable_stage1",
     "detect_y2106",
@@ -453,8 +468,25 @@ SUPPORTED_SCAN_OVERRIDES = (
     "config_override",
 )
 
-#: Providers a per-repository ``llm_type`` may name, matching ``--llm-type``.
-SUPPORTED_LLM_TYPES = ("ollama", "openai", "anthropic", "gemini")
+#: Providers a per-repository ``llm`` may name, matching ``--llm`` (including none).
+SUPPORTED_LLM_PROVIDERS = ("none", "ollama", "openai", "anthropic", "gemini")
+
+#: Former override keys: rejected with a clear error rather than accepted or ignored.
+REMOVED_SCAN_OVERRIDES = {
+    "enable_llm": (
+        'scan_overrides.enable_llm is no longer supported; '
+        'use "llm": "none" or a provider name (e.g. "ollama") instead'
+    ),
+    "llm_type": (
+        'scan_overrides.llm_type is no longer supported; '
+        'use "llm" instead (e.g. "anthropic" or "none")'
+    ),
+}
+
+
+def _cli_default_llm() -> str:
+    value = default_llm_type()
+    return value if value in SUPPORTED_LLM_PROVIDERS else "none"
 
 
 def _scan_overrides(overrides: dict[str, Any] | None) -> tuple[dict[str, Any], list[str]]:
@@ -464,6 +496,8 @@ def _scan_overrides(overrides: dict[str, Any] | None) -> tuple[dict[str, Any], l
     if not overrides:
         return cleaned, warnings
     for key, value in overrides.items():
+        if key in REMOVED_SCAN_OVERRIDES:
+            raise ValueError(REMOVED_SCAN_OVERRIDES[key])
         if key in allowed:
             cleaned[key] = value
         else:
@@ -649,8 +683,7 @@ def _prepare_repo(identity: RepoIdentity, repo_url: str) -> None:
 def _build_pipeline(
     *,
     include_no_findings: bool,
-    enable_llm: bool,
-    llm_type: str,
+    llm: str,
     model: str,
     disable_stage1: bool,
     detect_y2106: bool,
@@ -665,6 +698,10 @@ def _build_pipeline(
     ``environment_config_path`` is required: the pipeline loads the environment
     config in its constructor and hands it to the I/O analyzer and LLM clients, so
     it cannot be supplied afterwards.
+
+    ``llm`` is the provider selection (``none`` | ``ollama`` | …), matching
+    ``tacs scan --llm``. When ``llm`` is ``none``, the model recorded on the
+    pipeline is also ``none``.
     """
     # Import lazily so `--dry-run` can work without installing full scanner deps.
     from tacs.core.pipeline import ScanningPipeline
@@ -675,10 +712,12 @@ def _build_pipeline(
         raise FileNotFoundError(f"Scanner script not found: {scanner_path}")
     if not Path(environment_config_path).is_file():
         raise FileNotFoundError(f"Environment config not found: {environment_config_path}")
+    effective_llm = str(llm).strip().lower()
+    effective_model = "none" if effective_llm == "none" else model
     return ScanningPipeline(
         scanner_path=str(scanner_path),
-        llm_type=llm_type if enable_llm else "none",
-        model=model,
+        llm_type=effective_llm,
+        model=effective_model,
         confidence_floor=confidence_floor,
         batch_size_pass1=100,
         timeout_sec=timeout_sec,
@@ -860,13 +899,22 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Console diagnostic log level (default: INFO; --verbose implies DEBUG)",
     )
     parser.add_argument(
-        "--enable-llm",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Opt in to LLM stages (default: disabled — privacy-safe, matches tacs scan)",
+        "--llm",
+        choices=list(SUPPORTED_LLM_PROVIDERS),
+        default=None,
+        help=(
+            "LLM provider (default: none — set --llm or TACS_LLM_PROVIDER to opt in; "
+            "matches tacs scan)"
+        ),
     )
-    parser.add_argument("--llm-type", choices=["ollama", "openai", "anthropic", "gemini"], default="ollama", help="LLM provider when --enable-llm is set (default: ollama)")
-    parser.add_argument("--model", default="gpt-oss:120b-cloud", help="Model name when --enable-llm is set (or TACS_MODEL)")
+    parser.add_argument(
+        "--model",
+        default=None,
+        help=(
+            f"Model name for selected provider "
+            f"(default: {DEFAULT_MODEL} or TACS_MODEL; ignored when --llm none)"
+        ),
+    )
     parser.add_argument("--disable-stage1", action=argparse.BooleanOptionalAction, default=True, help="Disable Stage 1 line-level pass (default: disabled)")
     parser.add_argument("--detect-y2106", action=argparse.BooleanOptionalAction, default=False, help="Enable Y2106 detection (default: disabled, matching tacs scan)")
     parser.add_argument("--confidence-floor", type=float, default=DEFAULT_CONFIDENCE_FLOOR, help=f"Confidence a classification needs to count as decided; the LLM prompts quote it too (default: {DEFAULT_CONFIDENCE_FLOOR})")
@@ -879,6 +927,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
+
+    # Resolve provider/model the same way tacs scan does: explicit CLI wins,
+    # otherwise TACS_LLM_PROVIDER / TACS_MODEL (and aliases), otherwise none /
+    # DEFAULT_MODEL. Done after parse so env is read at invocation time.
+    if args.llm is None:
+        args.llm = _cli_default_llm()
+    if args.model is None:
+        args.model = default_model_id()
 
     from tacs.core.logging_config import configure_logging, resolve_log_level
 
@@ -965,9 +1021,8 @@ def main(argv: list[str] | None = None) -> int:
         config_reason = ""
         # Defaults so the failure path can report options even if a repo fails
         # before per-repo overrides are resolved.
-        enable_llm = bool(args.enable_llm)
-        llm_type = str(args.llm_type)
-        model = str(args.model)
+        llm = str(args.llm).strip().lower()
+        model = "none" if llm == "none" else str(args.model)
         detector_overall_confidence = 0.0
         detector_recommended_id: str | None = None
         detector_top_id: str | None = None
@@ -1040,9 +1095,11 @@ def main(argv: list[str] | None = None) -> int:
                     resolved_repo_dir.mkdir(parents=True, exist_ok=True)
                 per_repo_dir = resolved_repo_dir
 
-            stage = "config_detect"
+            stage = "scan_overrides"
             overrides, override_warnings = _scan_overrides(task.scan_overrides)
             repo_warnings.extend(override_warnings)
+
+            stage = "config_detect"
             explicit_config_override = overrides.get("config_override")
             explicit_config_id = (
                 explicit_config_override.strip().lower()
@@ -1087,25 +1144,28 @@ def main(argv: list[str] | None = None) -> int:
                 else ["**/tests/**", "**/test/**"]
             )
             include_no_findings = bool(overrides.get("include_no_findings", args.include_no_findings))
-            enable_llm = bool(overrides.get("enable_llm", args.enable_llm))
             # Per-repo provider/model win over the batch-wide CLI defaults. Both are
             # validated here so a bad value fails this repository with a clear
-            # message instead of reaching a provider call.
-            llm_type = str(overrides.get("llm_type", args.llm_type)).strip().lower()
-            if llm_type not in SUPPORTED_LLM_TYPES:
+            # message instead of reaching a provider call. ``llm=none`` is the only
+            # way to disable LLM analysis for a repository.
+            llm = str(overrides.get("llm", args.llm)).strip().lower()
+            if llm not in SUPPORTED_LLM_PROVIDERS:
                 raise ValueError(
-                    f"invalid llm_type override: {overrides.get('llm_type')!r} "
-                    f"(supported: {', '.join(SUPPORTED_LLM_TYPES)})"
+                    f"invalid llm override: {overrides.get('llm')!r} "
+                    f"(supported: {', '.join(SUPPORTED_LLM_PROVIDERS)})"
                 )
-            model = str(overrides.get("model", args.model)).strip()
-            if not model:
-                raise ValueError("model override must not be empty")
+            if llm == "none":
+                model = "none"
+            else:
+                model = str(overrides.get("model", args.model)).strip()
+                if not model:
+                    raise ValueError("model override must not be empty")
             max_file_size = validate_max_file_size(overrides.get("max_file_size"))
             disable_stage1 = bool(overrides.get("disable_stage1", args.disable_stage1))
             detect_y2106 = bool(overrides.get("detect_y2106", args.detect_y2106))
             confidence_floor_raw = overrides.get("confidence_floor", overrides.get("confidence_threshold", args.confidence_floor))
             confidence_floor = float(confidence_floor_raw)
-            llm_enabled_count += int(enable_llm)
+            llm_enabled_count += int(llm != "none")
             stage1_disabled_count += int(disable_stage1)
             y2106_enabled_count += int(detect_y2106)
             config_source_counts[config_source] = config_source_counts.get(config_source, 0) + 1
@@ -1127,8 +1187,7 @@ def main(argv: list[str] | None = None) -> int:
                 include_patterns=list(include_patterns),
                 exclude_patterns=list(exclude_patterns),
                 include_no_findings=include_no_findings,
-                enable_llm=enable_llm,
-                llm_type=llm_type,
+                llm=llm,
                 model=model,
                 disable_stage1=disable_stage1,
                 detect_y2106=detect_y2106,
@@ -1165,15 +1224,18 @@ def main(argv: list[str] | None = None) -> int:
 
             finding_summary = outcome.payload.get("findings_summary") or {}
             classification_counts = outcome.payload.get("classification_counts")
+            function_classification_counts = outcome.payload.get(
+                "function_classification_counts"
+            )
             repo_metrics = outcome.payload.get("scan_metrics") or repo_metrics
             stage_stats = outcome.payload.get("stage_stats") or stage_stats
             # Read off the pipeline the child actually built, so this says how the
             # scan was configured rather than what was requested.
             effective = outcome.payload.get("effective") or {}
             LOGGER.debug(
-                "scan finished in %.1fs: llm_type=%s model=%s",
+                "scan finished in %.1fs: llm=%s model=%s",
                 outcome.duration_sec,
-                effective.get("llm_type"),
+                effective.get("llm"),
                 effective.get("model"),
             )
             if repo_metrics.get("total_files", 0) > 0 or repo_metrics.get("total_lines", 0) > 0:
@@ -1211,14 +1273,8 @@ def main(argv: list[str] | None = None) -> int:
                     "detector_recommended_config_id": detector_recommended_id,
                     "detector_top_likelihood_config_id": detector_top_id,
                     "effective_options": {
-                        "enable_llm": enable_llm,
-                        # Provider and model are recorded either way so the run is
-                        # reproducible, with enable_llm saying whether they ran.
-                        # llm_executed keeps that unambiguous for a no-LLM repo,
-                        # where these name what would have been used.
-                        "llm_type": llm_type,
-                        "model": model,
-                        "llm_executed": enable_llm,
+                        "llm": llm,
+                        "model": model if llm != "none" else "none",
                         "max_file_size": max_file_size,
                         "disable_stage1": disable_stage1,
                         "detect_y2106": detect_y2106,
@@ -1245,8 +1301,10 @@ def main(argv: list[str] | None = None) -> int:
                     "effective_config_id": effective_config_id or None,
                     "warnings": repo_warnings,
                     "findings_summary": finding_summary,
-                    # Verdicts before safe findings were dropped from findings.json.
+                    # Finding-level verdicts before safe findings were dropped.
                     "classification_counts": classification_counts,
+                    # Function-level verdicts (comparable to Stage 8/9 summaries).
+                    "function_classification_counts": function_classification_counts,
                     "scan_metrics": repo_metrics,
                     "stage_stats": stage_stats,
                 },
@@ -1261,6 +1319,7 @@ def main(argv: list[str] | None = None) -> int:
                     "effective_config_id": effective_config_id,
                     "findings_summary": finding_summary,
                     "classification_counts": classification_counts,
+                    "function_classification_counts": function_classification_counts,
                     "scan_metrics": repo_metrics,
                     "stage_stats": stage_stats,
                 }
@@ -1347,8 +1406,8 @@ def main(argv: list[str] | None = None) -> int:
                         "resolved_commit_sha": resolved_sha or None,
                         "config_source": config_source,
                         "effective_config_id": effective_config_id or None,
-                        "llm_type": llm_type if enable_llm else "none",
-                        "model": model if enable_llm else None,
+                        "llm": llm,
+                        "model": model if llm != "none" else "none",
                         "warnings": repo_warnings,
                         "scan_metrics": repo_metrics,
                         "stage_stats": stage_stats,
@@ -1374,9 +1433,8 @@ def main(argv: list[str] | None = None) -> int:
             "dry_run": args.dry_run,
             "scanner_timeout_sec": args.scanner_timeout_sec,
             "request_timeout_sec": args.request_timeout_sec,
-            "enable_llm": args.enable_llm,
-            "llm_type": args.llm_type,
-            "model": args.model,
+            "llm": args.llm,
+            "model": "none" if args.llm == "none" else args.model,
             "disable_stage1": args.disable_stage1,
             "detect_y2106": args.detect_y2106,
             "confidence_floor": args.confidence_floor,
