@@ -53,12 +53,10 @@ def _default_model() -> str:
 @click.option(
     '--disable-stage1/--no-disable-stage1',
     default=True,
-    help='Disable the Stage S1 line-level pre-filter (default: disabled). '
-         'Stage S1 drops candidates from a line-level LLM triage before later '
-         'passes see them. In the current implementation Stage S1 runs only on '
-         'the legacy path: use --no-function-first together with '
-         '--no-disable-stage1. --no-disable-stage1 alone does not enable Stage S1 '
-         'on the default function-first pipeline.',
+    help='Disable Stage S1 line-level pre-filter (default: disabled / off). '
+         'Enable Stage S1 line-level prefilter on the legacy pipeline; requires '
+         '--no-function-first. Alone, --no-disable-stage1 does nothing on the '
+         'default function-first path.',
 )
 @click.option(
     '--env-config',

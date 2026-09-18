@@ -105,12 +105,11 @@ tacs scan \
 ```
 
 **Key flags:**
-- `--no-disable-stage1`: Enables Stage S1 line-level triage when used with
-  `--no-function-first`. Stage S1 is off by default because it drops candidates
-  before later passes see them. On the default function-first path,
-  `--no-disable-stage1` alone does not run Stage S1.
-- `--no-function-first`: Disables function-first pipeline (uses legacy pipeline;
-  required for Stage S1 in the current implementation)
+- `--no-disable-stage1`: Enable Stage S1 line-level prefilter on the legacy
+  pipeline; requires `--no-function-first`. Stage S1 is off by default because
+  it drops candidates before later passes see them. Alone, it does nothing on
+  the default function-first path.
+- `--no-function-first`: Use the legacy pipeline (required for Stage S1)
 - `--batch-size-stage1 100`: Sets batch size to 100 candidates per Stage S1 request (default: 100)
 
 **Pipeline stages:**

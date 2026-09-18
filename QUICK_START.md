@@ -192,10 +192,10 @@ tacs repos --repos-file src/tacs/fixtures/repo_lists/test_repos.jsonl --dry-run
 
 # Analysis defaults match tacs scan, so a batch result is comparable with a
 # standalone one on the same source, env config, and model. Both default to
-# Y2106 detection off and the Stage S1 pre-filter off; to change that, pass the
-# same flag to either command:
+# Y2106 detection off and the Stage S1 pre-filter off; to change that:
 #   --detect-y2106        also assess 32-bit unsigned time_t overflow in 2106
-#   --no-disable-stage1   restore the line-level LLM pre-filter (drops candidates)
+#   --no-disable-stage1   enable Stage S1 on the legacy --no-function-first path
+#                         (tacs scan only; requires --no-function-first)
 
 ```
 
