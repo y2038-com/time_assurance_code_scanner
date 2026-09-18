@@ -1898,6 +1898,7 @@ class ScanningPipeline:
         total_ms = session.timing.get("total_ms", 0)
         display_root = display_scan_root(root_path)
         if api_llm_type == "none":
+            # Discovery-only: retained records are candidates, not LLM abstentions.
             pipeline_results = (
                 f"- Candidate findings retained: {len(findings)} (LLM disabled)"
             )
@@ -1951,15 +1952,24 @@ Token Usage:
                     stage_requests = stage_stats.get("requests", 0)
                     summary += f"\n  - {stage_name}: {stage_total:,} tokens ({stage_prompt:,} prompt + {stage_completion:,} completion) in {stage_requests} request(s)"
         
-        # Add legacy-specific details if available
+        # Candidate inventory from earlier stages (set for both function-first and
+        # legacy). Stage S1 survivor/drop counts are legacy-only; omit them when
+        # absent so --llm none does not print misleading "0 survivors".
         if hasattr(session, '_legacy_pipeline_info') and session._legacy_pipeline_info:
             info = session._legacy_pipeline_info
-            summary += f"""
-- Candidates found: {info.get('candidates_count', 0)}
-- After structural filter: {info.get('filtered_candidates_count', 0)}
-- Stage S1, Pass P1 survivors: {info.get('stage_s1_pass_p1_survivors', 0)}
-- Stage S1, Pass P1 dropped: {info.get('stage_s1_pass_p1_dropped', 0)}
-"""
+            if "candidates_count" in info:
+                summary += f"\n- Candidates found: {info['candidates_count']}"
+            if "filtered_candidates_count" in info:
+                summary += f"\n- After structural filter: {info['filtered_candidates_count']}"
+            if "stage_s1_pass_p1_survivors" in info:
+                summary += (
+                    f"\n- Stage S1, Pass P1 survivors: {info['stage_s1_pass_p1_survivors']}"
+                )
+            if "stage_s1_pass_p1_dropped" in info:
+                summary += (
+                    f"\n- Stage S1, Pass P1 dropped: {info['stage_s1_pass_p1_dropped']}"
+                )
+            summary += "\n"
         
         summary += f"""
 Timing (ms):

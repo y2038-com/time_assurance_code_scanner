@@ -587,12 +587,56 @@ def test_session_summary_no_llm_uses_candidate_wording(
     )
 
     session = ScanSession(root_path=str(tmp_path), output_base=str(tmp_path))
+    session._legacy_pipeline_info = {
+        "candidates_count": 40,
+        "filtered_candidates_count": 40,
+    }
     pipeline._create_scan_results(findings, _metrics(), session, str(tmp_path), "rules.json")
 
     summary = (session.findings_dir / "summary.txt").read_text(encoding="utf-8")
     assert "- Candidate findings retained: 2 (LLM disabled)" in summary
+    assert "- Candidates found: 40" in summary
+    assert "- After structural filter: 40" in summary
     assert "Final function classifications" not in summary
     assert "Retained finding records" not in summary
+    assert "0 yes" not in summary
+    assert "abstain" not in summary.lower()
+    assert "Stage S1, Pass P1 survivors" not in summary
+    assert "Stage S1, Pass P1 dropped" not in summary
+
+
+def test_session_summary_llm_enabled_keeps_classification_wording(
+    tmp_path: Path,
+) -> None:
+    """LLM-enabled runs keep function classifications distinct from retained records."""
+    from tacs.core.scan_session import ScanSession
+
+    configure_logging("ERROR")
+    pipeline = _scan_results_pipeline(tmp_path)
+
+    classified = [
+        _finding("yes", function_id="t.c@a:1-2", line=1),
+        _finding("yes", function_id="t.c@b:3-4", line=3),
+        _finding("no", function_id="t.c@c:5-6", line=5),
+        _finding("no", function_id="t.c@d:7-8", line=7),
+        _finding("no", function_id="t.c@e:9-10", line=9),
+        _finding("no", function_id="t.c@f:11-12", line=11),
+        _finding("no", function_id="t.c@g:13-14", line=13),
+    ]
+    pipeline.last_classification_counts = pipeline._classification_counts(classified)
+    pipeline.last_function_classification_counts = pipeline._function_classification_counts(
+        classified
+    )
+    retained = pipeline._filter_findings_for_output(classified)
+
+    session = ScanSession(root_path=str(tmp_path), output_base=str(tmp_path))
+    pipeline._create_scan_results(retained, _metrics(), session, str(tmp_path), "rules.json")
+
+    summary = (session.findings_dir / "summary.txt").read_text(encoding="utf-8")
+    assert "- Final function classifications: 2 yes, 5 no, 0 abstain" in summary
+    assert "- Retained finding records: 2" in summary
+    assert "Candidate findings retained" not in summary
+    assert "(LLM disabled)" not in summary
 
 
 def test_scan_debug_shows_debug_lines(tmp_path: Path) -> None:
