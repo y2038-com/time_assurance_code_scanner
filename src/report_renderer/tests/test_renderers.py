@@ -21,6 +21,7 @@ def test_render_text_contains_marker_and_headers():
     assert "Finding 1 of 1" in text
     assert "Rule: TIME_T_TRUNCATION" in text
     assert ">>>" in text
+    assert "review candidates, not a certification of time safety" in text
 
 
 def test_render_html_contains_controls_and_cards():
@@ -30,6 +31,7 @@ def test_render_html_contains_controls_and_cards():
     assert "<!doctype html>" in html.lower()
     assert 'id="q"' in html
     assert "Finding 1:" in html
+    assert "review candidates, not a certification of time safety" in html
 
 
 def test_snippet_line_numbers_use_function_id_start():

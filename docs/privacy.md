@@ -59,7 +59,9 @@ error message is redacted to `https://***@host/...` before it is printed or writ
 
 ### Opt-in LLM review (`--llm ollama|openai|anthropic|gemini`)
 
-- Source code context, including complete function bodies and, in later analysis stages, file-level context and type/macro definitions, may be sent to the configured provider
+- Source code context, including complete function bodies and, in later analysis
+  stages, file-leading context (file preamble) plus extracted typedefs, structs,
+  and macros, may be sent to the configured provider
 - Also triggered if you set `TACS_LLM_PROVIDER` in the process environment or
   `.env` (explicit opt-in)
 - Prefer local Ollama (`OLLAMA_HOST=http://127.0.0.1:11434`) for sensitive trees

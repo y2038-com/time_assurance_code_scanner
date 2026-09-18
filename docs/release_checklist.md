@@ -51,7 +51,7 @@ git status --porcelain --untracked-files=no
 
 **Description:**
 
-> AI-assisted scanner (`tacs`) for long-horizon time assurance issues in source code (Y2038/Y2106 and related ABI/`time_t` risks).
+> AI-assisted scanner (`tacs`) that supports long-horizon time assurance by identifying potential Y2038/Y2106-class risks in source code (related ABI/`time_t` assumptions). Findings are review candidates, not a certification of time safety.
 
 **Topics (suggested):**
 

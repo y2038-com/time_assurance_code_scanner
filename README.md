@@ -1,6 +1,13 @@
 # Time Assurance Code Scanner
 
-Open-source, AI-assisted scanner (`tacs`) for long-horizon **time assurance** issues in source code — especially Y2038 / Y2106 class risks around 32-bit `time_t` and related ABI assumptions.
+Open-source, AI-assisted scanner (`tacs`) that supports long-horizon **time
+assurance** by identifying potential Y2038 / Y2106-class risks in source code
+around 32-bit `time_t` and related ABI assumptions.
+
+“Assurance” here means systematically identifying and documenting potential
+time-related risks and evidence for review. TACS contributes to that process; it
+does not guarantee that all such risks have been found, and it cannot prove a
+system free of rollover defects.
 
 This repository is the open-source scanner engine and CLI. It is the code-scanning sibling of [`time_assurance_doc_scanner`](https://github.com/y2038-com/time_assurance_doc_scanner) (`tads`).
 
@@ -50,7 +57,14 @@ Details: [docs/privacy.md](docs/privacy.md).
 
 ## Limitations
 
-TACS is an AI-assisted review aid, not an authoritative compliance oracle. Treat outputs as **candidates for review**, not confirmed defects.
+TACS is an AI-assisted review aid, not an authoritative compliance oracle. Treat
+outputs as **candidates for review**, not confirmed defects.
+
+TACS is not a completeness checker. A clean scan does not establish that a
+codebase is free of Y2038, Y2106, or other time-related rollover risks.
+Detection depends on the current rules, supported language constructs,
+environment assumptions, analysis heuristics, and—when enabled—the behavior of
+the selected LLM.
 
 - False positives and false negatives are expected.
 - With `--llm none`, findings are discovery locations (often `abstain`) — not LLM-validated issues.
@@ -60,7 +74,7 @@ TACS is an AI-assisted review aid, not an authoritative compliance oracle. Treat
 - Preprocessor-agnostic scanning means guarded/dead code may still appear as candidates.
 - Structural filtering is heuristic today; tree-sitter AST analysis is **not** implemented in v0.1.0. The `.[full]` extra installs tree-sitter for that future work, but installing it changes nothing yet — the filter stays a no-op either way.
 - No findings ≠ “no time-assurance risk.”
-- Experts should review severity and remediation before changing production code or ABI choices.
+- Human review remains authoritative for severity and remediation before changing production code or ABI choices.
 
 ## Environment configuration (important)
 

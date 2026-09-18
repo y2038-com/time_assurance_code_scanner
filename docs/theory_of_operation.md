@@ -1,8 +1,15 @@
 # TACS Theory of Operation
 
 The Time Assurance Code Scanner (TACS) is an open-source, AI-assisted source-code
-scanner for long-horizon time risks, especially Y2038- and Y2106-class problems
-in C and C++ software.
+scanner that supports long-horizon time assurance by identifying potential
+Y2038- and Y2106-class risks in C and C++ software.
+
+TACS treats assurance as an evidence-building process rather than a binary
+certification result. It attempts to expose relevant code, representations,
+interfaces, and assumptions for review, but it cannot demonstrate that every
+possible time-related failure has been discovered. TACS supports time assurance
+by identifying and documenting potential time-related risks; it does not
+guarantee that all such risks have been found.
 
 TACS is designed around a simple principle:
 
@@ -952,6 +959,10 @@ Depending on command and options, scan artifacts can include:
 
 The intent is to leave an auditable trail from broad deterministic discovery to
 the final human-review candidate.
+
+The value of TACS is therefore not only the findings it produces, but the
+repeatable evidence it provides about what was examined, under which
+assumptions, and which potential risks were identified.
 
 The principal user-facing result is typically `findings.json`.
 

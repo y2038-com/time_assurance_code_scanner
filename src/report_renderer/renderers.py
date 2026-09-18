@@ -12,15 +12,21 @@ from pathlib import Path
 
 from report_renderer.core import NormalizedFinding
 
+# Report-level only (not repeated per finding).
+_ASSURANCE_DISCLAIMER = (
+    "TACS findings are review candidates, not a certification of time safety. "
+    "Absence of findings does not establish absence of rollover risk."
+)
+
 
 def render_text(findings: list[NormalizedFinding], *, list_mode: bool = False) -> str:
     """Render findings as readable CLI text."""
     if not findings:
-        return "No findings match the selected filters."
+        return f"{_ASSURANCE_DISCLAIMER}\n\nNo findings match the selected filters."
 
     total = len(findings)
     if list_mode:
-        lines = []
+        lines = [_ASSURANCE_DISCLAIMER, ""]
         for f in findings:
             issue_display = _display_issue_class(f)
             confidence = f"{f.confidence:.2f}" if f.confidence is not None else "N/A"
@@ -35,7 +41,7 @@ def render_text(findings: list[NormalizedFinding], *, list_mode: bool = False) -
             )
         return "\n".join(lines)
 
-    blocks = [_render_text_finding(f, total=total) for f in findings]
+    blocks = [_ASSURANCE_DISCLAIMER] + [_render_text_finding(f, total=total) for f in findings]
     return "\n\n".join(blocks)
 
 
@@ -136,6 +142,7 @@ def render_html(findings: list[NormalizedFinding], *, title: str, group_by: str)
     <div>
       <h1 style="margin: 0;">{html.escape(title)}</h1>
       <div class="meta">Total findings: {len(findings)}</div>
+      <div class="meta" style="max-width: 52rem; margin-top: 6px;">{html.escape(_ASSURANCE_DISCLAIMER)}</div>
     </div>
     <div class="stats">
       <div class="pill">yes: {stats.get('yes', 0)}</div>

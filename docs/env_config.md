@@ -215,7 +215,8 @@ The scanner reads the environment configuration and:
 4. **Stage 5-7**: Includes environment details in LLM prompts
 5. **Stage 8-11**: Uses scenario context for final assessment
 
-This ensures that Y2038 detection is accurate and actionable for the specific target environment.
+This keeps Y2038 detection grounded in the declared target environment so
+results are more actionable for that ABI / `time_t` model.
 
 ## Failure behavior
 
