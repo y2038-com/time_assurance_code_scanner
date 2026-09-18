@@ -32,7 +32,7 @@ BYOLLM: bring your own provider; no vendor lock-in.
 
 There is no hosted code vault, but “local” is not the same as “nothing is retained.”
 
-- **Source code context may be sent to the LLM provider you configure** only when you opt in (`--llm` ≠ `none`, or `TACS_LLM_PROVIDER`). That can include complete function bodies and, in later analysis stages, file-level context and type/macro definitions.
+- **Source code context may be sent to the LLM provider you configure** only when you opt in (`--llm` ≠ `none`, or `TACS_LLM_PROVIDER`). That can include complete function bodies and, in later analysis stages, file-leading context plus extracted definitions (typedefs, structs, macros).
 - **`tacs scan` reads your tree in place; `tacs repos` clones repositories and keeps them** in `--cache-dir` (default `.repo_cache`, gitignored) so later runs can reuse them. Delete that directory when you are done.
 - Reports are written only where you ask (`--out` / batch output dirs). Prefer `--llm none` or local Ollama for sensitive trees. For local runs, keep private inputs under `inputs/` and generated artifacts under `results/` (both gitignored except their READMEs).
 

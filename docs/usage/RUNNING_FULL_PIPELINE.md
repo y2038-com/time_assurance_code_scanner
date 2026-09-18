@@ -8,7 +8,7 @@ Current CLI entrypoint: **`tacs scan`**. For a first local run without an LLM, s
 `tacs` supports two analysis approaches:
 
 1. **Function-First Pipeline** (default): Analyzes complete functions with Stage S2 (function-level) Pass P1/P2 and Stage S3 (file-level) Pass P1
-2. **Legacy Pipeline with Stage S1**: Single-line triage (Stage S1, Pass P1) followed by widened context (Stage S2, Pass P1) and file context (Stage S3, Pass P1)
+2. **Legacy Pipeline with Stage S1**: Single-line triage (Stage S1, Pass P1) followed by widened context (Stage S2, Pass P1) and file-leading context plus extracted definitions (Stage S3, Pass P1)
 
 LLM providers are **opt-in** (`--llm none` by default). Examples below that use
 `--llm ollama` assume you have configured `OLLAMA_API_KEY` (and left `OLLAMA_HOST`
@@ -74,13 +74,13 @@ tacs scan \
 **Pipeline stages:**
 - Stage 0: Environment Configuration
 - Stage 1: Code Metrics
-- Stage 2: Typedef/Macro Discovery
+- Stage 2: Typedef / time-type discovery
 - Stage 3: IR Candidate Discovery
 - Stage 4: Structural Filter
 - Functionization (preparation)
 - **Stage S2 (function-level), Pass P1**: Initial function analysis
 - **Stage S2 (function-level), Pass P2**: Iterative enrichment
-- **Stage S3 (file-level), Pass P1**: File-leading context
+- **Stage S3 (file-level), Pass P1**: File-leading context plus extracted definitions
 
 ## Running Legacy Pipeline with Pass 1 (Single-Line Triage)
 
@@ -105,27 +105,34 @@ tacs scan \
 ```
 
 **Key flags:**
-- `--no-disable-stage1`: Restores Stage S1 (single-line line-level analysis), which
-  is off by default because it drops candidates before the function-level passes
-  see them. `--disable-stage1` is the default state.
-- `--no-function-first`: Disables function-first pipeline (uses legacy pipeline)
+- `--no-disable-stage1`: Enables Stage S1 line-level triage when used with
+  `--no-function-first`. Stage S1 is off by default because it drops candidates
+  before later passes see them. On the default function-first path,
+  `--no-disable-stage1` alone does not run Stage S1.
+- `--no-function-first`: Disables function-first pipeline (uses legacy pipeline;
+  required for Stage S1 in the current implementation)
 - `--batch-size-stage1 100`: Sets batch size to 100 candidates per Stage S1 request (default: 100)
 
 **Pipeline stages:**
 - Stage 0: Environment Configuration
 - Stage 1: Code Metrics
-- Stage 2: Typedef/Macro Discovery (time_t aliases passed to Stage S1, Pass P1)
+- Stage 2: Typedef / time-type discovery (on this legacy path, discovered
+  `time_t` aliases are passed into the Stage S1 LLM prompt)
 - Stage 3: IR Candidate Discovery
 - Stage 4: Structural Filter
 - **Stage S1 (line-level), Pass P1**: Single-line triage
 - **Stage S2 (function-level), Pass P1**: Widened context
-- **Stage S3 (file-level), Pass P1**: File context
+- **Stage S3 (file-level), Pass P1**: File-leading context plus extracted definitions
 
 ## Stage S1, Pass P1 Features
 
 ### Time_t Aliases
 
-Stage S1, Pass P1 automatically receives all discovered time_t aliases from Stage 2 (typedef discovery). These are included in the LLM prompt so the model knows which types are equivalent to `time_t`.
+On the **legacy** path (`--no-function-first`), Stage S1, Pass P1 receives
+discovered `time_t` aliases from Stage 2 (typedef / time-type discovery). Those
+aliases are included in the Stage S1 LLM prompt so the model knows which types
+are equivalent to `time_t`. The default function-first path does not wire that
+alias list into `FunctionLLMClient` prompts the same way.
 
 **Example aliases that will be passed:**
 - `wc_time_cb`
@@ -158,7 +165,8 @@ You can adjust the batch size:
 
 ## Verification
 
-To verify that time_t aliases are being passed to Stage S1, Pass P1:
+To verify that time_t aliases are being passed to Stage S1, Pass P1 on the
+legacy path (`--no-function-first --no-disable-stage1`):
 
 1. **Check discovery output:**
    ```
@@ -243,8 +251,9 @@ tacs scan \
 ### Stage S1 Not Running
 
 If Stage S1 doesn't run, check:
-1. `--no-disable-stage1` flag is set (Stage S1 is off by default)
-2. `--no-function-first` flag is set (or `--function-first` is NOT set)
+1. `--no-disable-stage1` is set (Stage S1 is off by default)
+2. `--no-function-first` is set — required in the current implementation; Stage S1
+   does not run on the default function-first path
 3. `--llm` is not set to `none`
 
 ### Time_t Aliases Not Appearing
