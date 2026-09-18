@@ -37,9 +37,9 @@ SCANNER = (
 # or how chatty it is. Divergence here means two commands answering differently.
 ANALYSIS_OPTIONS = (
     "detect_y2106",
-    "disable_stage1",
     "confidence_floor",
     "include_no_findings",
+    "min_risk",
 )
 
 
@@ -49,6 +49,28 @@ def _scan_defaults() -> dict[str, object]:
 
 def _repos_defaults() -> dict[str, object]:
     return {a.dest: a.default for a in _build_parser()._actions}
+
+
+def _resolved_repos_defaults() -> dict[str, object]:
+    """Defaults after ``main()`` fills dynamic None sentinels (llm/model/include)."""
+    from tacs.batch_scan_repos import (
+        DEFAULT_EXCLUDE_PATTERNS,
+        DEFAULT_INCLUDE_PATTERNS,
+        _cli_default_llm,
+    )
+    from tacs.llm.env import default_model_id
+
+    args = _build_parser().parse_args(["--repos-file", "x"])
+    # Mirror main()'s post-parse resolution without running a batch.
+    if args.llm is None:
+        args.llm = _cli_default_llm()
+    if args.model is None:
+        args.model = default_model_id()
+    if args.include is None:
+        args.include = list(DEFAULT_INCLUDE_PATTERNS)
+    if args.exclude is None:
+        args.exclude = list(DEFAULT_EXCLUDE_PATTERNS)
+    return vars(args)
 
 
 @pytest.mark.parametrize("option", ANALYSIS_OPTIONS)
@@ -65,11 +87,29 @@ def test_both_commands_declare_the_same_analysis_default(option: str) -> None:
     )
 
 
-def test_agreed_defaults_are_y2106_off_and_stage1_off() -> None:
+def test_request_timeout_defaults_match() -> None:
+    scan = _scan_defaults()
+    repos = _repos_defaults()
+    assert scan["request_timeout_sec"] == 300
+    assert repos["request_timeout_sec"] == 300
+    assert scan["request_timeout_sec"] == repos["request_timeout_sec"]
+
+
+def test_include_exclude_defaults_match_scan() -> None:
+    from tacs.batch_scan_repos import DEFAULT_EXCLUDE_PATTERNS, DEFAULT_INCLUDE_PATTERNS
+
+    scan = _scan_defaults()
+    assert list(scan["include"]) == list(DEFAULT_INCLUDE_PATTERNS)
+    assert list(scan["exclude"]) == list(DEFAULT_EXCLUDE_PATTERNS)
+    resolved = _resolved_repos_defaults()
+    assert resolved["include"] == list(DEFAULT_INCLUDE_PATTERNS)
+    assert resolved["exclude"] == list(DEFAULT_EXCLUDE_PATTERNS)
+
+
+def test_agreed_defaults_are_y2106_off() -> None:
     """Pin the chosen values, not just that the two commands happen to match."""
     for defaults in (_scan_defaults(), _repos_defaults()):
         assert defaults["detect_y2106"] is False
-        assert defaults["disable_stage1"] is True
 
 
 def test_engine_default_matches_the_commands() -> None:
@@ -78,13 +118,11 @@ def test_engine_default_matches_the_commands() -> None:
 
     assert params["detect_y2106"].default is False
     assert params["enable_pass1"].default is False
+    assert params["function_first"].default is True
 
 
-# --- both flags stay reachable in both commands -----------------------------
-
-
-def test_stage1_is_reachable_from_both_commands() -> None:
-    """A default of 'disabled' must not make the pre-filter impossible to request."""
+def test_stage1_is_scan_legacy_only() -> None:
+    """Stage S1 is a tacs scan legacy-path control; repos is function-first only."""
     scan_flags = {
         opt for p in scan_command.params for opt in p.opts + p.secondary_opts
     }
@@ -93,7 +131,24 @@ def test_stage1_is_reachable_from_both_commands() -> None:
     }
 
     assert "--no-disable-stage1" in scan_flags
-    assert "--no-disable-stage1" in repos_flags
+    assert "--disable-stage1" in scan_flags
+    assert "--no-disable-stage1" not in repos_flags
+    assert "--disable-stage1" not in repos_flags
+
+
+def test_function_first_never_builds_legacy_llm_client_for_stage1() -> None:
+    """Stage S1 gates on ``llm_client``; function-first only builds FunctionLLMClient."""
+    pipeline = ScanningPipeline(
+        scanner_path=str(SCANNER),
+        llm_type="ollama",
+        model="stub-model",
+        function_first=True,
+        enable_pass1=True,
+    )
+
+    assert pipeline.enable_pass1 is True
+    assert hasattr(pipeline, "function_llm_client")
+    assert not hasattr(pipeline, "llm_client")
 
 
 def test_both_commands_expose_llm_provider_flag() -> None:
@@ -142,7 +197,6 @@ def _batch_pipeline(tmp_path: Path, **overrides: object) -> ScanningPipeline:
         "include_no_findings": repos_defaults["include_no_findings"],
         "llm": "ollama",
         "model": "stub-model",
-        "disable_stage1": repos_defaults["disable_stage1"],
         "detect_y2106": repos_defaults["detect_y2106"],
         "confidence_floor": repos_defaults["confidence_floor"],
         "timeout_sec": 60,
@@ -157,33 +211,19 @@ def test_batch_pipeline_analysis_settings_match_the_engine_defaults(
 ) -> None:
     pipeline = _batch_pipeline(tmp_path)
 
+    assert pipeline.function_first is True
     assert pipeline.enable_pass1 is False
     assert pipeline.detect_y2106 is False
     assert pipeline.confidence_floor == 0.85
+    assert not hasattr(pipeline, "llm_client")
 
 
-def test_batch_no_disable_stage1_actually_enables_stage1(tmp_path: Path) -> None:
-    """The flag used to be ANDed with LLM opt-in, so it could not turn Stage S1 on.
+def test_batch_pipeline_cannot_enable_stage1(tmp_path: Path) -> None:
+    """tacs repos is function-first only; Stage S1 is not exposed or constructible."""
+    pipeline = _batch_pipeline(tmp_path, llm="ollama")
 
-    Stage S1 needs an LLM, but the pipeline already skips it when llm is
-    "none", so the extra coupling only made the flag mean something different in
-    batch than in standalone.
-    """
-    pipeline = _batch_pipeline(tmp_path, disable_stage1=False)
-
-    assert pipeline.enable_pass1 is True
-
-
-def test_batch_stage1_flag_is_not_silently_tied_to_llm_opt_in(
-    tmp_path: Path,
-) -> None:
-    """--no-disable-stage1 reads the same with the LLM off as tacs scan does."""
-    pipeline = _batch_pipeline(tmp_path, disable_stage1=False, llm="none")
-
-    assert pipeline.enable_pass1 is True
-    # The LLM stages are still off, so Stage S1 cannot run; that guard lives in
-    # the pipeline rather than in the flag's meaning.
-    assert pipeline.llm_type == "none"
+    assert pipeline.enable_pass1 is False
+    assert not hasattr(pipeline, "llm_client")
 
 
 def test_batch_detect_y2106_flag_reaches_the_llm_client(tmp_path: Path) -> None:

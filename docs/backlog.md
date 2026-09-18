@@ -64,6 +64,7 @@ When you pick up an item, remove or rewrite it here so the list stays accurate.
 - [ ] Continue pruning obsolete manual/debug tooling under `tests/manual/` as it becomes unnecessary
 - [ ] Improve default exclude patterns for common harness directories (`t/`, `test/`, `*_test.c`, etc.) without hiding real product code
 - [ ] Fix remaining Stage 8/9 console grammar (`N functions` / `function(s)` → singular when N is 1)
+- [ ] **Low priority / non-blocking (clarity only):** Make Stage S1 (Stage 7) legacy-only gating explicit in control flow. Today Stage S1 correctly runs only on the legacy (`--no-function-first`) path because the gate includes `enable_pass1`, `llm_type != "none"`, and `hasattr(self, "llm_client")`, and the function-first path builds `FunctionLLMClient` without creating `llm_client`. Refactor so the architectural rule is stated directly (e.g. “Stage S1 runs only on the legacy/non-function-first pipeline”) rather than depending partly on object shape. **No intended behavior change** — preserve current legacy-only Stage S1 semantics; update focused tests if/when implemented.
 
 ## Longer-term
 

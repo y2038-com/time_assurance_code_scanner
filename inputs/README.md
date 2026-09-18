@@ -31,37 +31,40 @@ LLM selection matches `tacs scan` and the batch CLI: use `llm` for the provider
 id. There is no separate enable/disable flag — `llm: "none"` turns LLM analysis
 off for that repository.
 
+File selection also matches `tacs scan`: use `include` / `exclude` with glob
+patterns (not extension lists). Batch-wide `--include` / `--exclude` /
+`--min-risk` apply when an entry omits those keys.
+
 ```jsonl
-{"repo_url":"https://github.com/example/lib.git","scan_overrides":{"config_override":"ilp32_signed_32bit","llm":"anthropic","model":"claude-sonnet-4-5","max_file_size":5242880}}
+{"repo_url":"https://github.com/example/lib.git","scan_overrides":{"config_override":"ilp32_signed_32bit","llm":"anthropic","model":"claude-sonnet-4-5","include":["**/*.c","**/*.h"],"exclude":["**/vendor/**"],"min_risk":"medium","max_file_size":5242880}}
 {"repo_url":"https://github.com/example/other.git","scan_overrides":{"llm":"none"}}
 ```
 
 | Key | Type | Meaning |
 | --- | --- | --- |
 | `config_override` | string | Environment config id, skipping auto-detect |
-| `file_extensions` | list | Source extensions to scan, e.g. `[".c", ".h"]` |
-| `exclude_patterns` | list | Glob patterns to skip |
+| `include` | list | Include globs, e.g. `["**/*.c", "**/*.h"]` |
+| `exclude` | list | Exclude globs, e.g. `["**/tests/**"]` |
 | `max_file_size` | integer | Byte limit per source file; omit for no limit |
 | `llm` | string | Provider: `none`, `ollama`, `openai`, `anthropic`, or `gemini` |
 | `model` | string | Model name for the selected provider (ignored when `llm` is `none`) |
-| `disable_stage1` | bool | Skip the Stage S1 line-level pre-filter |
+| `min_risk` | string | Minimum IR risk: `low`, `medium`, or `high` |
 | `detect_y2106` | bool | Also assess 2106 overflow of unsigned 32-bit `time_t` |
 | `confidence_floor` | float | Minimum confidence for a classification; the LLM prompts quote it |
-| `confidence_threshold` | float | Alias for `confidence_floor`, which wins if both appear |
 | `include_no_findings` | bool | Keep findings classified as safe |
 
 When `llm` is `none`, effective settings record both `llm` and `model` as
-`none` — metadata does not name a dormant provider. An unknown provider, a
-`max_file_size` that is not a positive integer, or a legacy override key
-(`enable_llm`, `llm_type`) fails that one repository with
+`none` — metadata does not name a dormant provider. An unknown provider or a
+`max_file_size` that is not a positive integer fails that one repository with
 `error_code: INVALID_SCAN_OVERRIDE` in its `status.json` and leaves the rest of
 the batch running.
 
-Batch-wide defaults use the same flags as a single-repo scan:
+Batch-wide defaults use the same analysis flags as a single-repo scan:
 
 ```bash
 tacs repos --repos-file inputs/my_repos.jsonl --llm ollama --model gpt-oss:120b-cloud
 tacs repos --repos-file inputs/my_repos.jsonl --llm none
+tacs repos --repos-file inputs/my_repos.jsonl --include '**/*.c' --exclude '**/vendor/**' --min-risk medium
 ```
 
 `max_file_size` is enforced while files are enumerated, so an oversized file is

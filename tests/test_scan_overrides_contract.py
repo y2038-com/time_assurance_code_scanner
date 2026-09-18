@@ -49,21 +49,20 @@ int measure_window(void) {
 
 def test_supported_keys_are_exactly_the_documented_contract() -> None:
     assert set(bsr.SUPPORTED_SCAN_OVERRIDES) == {
-        "file_extensions",
-        "exclude_patterns",
+        "include",
+        "exclude",
         "max_file_size",
         "llm",
         "model",
-        "disable_stage1",
+        "min_risk",
         "detect_y2106",
-        "confidence_threshold",
         "confidence_floor",
         "include_no_findings",
         "config_override",
     }
 
 
-@pytest.mark.parametrize("key", ["llm", "model", "max_file_size"])
+@pytest.mark.parametrize("key", ["llm", "model", "max_file_size", "include", "exclude", "min_risk"])
 def test_newly_supported_keys_survive_cleaning(key: str) -> None:
     """These used to be dropped with an "unknown key" warning, or ignored."""
     cleaned, warnings = bsr._scan_overrides({key: "value"})
@@ -72,7 +71,17 @@ def test_newly_supported_keys_survive_cleaning(key: str) -> None:
     assert warnings == []
 
 
-@pytest.mark.parametrize("key", ["enable_llm", "llm_type"])
+@pytest.mark.parametrize(
+    "key",
+    [
+        "enable_llm",
+        "llm_type",
+        "file_extensions",
+        "exclude_patterns",
+        "confidence_threshold",
+        "disable_stage1",
+    ],
+)
 def test_removed_override_keys_fail_clearly(key: str) -> None:
     with pytest.raises(ValueError, match=key):
         bsr._scan_overrides({key: "anything"})
@@ -85,26 +94,11 @@ def test_unknown_keys_are_still_reported_and_dropped() -> None:
     assert any("nonsense" in w for w in warnings)
 
 
-def test_confidence_threshold_remains_an_alias_for_confidence_floor() -> None:
-    """Both spellings are accepted; confidence_floor wins when both appear."""
-    cleaned, warnings = bsr._scan_overrides(
-        {"confidence_threshold": 0.5, "confidence_floor": 0.9}
-    )
+def test_confidence_floor_is_the_only_confidence_override_key() -> None:
+    cleaned, warnings = bsr._scan_overrides({"confidence_floor": 0.9})
 
-    assert cleaned == {"confidence_threshold": 0.5, "confidence_floor": 0.9}
+    assert cleaned == {"confidence_floor": 0.9}
     assert warnings == []
-    # The resolution order the batch runner applies to those two keys.
-    assert (
-        cleaned.get("confidence_floor", cleaned.get("confidence_threshold", 0.85)) == 0.9
-    )
-
-
-def test_confidence_threshold_applies_when_it_is_the_only_key() -> None:
-    cleaned, _ = bsr._scan_overrides({"confidence_threshold": 0.5})
-
-    assert (
-        cleaned.get("confidence_floor", cleaned.get("confidence_threshold", 0.85)) == 0.5
-    )
 
 
 # --- max_file_size validation ----------------------------------------------
@@ -482,7 +476,6 @@ def test_build_pipeline_configures_the_client_from_its_arguments(
         include_no_findings=False,
         llm="gemini",
         model="repo-model",
-        disable_stage1=True,
         detect_y2106=False,
         confidence_floor=0.7,
         timeout_sec=30,
@@ -568,7 +561,17 @@ def test_llm_none_disables_execution_and_records_none_metadata(
     assert summary["aggregates"]["llm_enabled_count"] == 0
 
 
-@pytest.mark.parametrize("removed_key", ["enable_llm", "llm_type"])
+@pytest.mark.parametrize(
+    "removed_key",
+    [
+        "enable_llm",
+        "llm_type",
+        "file_extensions",
+        "exclude_patterns",
+        "confidence_threshold",
+        "disable_stage1",
+    ],
+)
 def test_removed_scan_override_keys_fail_the_repo(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, removed_key: str
 ) -> None:
@@ -580,6 +583,104 @@ def test_removed_scan_override_keys_fail_the_repo(
     assert status["status"] == "failed"
     assert status["error_code"] == "INVALID_SCAN_OVERRIDE"
     assert removed_key in status["error_message"]
+
+
+# --- include / exclude / min-risk ------------------------------------------
+
+
+def test_batch_cli_include_exclude_defaults_are_recorded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _stub_successful_scan(monkeypatch)
+    _, run_dir = _run_batch(tmp_path, monkeypatch)
+
+    options = _effective_options(run_dir)
+    assert options["include"] == ["**/*.c", "**/*.h"]
+    assert options["exclude"] == ["**/tests/**"]
+    assert options["min_risk"] == "medium"
+
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    assert summary["args"]["include"] == ["**/*.c", "**/*.h"]
+    assert summary["args"]["exclude"] == ["**/tests/**"]
+    assert summary["args"]["min_risk"] == "medium"
+
+
+def test_per_repo_include_exclude_override_cli(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _stub_successful_scan(monkeypatch)
+    seen: list = []
+    stub = bsr._run_repo_scan
+
+    def capture(job, *, deadline_sec):
+        outcome = stub(job, deadline_sec=deadline_sec)
+        seen.append(job)
+        return outcome
+
+    monkeypatch.setattr(bsr, "_run_repo_scan", capture)
+
+    _, run_dir = _run_batch(
+        tmp_path,
+        monkeypatch,
+        scan_overrides={
+            "include": ["**/*.cpp"],
+            "exclude": ["**/vendor/**"],
+            "min_risk": "high",
+        },
+        cli_args=[
+            "--include",
+            "**/*.c",
+            "--exclude",
+            "**/tests/**",
+            "--min-risk",
+            "low",
+        ],
+    )
+
+    assert len(seen) == 1
+    assert seen[0].include_patterns == ["**/*.cpp"]
+    assert seen[0].exclude_patterns == ["**/vendor/**"]
+    assert seen[0].min_risk == "high"
+
+    options = _effective_options(run_dir)
+    assert options["include"] == ["**/*.cpp"]
+    assert options["exclude"] == ["**/vendor/**"]
+    assert options["min_risk"] == "high"
+
+
+def test_batch_cli_include_exclude_reach_the_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _stub_successful_scan(monkeypatch)
+    seen: list = []
+    stub = bsr._run_repo_scan
+
+    def capture(job, *, deadline_sec):
+        outcome = stub(job, deadline_sec=deadline_sec)
+        seen.append(job)
+        return outcome
+
+    monkeypatch.setattr(bsr, "_run_repo_scan", capture)
+
+    _run_batch(
+        tmp_path,
+        monkeypatch,
+        cli_args=[
+            "--include",
+            "src/**/*.c",
+            "--include",
+            "inc/**/*.h",
+            "--exclude",
+            "**/third_party/**",
+            "--min-risk",
+            "low",
+        ],
+    )
+
+    assert len(seen) == 1
+    assert seen[0].include_patterns == ["src/**/*.c", "inc/**/*.h"]
+    assert seen[0].exclude_patterns == ["**/third_party/**"]
+    assert seen[0].min_risk == "low"
 
 
 # --- max_file_size end to end ----------------------------------------------

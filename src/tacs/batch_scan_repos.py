@@ -25,7 +25,6 @@ from tacs.batch_repo_scan import (
 from tacs.core.env_capabilities import UNKNOWN_SETTING, time64_suffix
 from tacs.core.file_limits import validate_max_file_size
 from tacs.core.llm_client import DEFAULT_CONFIDENCE_FLOOR
-from tacs.core.include_patterns import build_include_patterns
 from tacs.core.path_utils import display_local_path, update_latest_symlink
 from tacs.core.run_ids import new_run_id
 from tacs.core.status_logger import StatusLogger, format_count
@@ -33,6 +32,10 @@ from tacs.llm.env import DEFAULT_MODEL, default_llm_type, default_model_id
 
 
 LOGGER = logging.getLogger("tacs.batch_scan_repos")
+
+#: Match ``tacs scan --include`` / ``--exclude`` defaults.
+DEFAULT_INCLUDE_PATTERNS = ("**/*.c", "**/*.h")
+DEFAULT_EXCLUDE_PATTERNS = ("**/tests/**",)
 
 
 class RepoScanTimeout(Exception):
@@ -452,17 +455,14 @@ def _extract_stage_stats(repo_dir: Path) -> dict[str, Any]:
 
 #: Per-repository ``scan_overrides`` keys a repos file may set. Every key here is
 #: read when the repository is scanned; anything else is reported and dropped.
-#: ``confidence_threshold`` is an alias for ``confidence_floor``, which wins when
-#: both appear.
 SUPPORTED_SCAN_OVERRIDES = (
-    "file_extensions",
-    "exclude_patterns",
+    "include",
+    "exclude",
     "max_file_size",
     "llm",
     "model",
-    "disable_stage1",
+    "min_risk",
     "detect_y2106",
-    "confidence_threshold",
     "confidence_floor",
     "include_no_findings",
     "config_override",
@@ -470,6 +470,8 @@ SUPPORTED_SCAN_OVERRIDES = (
 
 #: Providers a per-repository ``llm`` may name, matching ``--llm`` (including none).
 SUPPORTED_LLM_PROVIDERS = ("none", "ollama", "openai", "anthropic", "gemini")
+
+SUPPORTED_MIN_RISKS = ("low", "medium", "high")
 
 #: Former override keys: rejected with a clear error rather than accepted or ignored.
 REMOVED_SCAN_OVERRIDES = {
@@ -480,6 +482,23 @@ REMOVED_SCAN_OVERRIDES = {
     "llm_type": (
         'scan_overrides.llm_type is no longer supported; '
         'use "llm" instead (e.g. "anthropic" or "none")'
+    ),
+    "file_extensions": (
+        'scan_overrides.file_extensions is no longer supported; '
+        'use "include" with glob patterns (e.g. ["**/*.c", "**/*.h"]) instead'
+    ),
+    "exclude_patterns": (
+        'scan_overrides.exclude_patterns is no longer supported; '
+        'use "exclude" with glob patterns (e.g. ["**/tests/**"]) instead'
+    ),
+    "confidence_threshold": (
+        'scan_overrides.confidence_threshold is no longer supported; '
+        'use "confidence_floor" instead'
+    ),
+    "disable_stage1": (
+        'scan_overrides.disable_stage1 is not supported on tacs repos; '
+        'batch scans are function-first only, and Stage S1 runs only on the '
+        'legacy tacs scan --no-function-first path'
     ),
 }
 
@@ -685,7 +704,6 @@ def _build_pipeline(
     include_no_findings: bool,
     llm: str,
     model: str,
-    disable_stage1: bool,
     detect_y2106: bool,
     confidence_floor: float,
     timeout_sec: int,
@@ -702,6 +720,10 @@ def _build_pipeline(
     ``llm`` is the provider selection (``none`` | ``ollama`` | …), matching
     ``tacs scan --llm``. When ``llm`` is ``none``, the model recorded on the
     pipeline is also ``none``.
+
+    Batch is function-first only. Stage S1 (line-level pre-filter) requires the
+    legacy ``llm_client`` and therefore does not run here; ``enable_pass1`` stays
+    False.
     """
     # Import lazily so `--dry-run` can work without installing full scanner deps.
     from tacs.core.pipeline import ScanningPipeline
@@ -740,10 +762,7 @@ def _build_pipeline(
         bypass_pass1=False,
         bypass_pass3=False,
         function_first=True,
-        # Stage S1 needs an LLM, but the pipeline already skips it when llm_type is
-        # "none", so this stays a plain read of the flag and keeps
-        # --no-disable-stage1 meaning the same thing it means for tacs scan.
-        enable_pass1=not disable_stage1,
+        enable_pass1=False,
         detect_y2106=detect_y2106,
         max_file_size=max_file_size,
         max_function_iters=2,
@@ -885,11 +904,10 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=300,
         help=(
-            "Timeout in seconds for a single LLM request inside a scan "
-            "(default: 300, matching tacs scan --timeout-sec). Ollama Cloud "
-            "requests get twice this, and a failed request is retried up to 3 "
-            "times, so one batch can take several multiples of this value "
-            "before the per-repository deadline ends it."
+            "Timeout in seconds for a single LLM/provider request (default: 300; "
+            "matches tacs scan --request-timeout-sec). Ollama Cloud requests get "
+            "twice this, and a failed request is retried up to 3 times. Distinct "
+            "from --scanner-timeout-sec, which is the whole-repository scan deadline."
         ),
     )
     parser.add_argument(
@@ -915,7 +933,30 @@ def _build_parser() -> argparse.ArgumentParser:
             f"(default: {DEFAULT_MODEL} or TACS_MODEL; ignored when --llm none)"
         ),
     )
-    parser.add_argument("--disable-stage1", action=argparse.BooleanOptionalAction, default=True, help="Disable Stage 1 line-level pass (default: disabled)")
+    parser.add_argument(
+        "--include",
+        action="append",
+        default=None,
+        help=(
+            "Include glob patterns (repeatable; default: **/*.c, **/*.h; "
+            "matches tacs scan). Per-repo scan_overrides.include wins when set."
+        ),
+    )
+    parser.add_argument(
+        "--exclude",
+        action="append",
+        default=None,
+        help=(
+            "Exclude glob patterns (repeatable; default: **/tests/**; "
+            "matches tacs scan). Per-repo scan_overrides.exclude wins when set."
+        ),
+    )
+    parser.add_argument(
+        "--min-risk",
+        choices=list(SUPPORTED_MIN_RISKS),
+        default="medium",
+        help="Minimum IR risk level to keep (default: medium; matches tacs scan)",
+    )
     parser.add_argument("--detect-y2106", action=argparse.BooleanOptionalAction, default=False, help="Enable Y2106 detection (default: disabled, matching tacs scan)")
     parser.add_argument("--confidence-floor", type=float, default=DEFAULT_CONFIDENCE_FLOOR, help=f"Confidence a classification needs to count as decided; the LLM prompts quote it too (default: {DEFAULT_CONFIDENCE_FLOOR})")
     parser.add_argument("--fallback-config", default=DEFAULT_FALLBACK_CONFIG_ID, help=f"Fallback config id when detection is uncertain (default: {DEFAULT_FALLBACK_CONFIG_ID})")
@@ -935,6 +976,10 @@ def main(argv: list[str] | None = None) -> int:
         args.llm = _cli_default_llm()
     if args.model is None:
         args.model = default_model_id()
+    if args.include is None:
+        args.include = list(DEFAULT_INCLUDE_PATTERNS)
+    if args.exclude is None:
+        args.exclude = list(DEFAULT_EXCLUDE_PATTERNS)
 
     from tacs.core.logging_config import configure_logging, resolve_log_level
 
@@ -1132,17 +1177,30 @@ def main(argv: list[str] | None = None) -> int:
             # Own stage so a rejected override is not reported as a config-detection
             # failure, which is what the caller would go looking at.
             stage = "scan_overrides"
-            include_patterns = build_include_patterns(
-                overrides.get("file_extensions")
-                if isinstance(overrides.get("file_extensions"), list)
-                else [".c", ".cpp", ".c++", ".h", ".hpp", ".h++"],
-                None,
-            )
-            exclude_patterns = (
-                overrides.get("exclude_patterns")
-                if isinstance(overrides.get("exclude_patterns"), list)
-                else ["**/tests/**", "**/test/**"]
-            )
+            # Precedence: per-repo include/exclude → batch CLI → built-in defaults
+            # (CLI already resolved to scan-matching defaults when unset).
+            if "include" in overrides:
+                if not isinstance(overrides["include"], list) or not overrides["include"]:
+                    raise ValueError(
+                        "include override must be a non-empty list of glob patterns"
+                    )
+                include_patterns = [
+                    str(p).strip() for p in overrides["include"] if str(p).strip()
+                ]
+                if not include_patterns:
+                    raise ValueError(
+                        "include override must be a non-empty list of glob patterns"
+                    )
+            else:
+                include_patterns = list(args.include)
+            if "exclude" in overrides:
+                if not isinstance(overrides["exclude"], list):
+                    raise ValueError("exclude override must be a list of glob patterns")
+                exclude_patterns = [
+                    str(p).strip() for p in overrides["exclude"] if str(p).strip()
+                ]
+            else:
+                exclude_patterns = list(args.exclude)
             include_no_findings = bool(overrides.get("include_no_findings", args.include_no_findings))
             # Per-repo provider/model win over the batch-wide CLI defaults. Both are
             # validated here so a bad value fails this repository with a clear
@@ -1160,13 +1218,17 @@ def main(argv: list[str] | None = None) -> int:
                 model = str(overrides.get("model", args.model)).strip()
                 if not model:
                     raise ValueError("model override must not be empty")
+            min_risk = str(overrides.get("min_risk", args.min_risk)).strip().lower()
+            if min_risk not in SUPPORTED_MIN_RISKS:
+                raise ValueError(
+                    f"invalid min_risk override: {overrides.get('min_risk')!r} "
+                    f"(supported: {', '.join(SUPPORTED_MIN_RISKS)})"
+                )
             max_file_size = validate_max_file_size(overrides.get("max_file_size"))
-            disable_stage1 = bool(overrides.get("disable_stage1", args.disable_stage1))
             detect_y2106 = bool(overrides.get("detect_y2106", args.detect_y2106))
-            confidence_floor_raw = overrides.get("confidence_floor", overrides.get("confidence_threshold", args.confidence_floor))
-            confidence_floor = float(confidence_floor_raw)
+            confidence_floor = float(overrides.get("confidence_floor", args.confidence_floor))
             llm_enabled_count += int(llm != "none")
-            stage1_disabled_count += int(disable_stage1)
+            stage1_disabled_count += 1  # batch is function-first; Stage S1 never runs
             y2106_enabled_count += int(detect_y2106)
             config_source_counts[config_source] = config_source_counts.get(config_source, 0) + 1
 
@@ -1187,9 +1249,9 @@ def main(argv: list[str] | None = None) -> int:
                 include_patterns=list(include_patterns),
                 exclude_patterns=list(exclude_patterns),
                 include_no_findings=include_no_findings,
+                min_risk=min_risk,
                 llm=llm,
                 model=model,
-                disable_stage1=disable_stage1,
                 detect_y2106=detect_y2106,
                 confidence_floor=confidence_floor,
                 max_file_size=max_file_size,
@@ -1275,11 +1337,14 @@ def main(argv: list[str] | None = None) -> int:
                     "effective_options": {
                         "llm": llm,
                         "model": model if llm != "none" else "none",
+                        "include": include_patterns,
+                        "exclude": exclude_patterns,
+                        "min_risk": min_risk,
                         "max_file_size": max_file_size,
-                        "disable_stage1": disable_stage1,
                         "detect_y2106": detect_y2106,
                         "confidence_floor": confidence_floor,
                         "include_no_findings": include_no_findings,
+                        "request_timeout_sec": args.request_timeout_sec,
                     },
                 },
             )
@@ -1435,7 +1500,9 @@ def main(argv: list[str] | None = None) -> int:
             "request_timeout_sec": args.request_timeout_sec,
             "llm": args.llm,
             "model": "none" if args.llm == "none" else args.model,
-            "disable_stage1": args.disable_stage1,
+            "include": list(args.include),
+            "exclude": list(args.exclude),
+            "min_risk": args.min_risk,
             "detect_y2106": args.detect_y2106,
             "confidence_floor": args.confidence_floor,
             "fallback_config": fallback_config_id,

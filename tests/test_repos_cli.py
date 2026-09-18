@@ -98,7 +98,6 @@ def test_batch_pipeline_uses_packaged_tacs_scanner(tmp_path: Path) -> None:
         include_no_findings=False,
         llm="none",
         model="none",
-        disable_stage1=True,
         detect_y2106=True,
         confidence_floor=0.85,
         timeout_sec=60,

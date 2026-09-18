@@ -53,10 +53,13 @@ def _default_model() -> str:
 @click.option(
     '--disable-stage1/--no-disable-stage1',
     default=True,
-    help='Disable Stage S1 line-level pre-filter (default: disabled / off). '
-         'Enable Stage S1 line-level prefilter on the legacy pipeline; requires '
-         '--no-function-first. Alone, --no-disable-stage1 does nothing on the '
-         'default function-first path.',
+    help=(
+        'Disable Stage S1 line-level pre-filter (default: disabled / off). '
+        'Stage S1 runs only on the legacy pipeline and requires '
+        '--no-function-first; alone, --no-disable-stage1 does nothing on the '
+        'default function-first path (which never constructs the legacy '
+        'llm_client Stage S1 needs).'
+    ),
 )
 @click.option(
     '--env-config',
@@ -103,7 +106,17 @@ def _default_model() -> str:
 @click.option('--no-enable-discovery', is_flag=True, default=False, help='Disable typedef/macro discovery (default: enabled)')
 @click.option('--out', default='findings.json', help='Output file path (default: findings.json)')
 @click.option('--redact-prompts/--no-redact-prompts', default=True, help='Redact prompts in logs (default: enabled)')
-@click.option('--timeout-sec', type=int, default=300, help='Timeout in seconds for a single LLM request (default: 300; Ollama Cloud gets twice this, and a failed request is retried up to 3 times). It does not bound the scan as a whole, which makes as many requests as the code needs, nor the scanner subprocess. For a deadline on a whole repository scan, use tacs repos --scanner-timeout-sec.')
+@click.option(
+    '--request-timeout-sec',
+    type=int,
+    default=300,
+    help=(
+        'Timeout in seconds for a single LLM/provider request (default: 300; '
+        'Ollama Cloud gets twice this, and a failed request is retried up to 3 '
+        'times). It does not bound the scan as a whole. For a whole-repository '
+        'scan deadline, use tacs repos --scanner-timeout-sec.'
+    ),
+)
 @click.option('--token-budget', type=int, default=250000, help='Token budget per scan (default: 250000)')
 def main(
     root: str,
@@ -116,7 +129,7 @@ def main(
     llm: str,
     model: str,
     batch_size_stage1: int,
-    timeout_sec: int,
+    request_timeout_sec: int,
     out: str,
     log_llm: bool,
     log_level: str,
@@ -195,7 +208,7 @@ def main(
             model=model,
             confidence_floor=confidence_floor,
             batch_size_pass1=batch_size_stage1,
-            timeout_sec=timeout_sec,
+            timeout_sec=request_timeout_sec,
             enable_discovery=not no_enable_discovery,
             max_typedef_hops=max_typedef_hops,
             max_aliases=max_aliases,

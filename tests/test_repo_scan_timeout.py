@@ -577,9 +577,20 @@ def test_standalone_scan_request_timeout_default_matches_batch() -> None:
     """The same clients do the same work, so the inner limit is the same."""
     from tacs.scan_command import main as scan_cmd
 
-    default = {p.name: p.default for p in scan_cmd.params}["timeout_sec"]
+    default = {p.name: p.default for p in scan_cmd.params}["request_timeout_sec"]
     assert default == 300
     assert default == bsr._build_parser().parse_args(["--repos-file", "x"]).request_timeout_sec
+
+
+def test_scan_help_uses_request_timeout_sec_not_timeout_sec() -> None:
+    from click.testing import CliRunner
+
+    from tacs.cli import app
+
+    result = CliRunner().invoke(app, ["scan", "--help"])
+    assert result.exit_code == 0
+    assert "--request-timeout-sec" in result.output
+    assert "--timeout-sec" not in result.output.replace("--request-timeout-sec", "")
 
 
 def test_deadline_and_request_timeout_are_separate(
@@ -617,7 +628,6 @@ def test_request_timeout_reaches_the_llm_client(tmp_path: Path) -> None:
         include_no_findings=False,
         llm="ollama",
         model="test-model",
-        disable_stage1=True,
         detect_y2106=False,
         confidence_floor=0.7,
         timeout_sec=42,

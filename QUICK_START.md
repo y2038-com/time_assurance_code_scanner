@@ -193,10 +193,10 @@ tacs repos --repos-file src/tacs/fixtures/repo_lists/test_repos.jsonl --dry-run
 
 # Analysis defaults match tacs scan, so a batch result is comparable with a
 # standalone one on the same source, env config, and model. Both default to
-# Y2106 detection off and the Stage S1 pre-filter off; to change that:
+# Y2106 detection off. Stage S1 is a legacy tacs scan option only
+# (--no-function-first --no-disable-stage1); tacs repos is function-first and
+# does not expose Stage S1.
 #   --detect-y2106        also assess 32-bit unsigned time_t overflow in 2106
-#   --no-disable-stage1   enable Stage S1 on the legacy --no-function-first path
-#                         (tacs scan only; requires --no-function-first)
 
 ```
 
@@ -235,9 +235,9 @@ the fallback terminates the Python scan child only, and a scanner subprocess it
 had already started may survive, so the descendant-process guarantee is weaker
 there.
 
-`tacs scan --timeout-sec` is the standalone equivalent of `--request-timeout-sec`
-alone: it bounds one LLM request, not the scan, which runs as long as its work
-takes.
+`tacs scan --request-timeout-sec` is the standalone equivalent of
+`--request-timeout-sec` alone: it bounds one LLM request, not the scan, which
+runs as long as its work takes.
 
 ### Render
 

@@ -231,7 +231,6 @@ def test_batch_pipeline_privacy_flags_match_standalone_defaults(tmp_path: Path) 
         include_no_findings=False,
         llm="ollama",
         model="none",
-        disable_stage1=False,
         detect_y2106=False,
         confidence_floor=0.85,
         timeout_sec=60,

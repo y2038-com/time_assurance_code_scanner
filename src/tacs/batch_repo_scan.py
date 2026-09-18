@@ -79,9 +79,9 @@ class RepoScanJob:
     include_patterns: list[str]
     exclude_patterns: list[str]
     include_no_findings: bool
+    min_risk: str
     llm: str
     model: str
-    disable_stage1: bool
     detect_y2106: bool
     confidence_floor: float
     max_file_size: int | None
@@ -131,7 +131,6 @@ def run_repo_scan(job: RepoScanJob) -> dict[str, Any]:
         include_no_findings=job.include_no_findings,
         llm=job.llm,
         model=job.model,
-        disable_stage1=job.disable_stage1,
         detect_y2106=job.detect_y2106,
         confidence_floor=job.confidence_floor,
         timeout_sec=job.request_timeout_sec,
@@ -147,7 +146,7 @@ def run_repo_scan(job: RepoScanJob) -> dict[str, Any]:
         rules_path=job.rules_path,
         include_patterns=list(job.include_patterns),
         exclude_patterns=list(job.exclude_patterns),
-        min_risk="medium",
+        min_risk=job.min_risk,
         session_dir=str(per_repo_dir.resolve()),
     )
 
@@ -191,6 +190,7 @@ def run_repo_scan(job: RepoScanJob) -> dict[str, Any]:
         "effective": {
             "llm": effective_llm,
             "model": effective_model,
+            "min_risk": job.min_risk,
             "max_file_size": job.max_file_size,
             "request_timeout_sec": job.request_timeout_sec,
         },
