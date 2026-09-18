@@ -6,11 +6,17 @@ Goal: **clone → install → first candidate findings in about 15 minutes.**
 2. Run a **local scan with `--llm none`** (no API key) on the bundled example tree  
 3. Optionally enable a real LLM provider (explicit opt-in)
 
-Copy secrets only into a local `.env` (never commit it). Template: [`.env.example`](.env.example).
+Provider credentials may be supplied either through process environment
+variables or through an optional local `.env` file. If the same variable is
+present in both places, the existing process environment value takes
+precedence. A `.env` file is convenient for local development; process
+environment variables are often preferable for CI, containers, automation, and
+external secret-management systems. Never commit a real `.env`. Template:
+[`.env.example`](.env.example).
 
 **Privacy:** CLI default is `--llm none`. When `--llm` is not `none` (or you set
 `TACS_LLM_PROVIDER`), source code context — including complete function bodies and,
-in later stages, file-level context and type/macro definitions — may be sent to your
+in later stages, file-leading context plus extracted definitions — may be sent to your
 configured provider. See [docs/privacy.md](docs/privacy.md).
 
 **Local workspace:** `inputs/` for run-specific manifests and configs you supply;
@@ -27,7 +33,7 @@ cd /path/to/time_assurance_code_scanner
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
-cp .env.example .env               # optional until you use a real provider
+cp .env.example .env               # optional convenience for local provider keys
 tacs version
 ```
 
@@ -81,7 +87,8 @@ tacs scan \
 External LLM use is **opt-in**. Recommended optional path: Ollama Cloud.
 
 1. Create an API key at [ollama.com/settings/keys](https://ollama.com/settings/keys).  
-2. Put it in `.env`:
+2. Supply it via the process environment or an optional local `.env` (process
+   environment wins if both are set):
 
 ```bash
 # Leave OLLAMA_HOST unset → https://ollama.com
@@ -109,10 +116,12 @@ Finding counts and classifications vary by model. Keep treating results as candi
 
 ## 4. Other providers
 
-Set keys in `.env`, then pass `--llm` / `--model`. Full copy-paste blocks: [`.env.example`](.env.example).
+Supply keys via the process environment or an optional `.env`, then pass
+`--llm` / `--model`. Full copy-paste blocks: [`.env.example`](.env.example).
 
-Setting `TACS_LLM_PROVIDER=ollama` (or another provider) in `.env` also opts in as
-the CLI default for `--llm`; leave it unset to keep the privacy-safe `none` default.
+Setting `TACS_LLM_PROVIDER=ollama` (or another provider) in the process
+environment or `.env` also opts in as the CLI default for `--llm`; leave it
+unset to keep the privacy-safe `none` default.
 
 ### Ollama local
 

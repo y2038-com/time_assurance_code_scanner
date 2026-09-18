@@ -60,7 +60,8 @@ error message is redacted to `https://***@host/...` before it is printed or writ
 ### Opt-in LLM review (`--llm ollama|openai|anthropic|gemini`)
 
 - Source code context, including complete function bodies and, in later analysis stages, file-level context and type/macro definitions, may be sent to the configured provider
-- Also triggered if you set `TACS_LLM_PROVIDER` in `.env` (explicit env opt-in)
+- Also triggered if you set `TACS_LLM_PROVIDER` in the process environment or
+  `.env` (explicit opt-in)
 - Prefer local Ollama (`OLLAMA_HOST=http://127.0.0.1:11434`) for sensitive trees
 - Prefer Ollama Cloud only when you accept sending that context to that host (`OLLAMA_API_KEY`; leave `OLLAMA_HOST` unset)
 
@@ -104,6 +105,9 @@ the file. Treat provider choice as a data-handling decision.
 
 ## Operational hygiene
 
+- TACS can read provider credentials from the process environment or a local
+  `.env`; process environment values take precedence. Treat `.env` as a
+  plaintext secret file and never commit it.
 - Do not commit `.env`, API keys, or scan outputs that may contain proprietary source
 - Prefer gitignored output paths (`findings.json`, `results/` — including
   `results/scans/` and `results/batches/` — are ignored by default; legacy

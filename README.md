@@ -26,7 +26,9 @@ This repository is the open-source scanner engine and CLI. It is the code-scanni
 | Ollama local | e.g. `llama3.1` | Set `OLLAMA_HOST=http://127.0.0.1:11434` |
 | OpenAI / Anthropic / Gemini | see `.env.example` | Requires the matching API key |
 
-BYOLLM: bring your own provider; no vendor lock-in.
+BYOLLM: bring your own provider; no vendor lock-in. API keys and provider
+settings may be supplied through process environment variables or a local
+`.env`; process environment values take precedence.
 
 ## Privacy (read this)
 
