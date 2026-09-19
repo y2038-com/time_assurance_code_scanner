@@ -15,8 +15,8 @@ Public entry points:
 | [release_checklist.md](release_checklist.md) | Maintainer release / GitHub metadata checklist |
 | [backlog.md](backlog.md) | Deferred non-blocking work (not release blockers) |
 
-Historical:
+Design-era / non-normative:
 
 | Doc | Purpose |
 |-----|---------|
-| [prd/Scanning-Workflow.md](prd/Scanning-Workflow.md) | Design-era workflow PRD (not CLI source of truth) |
+| [prd/Scanning-Workflow.md](prd/Scanning-Workflow.md) | Original TACS scanner workflow design (not CLI source of truth) |

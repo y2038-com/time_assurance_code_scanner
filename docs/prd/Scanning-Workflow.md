@@ -1,22 +1,24 @@
-# Y2038 Repo Scanner – Scanning Workflow (preprocessor-agnostic, LLM-assisted)
+# TACS scanning workflow (preprocessor-agnostic, LLM-assisted)
 
-> **Historical / design document.** This PRD describes the pipeline as designed during
-> early implementation. It is **not** the CLI user guide and may disagree with the
-> current `tacs` command surface, defaults, or stage naming.
+> **Design-era / non-normative background.** This document records the original
+> scanner workflow design for TACS (Time Assurance Code Scanner). It is **not**
+> the CLI user guide and may disagree with the current `tacs` command surface,
+> defaults, or stage naming.
 >
 > For public usage, start with [QUICK_START.md](../../QUICK_START.md) and
 > [docs/usage/RUNNING_FULL_PIPELINE.md](../usage/RUNNING_FULL_PIPELINE.md).
-> Planned items labeled “v0.4” below are **not** a ship commitment for the open-source CLI.
+> Planned items labeled “v0.4” below are **not** a ship commitment for the
+> open-source CLI. Current implementation docs remain the source of truth.
 
 Version: 0.3
-Status: Design-era record (implementation evolved; treat as historical)
+Status: Design-era record (implementation evolved; treat as non-normative)
 Owners: John Lange; Contributors: GPT-5 Thinking
 
 ## 1. Goals and scope
 - Deliver high precision and recall for Y2038 risk detection across C and C++ repositories.
 - Scanner operates line-first and is preprocessor-agnostic by design. All code is examined regardless of `#ifdef` or related guards.
 - Minimize false positives through structural filtering, a three-pass LLM review with strict output schema, and deterministic re-ranking.
-- This document focuses only on the scanning pipeline. It plugs into separate Architecture and Workflow PRDs without changing other services.
+- This document covers the TACS scanner pipeline only: discovery, candidate generation, classification, and local reporting artifacts.
 
 ## 2. Principles
 - All uncommented lines matter: Do not exclude code by preprocessor state. The scanner evaluates every uncommented line with context.
@@ -27,21 +29,22 @@ Owners: John Lange; Contributors: GPT-5 Thinking
 
 ## 3. Inputs and outputs
 ### 3.1 Inputs
-- Input is a treed folder containing code which can be local, git, or zip file
-- Repo root path (local, cloned repo, or unpacked ZIP)
+- Input is a tree of source files (local directory, cloned git repository, or unpacked ZIP)
 - Repo root path (local clone or unpacked ZIP)
 - Rules JSON (symbols, categories, risk defaults; derived flags like `needs_paren`)
 - Scenario facts (time_t bits, signedness, time64 APIs availability, mitigation path if ILP32 signed)
-- Project config: include/exclude globs, min risk threshold, limits (file count, bytes, timeouts)
+- Scan config: include/exclude globs, min risk threshold, limits (file count, bytes, timeouts)
 
 ### 3.2 Outputs
 - Findings JSON objects with fields:
   - `file`, `region` (start_line, end_line), `lines` (list), `symbol`, `category`, `severity`, `confidence`, `reason` (<= 25 words), `scenario`, `preprocessor_context` (captured as-is), `source_snippet` (trimmed)
 - Optional abstentions with `y2038_issue = "abstain"` and `needs_more_context = true`
+- Session artifacts under `results/scans/<session-id>/` (and batch layouts for `tacs repos`)
+- Optional text/HTML reports via `tacs render`
 
 ## 4. Pipeline stages (three-pass LLM, single-line first pass)
 
-### Current Implementation (v0.3) - ✅ COMPLETE
+### Design baseline (v0.3) - ✅ COMPLETE
 
 ### Stage 0. Environment Configuration ✅
 - Environment wizard collects hardware architecture, time_t configuration, and toolchain details
@@ -95,7 +98,7 @@ Owners: John Lange; Contributors: GPT-5 Thinking
 - Human-readable summaries
 - ID mapping and artifact preservation
 
-### Next Phase (v0.4) - 🚧 PLANNED
+### Later ideas (v0.4) - 🚧 EXPLORATORY (not a ship commitment)
 
 ### Stage 2.5. Second Quick Scan (Conditional) 🚧
 - **Trigger:** If critical macros found (e.g., `#define MY_TIME_T time_t`)
@@ -121,6 +124,7 @@ Owners: John Lange; Contributors: GPT-5 Thinking
 - **Model Training:** Fine-tune local model on collected data
 - **Iterative Improvement:** Continuous learning from scan results
 - **Performance Tracking:** Monitor filtering accuracy and cost savings
+
 ## 5. LLM specification
 
 ### 5.1 System prompt ✅
@@ -168,24 +172,24 @@ Owners: John Lange; Contributors: GPT-5 Thinking
 
 ## 8. Security and privacy ✅
 - Only send minimal snippets and context; redact secrets or tokens if present in paths or comments.
-- Disable verbose raw model logging in production by default.
+- Disable verbose raw model logging by default.
 - Log batch ids, token counts, and decision histograms for tuning (not raw code) unless LLM logging is explicitly enabled.
 - Strip or hash repository paths that might include user names or sensitive directory names.
 
 ## 8A. LLM logging and dataset capture (opt in) ✅
 - Purpose: create a corpus of prompts and responses for future fine-tuning and evaluation.
-- Opt in: disabled by default; enable via CLI flag `--log-llm` (true/false). Respect project-level policy if present.
-- Storage: plain files on disk, not a database, under a configurable directory `--log-dir` (default: `results/llm_logs`).
+- Opt in: disabled by default; enable via CLI flag `--log-llm` (true/false).
+- Storage: plain files on disk under a configurable directory `--log-dir` (default: `results/llm_logs`).
 - Format: one file per request per pass in JSON Lines (`.jsonl`).
   - Filename template: `{UTC_ISO_TIMESTAMP}_pass{1|2|3}_batch{NN}.jsonl` (for example, `2025-10-11T16-42-08Z_pass1_batch03.jsonl`).
-  - Each line is a JSON object with keys: `repo_id_hash`, `project_id` (optional), `model`, `model_version` (if available), `prompt_preamble_hash`, `items` (array of region IDs), `request_tokens`, `response_tokens`, `latency_ms`, `prompt` (redacted if `--redact-prompts`), `response` (full JSON), and `timestamp`.
+  - Each line is a JSON object with keys such as: `repo_id_hash`, `model`, `model_version` (if available), `prompt_preamble_hash`, `items` (array of region IDs), `request_tokens`, `response_tokens`, `latency_ms`, `prompt` (redacted if `--redact-prompts`), `response` (full JSON), and `timestamp`.
 - Redaction controls:
   - `--redact-prompts` replaces file paths with hashes and removes long code spans, keeping only line numbers and short context. Default: **enabled** when `--log-llm` is on.
   - A separate `mapping.json` with hash->original path is **not** written unless `--unsafe-allow-pathmap` is passed for strictly local research.
-- Retention: do not retain logs longer than project-configured days (default 30). A `cleanup_logs.py` script prunes old files.
+- Retention: operators should prune old log directories according to local policy; TACS does not ship a separate cleanup utility for this.
 - Security: never write access tokens or credentials. Scrub environment variables from logged payloads.
 
-## 9. Configuration knobs (per project) ✅
+## 9. Configuration knobs (per scan) ✅
 - include_globs, exclude_globs
 - min_risk threshold for the IR stage
 - LLM confidence floor (`--confidence-floor`, default 0.85). The prompts quote it, so the threshold the model is asked to decide by is the one findings are kept by.
@@ -195,10 +199,10 @@ Owners: John Lange; Contributors: GPT-5 Thinking
 - **Environment configuration:** `--env-config` file path
 - **Debug options:** `--debug-candidates`, `--debug-pass2`
 
-## 10. Integration points ✅
-- Worker job consumes this pipeline and writes Findings to the DB.
-- UI reads the Findings JSON and renders a sortable table with filters for severity, confidence, rule, file, and scenario.
-- Feedback loop records user actions for future threshold tuning.
+## 10. Outputs and downstream use ✅
+- `tacs scan` / `tacs repos` write Findings JSON and session metadata under the local results tree.
+- `tacs render` turns Findings JSON into text or HTML reports for human review.
+- Operators may pipe or post-process the JSON with their own tools; TACS does not require an external application stack.
 
 ## 11. Non-goals ✅
 - No compile-time path exploration or macro evaluation in v1.
@@ -224,23 +228,22 @@ Owners: John Lange; Contributors: GPT-5 Thinking
 - **Ollama Integration:** Local and cloud LLM support with proper error handling
 - **JSON Schema Validation:** Strict output format enforcement
 
-### 🚧 PLANNED (v0.4)
+### 🚧 EXPLORATORY (v0.4 labels; not a ship commitment)
 - **Local LLM Pre-filter:** Small local model for intelligent candidate filtering
 - **Risk-Based Assessment:** Categorize candidates by risk level (high/medium/low)
 - **Second Quick Scan:** Follow-up scanning for critical macro derivatives
 - **Learning System:** Corpus building for local model training
 - **Performance Optimization:** Advanced batch processing and rate limit handling
 
-### 🎯 ARCHITECTURE GOALS (v0.4)
-The next phase will implement the refined architecture:
+### 🎯 PIPELINE REFINEMENT GOALS (exploratory)
+A refined pipeline direction discussed during design:
 ```
 Pre-scan typedefs → Quick scan (including macros) → Second quick scan (if important macro derivatives) → Structural filter → Local LLM filter → Commercial LLM Pass 1 → Commercial LLM Pass 2 → Commercial LLM Pass 3
 ```
 
-This architecture will provide:
+Intended benefits if pursued:
 - **80-90% reduction** in commercial LLM API calls
 - **Intelligent pre-filtering** with local models
 - **Adaptive processing** based on macro discoveries
 - **Learning capabilities** for continuous improvement
 - **Cost optimization** while maintaining accuracy
-

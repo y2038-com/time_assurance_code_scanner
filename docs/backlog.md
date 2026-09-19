@@ -38,6 +38,7 @@ When you pick up an item, remove or rewrite it here so the list stays accurate.
 - [ ] Benchmark classification quality across supported models on a shared fixture set
 - [ ] Add optional token/cost budgets or clearer cost reporting for large batch runs (per-run token counts already appear in `stage_stats.json`)
 - [ ] Consider a clearly test-only mock LLM provider for CI/integration (not a public default; `--llm none` stays the offline path)
+- [ ] **Future / exploratory (non-blocking):** Consider a dry-estimation capability (command name TBD; e.g. `tacs plan`) that predicts approximate LLM request/token/cost usage for a proposed scan before execution. Especially useful for large repository or batch runs. Prefer deterministic scan/candidate/function sizing where practical rather than sending code to an LLM merely to estimate cost. No commitment to ship or to the exact command name.
 
 ## Reporting and integrations
 

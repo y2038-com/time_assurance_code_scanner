@@ -1581,7 +1581,7 @@ Classification in migration mode:
         """Validate selected provider against env allowlist."""
         if self.llm_type == "none":
             return
-        # OSS default: all built-in providers. Deployments (e.g. webapp) may tighten via env.
+        # Default: all built-in providers. Managed deployments may tighten via env.
         allowed_raw = os.getenv(
             "ALLOWED_LLM_PROVIDERS", "ollama,openai,anthropic,gemini"
         )

@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Y2038.com LLC
 # SPDX-License-Identifier: Apache-2.0
 
-"""Experimental plain-dict config likelihood API (no SaaS/job models).
+"""Experimental config likelihood helpers that return plain dictionaries.
 
 Build-system auto-detection of the eight ABI/time_t configs is best-effort.
 Callers should prefer an explicit env_config / config_id when accuracy matters.

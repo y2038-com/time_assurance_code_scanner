@@ -1266,7 +1266,8 @@ class ScanningPipeline:
                 for issue in analysis.issues:
                     # LLM may provide either absolute file line numbers, or indexes
                     # relative to the provided function body. Resolve to an absolute
-                    # 1-based file line so the UI can highlight the focus location.
+                    # 1-based file line so renderers or downstream tools can
+                    # highlight the focus location.
                     issue_line_resolved = self._resolve_llm_issue_line(issue.get("line"), function)
                     candidate_lines = [c for c in (function.candidate_lines or []) if isinstance(c, int) and c > 0]
                     candidate_fallback = min(candidate_lines) if candidate_lines else None

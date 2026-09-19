@@ -4,8 +4,8 @@ Maintainer checklist before flipping
 [`time_assurance_code_scanner`](https://github.com/y2038-com/time_assurance_code_scanner)
 to public. **Do not** change GitHub visibility from automation — do that manually.
 
-Out of scope for this cut: `mock` provider, `tacs plan`, `new_scan` E2E,
-PyPI publish, and the public visibility flip itself.
+Out of scope for this cut: `mock` provider, PyPI publish, and the public
+visibility flip itself. Deferred non-blocking ideas live in [backlog.md](backlog.md).
 
 ## Quality bar
 

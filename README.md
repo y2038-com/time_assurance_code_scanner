@@ -128,7 +128,7 @@ Then open `findings.json`. For providers, troubleshooting, and batch/render, see
 | [docs/usage/CONFIG_DETECTOR_USAGE.md](docs/usage/CONFIG_DETECTOR_USAGE.md) | Current | Experimental `tacs detect` |
 | [docs/config_detector.md](docs/config_detector.md) | Current | Detector design notes |
 | [docs/report_renderer.md](docs/report_renderer.md) | Current | Text/HTML rendering |
-| [docs/prd/Scanning-Workflow.md](docs/prd/Scanning-Workflow.md) | Historical | Design-era workflow PRD (not CLI source of truth) |
+| [docs/prd/Scanning-Workflow.md](docs/prd/Scanning-Workflow.md) | Design-era | Original TACS scanner workflow design (not CLI source of truth) |
 | [docs/README.md](docs/README.md) | Current | Docs index |
 | [docs/release_checklist.md](docs/release_checklist.md) | Current | Maintainer release / GitHub metadata checklist |
 
