@@ -1049,7 +1049,8 @@ def main(argv: list[str] | None = None) -> int:
         "llm": {"total_tokens": 0, "prompt_tokens": 0, "completion_tokens": 0, "requests": 0},
     }
 
-    LOGGER.info("starting batch run %s with %d repos", run_id, len(tasks))
+    repo_noun = "repo" if len(tasks) == 1 else "repos"
+    LOGGER.info("starting batch run %s with %d %s", run_id, len(tasks), repo_noun)
 
     for idx, task in enumerate(tasks, start=1):
         repo_started = time.time()

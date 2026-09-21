@@ -909,6 +909,64 @@ def test_repos_warning_suppresses_info_chatter(tmp_path: Path, capsys) -> None:
     assert " DEBUG " not in err
 
 
+def test_repos_batch_start_uses_singular_repo_for_one(
+    tmp_path: Path, capsys
+) -> None:
+    """INFO batch-start line: 1 repo (singular), N!=1 repos (plural)."""
+    one = tmp_path / "one.jsonl"
+    one.write_text(
+        json.dumps({"repo_url": "https://github.com/acme/demo", "ref": "v1"}) + "\n",
+        encoding="utf-8",
+    )
+    two = tmp_path / "two.jsonl"
+    two.write_text(
+        "\n".join(
+            [
+                json.dumps({"repo_url": "https://github.com/acme/one", "ref": "main"}),
+                json.dumps({"repo_url": "https://github.com/acme/two", "ref": "main"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "out"
+
+    assert (
+        batch_main(
+            [
+                "--repos-file",
+                str(one),
+                "--out-dir",
+                str(out / "one"),
+                "--dry-run",
+                "--log-level",
+                "INFO",
+            ]
+        )
+        == 0
+    )
+    err_one = capsys.readouterr().err
+    assert "with 1 repo" in err_one
+    assert "with 1 repos" not in err_one
+
+    assert (
+        batch_main(
+            [
+                "--repos-file",
+                str(two),
+                "--out-dir",
+                str(out / "two"),
+                "--dry-run",
+                "--log-level",
+                "INFO",
+            ]
+        )
+        == 0
+    )
+    err_two = capsys.readouterr().err
+    assert "with 2 repos" in err_two
+
+
 def test_repos_header_omits_default_when_ref_unspecified(tmp_path: Path, capsys) -> None:
     """Unspecified ref must not render as '@ default' in the always-visible header."""
     repos = tmp_path / "repos.jsonl"
