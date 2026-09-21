@@ -9,7 +9,7 @@ description = "AI-assisted scanner that supports long-horizon time assurance by 
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [{ name = "Y2038.com LLC" }]
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
 keywords = [
     "y2038",
     "y2106",
@@ -24,7 +24,6 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
@@ -54,6 +53,7 @@ Documentation = "https://github.com/y2038-com/time_assurance_code_scanner#readme
 
 [tool.setuptools.packages.find]
 where = ["src"]
+exclude = ["*.tests", "*.tests.*"]
 
 [tool.setuptools.package-data]
 tacs = ["rules/*.json", "python/*.py", "fixtures/**/*"]
