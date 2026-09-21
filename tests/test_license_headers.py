@@ -142,4 +142,4 @@ def test_the_license_matches_the_identifier_the_headers_claim() -> None:
 
     assert license_text.startswith(HOLDER)
     assert "Apache License" in license_text and "Version 2.0" in license_text
-    assert 'license = { text = "Apache-2.0" }' in pyproject
+    assert 'license = "Apache-2.0"' in pyproject
