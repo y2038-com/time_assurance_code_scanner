@@ -2,48 +2,102 @@
 
 ## Supported versions
 
-This project is under active development. Security fixes are applied on the
-default branch (`main`) of
-[time_assurance_code_scanner](https://github.com/y2038-com/time_assurance_code_scanner).
-Please test against the latest `main` before reporting.
+| Version | Supported |
+|---------|-----------|
+| Latest tagged release | Yes |
+| `main` | Yes, as the development branch |
+| Older tagged releases | No |
+
+Security fixes are developed on `main`. A fix for a supported release may appear
+as a new tagged release rather than a change to an existing artifact.
+
+Reproducing against the latest tagged release or `main` is helpful. Do not delay
+a report if you cannot do that.
 
 ## Reporting a vulnerability
 
 Please **do not** open a public GitHub issue for security vulnerabilities.
 
-Prefer one of these private channels:
+Use one of these private channels, in order:
 
-1. **GitHub private vulnerability reporting** (preferred when enabled):
-   Repository → **Security** → **Advisories** → **Report a vulnerability**
-   https://github.com/y2038-com/time_assurance_code_scanner/security/advisories/new
-2. If private reporting is unavailable, contact the maintainers via a **private**
-   GitHub channel and wait for acknowledgment before any public discussion.
+1. [GitHub private vulnerability reporting](https://github.com/y2038-com/time_assurance_code_scanner/security/advisories/new)
+   (requires a GitHub sign-in)
+2. Email fallback: [security@y2038.com](mailto:security@y2038.com)
 
-Include enough detail to reproduce the issue (affected version/commit, steps,
-impact). We will aim to acknowledge reports promptly and coordinate disclosure.
+Use email when you cannot use GitHub private reporting.
+
+Do not send API keys, credentials, private source trees, proprietary code, or
+other sensitive material unless it is necessary and arrangements have been made.
+
+## What to include
+
+Useful reports typically include:
+
+- Affected release, commit, or branch
+- Description of the issue and expected security impact
+- Reproduction steps or a minimal proof of concept
+- Platform, language, and relevant scanner configuration
+- Whether the issue is already public
+- Suggested mitigation, if known
+
+Do not delay a report merely because every item is unavailable.
 
 ## What is in scope
 
 Examples of issues we want reported privately:
 
-- Secret or credential leakage (logs, reports, error messages, committed files)
-- Unsafe handling of local paths, clones, or subprocess invocation
-- Prompt-injection or output-handling bugs that could escalate beyond “bad
-  finding text” (for example writing outside intended output paths)
+- Credential or secret leakage through reports, logs, errors, or committed files
+- Unsafe handling of local paths or output paths
+- Unsafe repository cloning or checkout behavior
+- Unsafe subprocess or command invocation
+- Prompt injection or model-output handling that crosses a security boundary
+  (for example writing outside intended output paths)
 - Dependency vulnerabilities with a realistic exploit path in this project
+
+Ordinary model mistakes (incorrect findings, missed issues, or poor wording)
+are not security vulnerabilities. See [What is out of scope](#what-is-out-of-scope).
 
 ## What is out of scope
 
-Please use normal issues (not a security advisory) for:
+Please use normal GitHub issues (not a security advisory) for:
 
 - LLM **false positives / false negatives** or disagreement with a finding
-- Weak or incorrect **experimental** ABI/config auto-detection
+- Weak or incorrect **experimental** ABI or configuration detection
 - Model quality, cost, or provider availability
 - Missing features, documentation typos, or general product feedback
-- “The scanner sent my source to my configured LLM provider” — that is
-  expected BYOLLM behavior when `--llm` is not `none`
+- Expected transmission of source code to the configured LLM provider when
+  `--llm` is not `none`. That is intended BYOLLM behavior.
+  See [docs/privacy.md](docs/privacy.md).
+
+With `--llm none`, TACS does not send source to an LLM provider.
+
+## Disclosure and response
+
+Maintainers will aim to:
+
+- Acknowledge reports promptly
+- Assess severity and affected versions
+- Coordinate remediation and disclosure
+- Credit reporters when requested and appropriate
+
+Please allow reasonable time for investigation and remediation before public
+disclosure. This project does not publish a response SLA, embargo period, bounty,
+or legal safe-harbor statement.
 
 ## Operational notes
 
 - Never commit `.env`, API keys, or private source trees used as scan inputs.
+  Prefer keeping private inputs under `inputs/` and generated artifacts under
+  `results/` (both gitignored except short READMEs).
 - Treat scan reports as potentially sensitive if the source tree was.
+- `tacs scan` reads the tree you pass with `--root` in place. `tacs repos`
+  clones repositories into `--cache-dir` (default `.repo_cache`) and keeps them
+  for reuse until you delete that directory. Put the cache on appropriate
+  storage for private repositories and remove it when finished.
+- A `repo_url` that embeds credentials is rejected and skipped. Prefer a git
+  credential helper or an SSH remote. Credential-bearing URLs that still reach
+  a log line or error message are redacted before printing or writing. Details:
+  [docs/privacy.md](docs/privacy.md).
+- Enabling debug logging in HTTP client or transport libraries may expose
+  sensitive request data when an LLM provider is used. Prefer `--llm none` or
+  local Ollama for sensitive trees.
