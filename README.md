@@ -1,6 +1,6 @@
 # Time Assurance Code Scanner
 
-Open-source, AI-assisted scanner (`tacs`) that supports long-horizon **time
+Open-source, AI-assisted code scanner (`tacs`) that supports long-horizon **time
 assurance** by identifying potential Y2038 / Y2106-class risks in source code
 around 32-bit `time_t` and related ABI assumptions.
 
