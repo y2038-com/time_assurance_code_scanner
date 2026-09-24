@@ -1555,14 +1555,18 @@ Classification in migration mode:
                         pass
                 raise RuntimeError(f"{provider_name} request failed: {response.status_code} - {text}")
             return response.json()
-        except requests.exceptions.ConnectionError:
-            raise RuntimeError(f"Cannot connect to {provider_name} endpoint")
+        except LLMNonRetryableError:
+            # Preserve type so callers (e.g. FunctionLLMClient) can skip retries.
+            raise
         except requests.exceptions.ConnectTimeout:
+            # ConnectTimeout subclasses ConnectionError; catch it first.
             raise RuntimeError(
                 f"{provider_name} connect timeout after {timeouts[0]}s "
                 f"(TCP/TLS to the API host did not finish; check WSL/VPN/firewall/DNS, "
                 f"or raise LLM_CONNECT_TIMEOUT_SEC / GEMINI_CONNECT_TIMEOUT_SEC)"
             )
+        except requests.exceptions.ConnectionError:
+            raise RuntimeError(f"Cannot connect to {provider_name} endpoint")
         except requests.exceptions.ReadTimeout:
             raise RuntimeError(
                 f"{provider_name} read timeout after {timeouts[1]}s "
