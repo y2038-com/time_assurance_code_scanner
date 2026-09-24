@@ -7,6 +7,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Set
@@ -89,7 +90,7 @@ class IRAdapter:
             
             # Build command
             cmd = [
-                'python',
+                sys.executable,
                 str(self.scanner_path),
                 root_path,
                 rules_path,
