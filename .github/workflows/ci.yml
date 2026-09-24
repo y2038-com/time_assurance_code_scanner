@@ -7,33 +7,116 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # Job id and displayed check name must remain exactly "test" (ruleset-required).
   test:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    timeout-minutes: 10
 
-      - uses: actions/setup-python@v5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
           cache: pip
 
       - name: Install
-        run: pip install -e ".[dev]"
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
 
       - name: Tests
-        run: pytest
+        run: python -m pytest
 
       # Gate on the breakage class only: syntax errors and statements that cannot
       # run. The tree does not pass a full lint yet, so the wider report below is
       # informational until that debt is paid.
       - name: Lint (blocking subset)
-        run: ruff check --select E9,F63,F7 .
+        run: python -m ruff check --select E9,F63,F7 .
 
       - name: Lint (full report, informational)
         continue-on-error: true
-        run: ruff check .
+        run: python -m ruff check .
+
+  # Boundary coverage for requires-python >=3.12. Minimum 3.12 is covered by
+  # the primary "test" job; do not duplicate it here.
+  compat:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.14"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Tests
+        run: python -m pytest
+
+  package:
+    name: Package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install packaging tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build twine
+
+      - name: Build distributions
+        run: python -m build
+
+      - name: Check distribution metadata
+        run: python -m twine check dist/*
+
+      - name: Test wheel in a clean environment
+        run: |
+          python -m venv "${{ runner.temp }}/tacs-wheel-smoke"
+          "${{ runner.temp }}/tacs-wheel-smoke/bin/python" -m pip install --upgrade pip
+          "${{ runner.temp }}/tacs-wheel-smoke/bin/python" -m pip install dist/*.whl
+          "${{ runner.temp }}/tacs-wheel-smoke/bin/tacs" version
+          "${{ runner.temp }}/tacs-wheel-smoke/bin/tacs" --help
+          "${{ runner.temp }}/tacs-wheel-smoke/bin/python" -m pip check
