@@ -27,14 +27,15 @@ int main() {
 }
 """)
         
-        # Create a temporary rules file
+        # Create a temporary rules file (external catalog with an explicit ID)
         rules_file = temp_path / "rules.json"
         rules_file.write_text("""[
   {
     "symbol": "time",
     "risk": "high",
     "category": "function",
-    "description": "32-bit time function that may overflow in 2038"
+    "description": "32-bit time function that may overflow in 2038",
+    "rule_id": "TACS-RULE-9001"
   }
 ]""")
         
@@ -91,7 +92,19 @@ int main() {
         assert results.get("schema_version") == "1.1", "Expected schema_version 1.1"
         assert isinstance(results.get("candidates"), list), "Missing candidates[]"
         assert len(results["candidates"]) > 0, "Expected deterministic candidates"
-        assert all(c.get("rule_id") is None for c in results["candidates"])
+        catalog_rows = [
+            c
+            for c in results["candidates"]
+            if c.get("discovery_method") == "catalog_symbol_match"
+        ]
+        assert catalog_rows, "Expected catalog_symbol_match candidates"
+        # External catalog supplied a valid ID — must propagate exactly.
+        time_rows = [c for c in catalog_rows if c.get("symbol") == "time"]
+        assert time_rows
+        assert all(c.get("rule_id") == "TACS-RULE-9001" for c in time_rows)
+        for c in results["candidates"]:
+            if c.get("discovery_method") != "catalog_symbol_match":
+                assert c.get("rule_id") is None
         assert results["meta"].get("candidate_summary", {}).get("total") == len(
             results["candidates"]
         )

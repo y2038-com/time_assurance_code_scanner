@@ -403,7 +403,16 @@ def test_end_to_end_llm_none_preserves_candidates(tmp_path: Path):
     assert data["schema_version"] == "1.1"
     assert isinstance(data["candidates"], list)
     assert len(data["candidates"]) >= 1
-    assert all(c.get("rule_id") is None for c in data["candidates"])
+    from tacs.core.rule_catalog import is_valid_rule_id
+
+    catalog_rows = [
+        c for c in data["candidates"] if c.get("discovery_method") == "catalog_symbol_match"
+    ]
+    assert catalog_rows, "expected at least one catalog_symbol_match candidate"
+    assert all(is_valid_rule_id(c.get("rule_id")) for c in catalog_rows)
+    for c in data["candidates"]:
+        if c.get("discovery_method") != "catalog_symbol_match":
+            assert c.get("rule_id") is None
     assert data["meta"]["candidate_summary"]["total"] == len(data["candidates"])
     assert data["meta"]["candidate_summary"]["findings"] == len(data["findings"])
     # Under --llm none, findings are typically abstain stubs; filtering may keep them.

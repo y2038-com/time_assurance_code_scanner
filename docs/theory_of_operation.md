@@ -1005,9 +1005,11 @@ Starting with public result **schema_version `1.1`**, that document has the shap
   compatibility findings).
 * `meta.candidate_summary` / `meta.assessment_summary` are reconciled from the
   serialized arrays at write time.
-* `rule_id` on candidate evidence is reserved for genuine catalog identifiers; it
-  is currently null until a catalog ID migration (planned before a future 0.2.0).
-  Detectors emit controlled `discovery_method` values at production time
+* `rule_id` on candidate evidence is a durable catalog identifier when the
+  producer emitted one for a catalog match (`discovery_method=catalog_symbol_match`).
+  Non-catalog detectors keep `rule_id=null`. IDs are never inferred from symbol,
+  risk, description, or array position. See [Catalog rule IDs](#catalog-rule-ids)
+  below. Detectors emit controlled `discovery_method` values at production time
   (`catalog_symbol_match`, `time_t_cast`, `define_scanner`, `arithmetic_scanner`,
   `io_boundary`, `migration`). Missing provenance becomes `unknown` rather than
   a fabricated catalog match.
@@ -1164,6 +1166,50 @@ It is closer to:
 > “Systematically discover the code that can participate in time-representation
 > risk, provide the environment and progressively necessary context, and ask
 > for semantic judgment only where it adds value.”
+
+---
+
+# Catalog rule IDs
+
+Each independently matchable entry in the packaged catalog
+(`tacs/rules/y2038_sample_rules.json`) carries an explicit durable
+`rule_id` of the form `TACS-RULE-NNNN`.
+
+* An ID identifies a **deterministic catalog rule** (a matchable symbol-level
+  scanner rule), not a confirmed defect, severity rating, or model conclusion.
+* IDs are **semantically opaque**: they do not encode symbol, OS, risk, or
+  catalog position. They are stored in the catalog JSON and are never
+  recalculated from mutable text or array order at scan time.
+* `CandidateEvidence.rule_id` is populated only when the IR producer emits the
+  catalog ID for a `catalog_symbol_match`. Other discovery methods keep
+  `rule_id=null`. Null means no actual catalog rule ID applies.
+* `#define` **subchecks** are detector metadata under one catalog rule; they
+  do not receive independent public IDs. Define-scanner hits remain
+  `discovery_method=define_scanner` with `rule_id=null`.
+* Some umbrella entries retain researched environment/header differences as
+  structured `variants` metadata. The matcher still matches the symbol only;
+  variant selection is not performed by the scanner.
+
+## Maintenance
+
+* Edits to an existing conceptual rule **retain** its `rule_id`.
+* Reordering catalog rows **retains** IDs (identity is the stored field).
+* A genuinely new matchable rule receives the next unused ID
+  (`scripts/assign_catalog_rule_ids.py` — maintenance only, not a runtime
+  requirement). The script preserves existing IDs and refuses duplicates or
+  renumbering.
+* Retired IDs are listed in `tacs/rules/retired_rule_ids.json` and must not be
+  reassigned. Splitting a rule creates new IDs; the umbrella ID may be retired
+  without reuse when a future detector can distinguish variants.
+* Merging rules must not silently reuse an unrelated retired ID.
+
+## External and legacy catalogs
+
+`--rules` may point at a user-supplied JSON array. Missing `rule_id` values are
+allowed and propagate as null (no invented IDs). Any supplied non-null ID must
+match the `TACS-RULE-NNNN` form and be unique within that document; malformed
+IDs fail closed rather than being coerced to null. Session-discovered alias
+rules are likewise emitted without IDs.
 
 ---
 

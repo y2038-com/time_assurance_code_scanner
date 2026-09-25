@@ -1,5 +1,6 @@
 [
   {
+    "rule_id": "TACS-RULE-0001",
     "symbol": "_USE_32BIT_TIME_T",
     "category": "Constant/Definition",
     "risk": "high",
@@ -17,6 +18,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0002",
     "symbol": "__DARWIN_CLK_TCK",
     "category": "Constant/Definition",
     "risk": "high",
@@ -34,6 +36,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0003",
     "symbol": "_POSIX_TZNAME_MAX",
     "category": "Constant/Definition",
     "risk": "high",
@@ -51,6 +54,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0004",
     "symbol": "_SC_CLK_TCK",
     "category": "Constant/Definition",
     "risk": "high",
@@ -68,6 +72,7 @@
     "comments": "Replaced CLK_TCK"
   },
   {
+    "rule_id": "TACS-RULE-0005",
     "symbol": "_XTIME_NSECS_PER_TICK",
     "category": "Constant/Definition",
     "risk": "high",
@@ -85,6 +90,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0006",
     "symbol": "_XTIME_TICKS_PER_TIME_T",
     "category": "Constant/Definition",
     "risk": "high",
@@ -102,6 +108,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0007",
     "symbol": "CLK_TCK",
     "category": "Constant/Definition",
     "risk": "high",
@@ -119,6 +126,7 @@
     "comments": "Marked as obsolete (TBD: When did it go obsolete?)"
   },
   {
+    "rule_id": "TACS-RULE-0008",
     "symbol": "CLOCKS_PER_SEC",
     "category": "Constant/Definition",
     "risk": "high",
@@ -136,6 +144,7 @@
     "comments": "Mac OSX is 100 when __DARWIN_UNIX03 is not defined, or 1M otherwise"
   },
   {
+    "rule_id": "TACS-RULE-0009",
     "symbol": "TZNAME_MAX",
     "category": "Constant/Definition",
     "risk": "high",
@@ -153,6 +162,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0010",
     "symbol": "clock",
     "category": "CPU Usage",
     "risk": "high",
@@ -170,6 +180,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0011",
     "symbol": "getrusage",
     "category": "CPU Usage",
     "risk": "high",
@@ -187,6 +198,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0012",
     "symbol": "_ftime",
     "category": "Current Time",
     "risk": "high",
@@ -204,6 +216,7 @@
     "comments": "In FreeRTOS, this function returns an error"
   },
   {
+    "rule_id": "TACS-RULE-0013",
     "symbol": "_ftime_s",
     "category": "Current Time",
     "risk": "high",
@@ -221,6 +234,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0014",
     "symbol": "_ftime32",
     "category": "Current Time",
     "risk": "high",
@@ -238,6 +252,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0015",
     "symbol": "_ftime32_s",
     "category": "Current Time",
     "risk": "high",
@@ -255,6 +270,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0016",
     "symbol": "_ftime64",
     "category": "Current Time",
     "risk": "high",
@@ -272,6 +288,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0017",
     "symbol": "_ftime64_s",
     "category": "Current Time",
     "risk": "high",
@@ -289,6 +306,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0018",
     "symbol": "_time32",
     "category": "Current Time",
     "risk": "high",
@@ -306,6 +324,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0019",
     "symbol": "_time64",
     "category": "Current Time",
     "risk": "high",
@@ -323,6 +342,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0020",
     "symbol": "ftime",
     "category": "Current Time",
     "risk": "high",
@@ -340,6 +360,7 @@
     "comments": "Was in POSIX.1-2001, removed in POSIX.1-2008"
   },
   {
+    "rule_id": "TACS-RULE-0021",
     "symbol": "GetDynamicTimeZoneInformation",
     "category": "Current Time",
     "risk": "high",
@@ -357,6 +378,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0022",
     "symbol": "GetFileAttributesEx",
     "category": "Current Time",
     "risk": "high",
@@ -374,23 +396,61 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0023",
     "symbol": "GetFileTime",
-    "category": "Current Time",
+    "category": "File System",
     "risk": "high",
     "header": "Windows.h",
     "os_support": {
-      "POSIX": false,
+      "FreeRTOS": false,
       "Linux": false,
-      "Windows": true,
       "MacOSX": false,
+      "POSIX": false,
       "VxWorks": false,
-      "Zephyr": false,
-      "FreeRTOS": false
+      "Windows": true,
+      "Zephyr": false
     },
-    "description": "Returns the (creation, last access, and last write) times for a file or folder",
-    "comments": ""
+    "description": "Windows GetFileTime: returns creation, last-access, and last-write times for a file or folder (including handles from CreateFile). Catalog variants differ in wording only; the scanner matches the symbol and does not distinguish API-usage context.",
+    "comments": "",
+    "variants": [
+      {
+        "label": "current_time_api",
+        "category": "Current Time",
+        "header": "Windows.h",
+        "description": "Returns the (creation, last access, and last write) times for a file or folder",
+        "comments": "",
+        "os_support": {
+          "POSIX": false,
+          "Linux": false,
+          "Windows": true,
+          "MacOSX": false,
+          "VxWorks": false,
+          "Zephyr": false,
+          "FreeRTOS": false
+        },
+        "risk": "high"
+      },
+      {
+        "label": "file_system_createfile",
+        "category": "File System",
+        "header": "Windows.h",
+        "description": "Gets create, last write, and last access times for file opened with CreateFile",
+        "comments": "",
+        "os_support": {
+          "POSIX": false,
+          "Linux": false,
+          "Windows": true,
+          "MacOSX": false,
+          "VxWorks": false,
+          "Zephyr": false,
+          "FreeRTOS": false
+        },
+        "risk": "high"
+      }
+    ]
   },
   {
+    "rule_id": "TACS-RULE-0024",
     "symbol": "GetLocalTime",
     "category": "Current Time",
     "risk": "high",
@@ -408,6 +468,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0025",
     "symbol": "GetSystemTime",
     "category": "Current Time",
     "risk": "high",
@@ -425,6 +486,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0026",
     "symbol": "GetSystemTimeAdjustment",
     "category": "Current Time",
     "risk": "high",
@@ -442,6 +504,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0027",
     "symbol": "GetSystemTimeAsFileTime",
     "category": "Current Time",
     "risk": "high",
@@ -459,6 +522,7 @@
     "comments": "TBD: What is the epoch"
   },
   {
+    "rule_id": "TACS-RULE-0028",
     "symbol": "GetSystemTimePreciseAsFileTime",
     "category": "Current Time",
     "risk": "high",
@@ -476,6 +540,7 @@
     "comments": "TBD: What is the epoch"
   },
   {
+    "rule_id": "TACS-RULE-0029",
     "symbol": "GetSystemTimes",
     "category": "Current Time",
     "risk": "high",
@@ -493,6 +558,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0030",
     "symbol": "GetTickCount",
     "category": "Current Time",
     "risk": "high",
@@ -510,6 +576,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0031",
     "symbol": "GetTickCount64",
     "category": "Current Time",
     "risk": "high",
@@ -527,6 +594,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0032",
     "symbol": "gettimeofday",
     "category": "Current Time",
     "risk": "high",
@@ -544,6 +612,7 @@
     "comments": "POSIX.1-2008 marked as obsolete"
   },
   {
+    "rule_id": "TACS-RULE-0033",
     "symbol": "SetDynamicTimeZoneInformation",
     "category": "Current Time",
     "risk": "high",
@@ -561,6 +630,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0034",
     "symbol": "SetFileTime",
     "category": "Current Time",
     "risk": "high",
@@ -578,6 +648,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0035",
     "symbol": "SetLocalTime",
     "category": "Current Time",
     "risk": "high",
@@ -595,6 +666,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0036",
     "symbol": "SetSystemTime",
     "category": "Current Time",
     "risk": "high",
@@ -612,6 +684,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0037",
     "symbol": "SetSystemTimeAdjustment",
     "category": "Current Time",
     "risk": "high",
@@ -629,6 +702,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0038",
     "symbol": "settimeofday",
     "category": "Current Time",
     "risk": "high",
@@ -646,6 +720,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0039",
     "symbol": "stime",
     "category": "Current Time",
     "risk": "high",
@@ -663,6 +738,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0040",
     "symbol": "time",
     "category": "Current Time",
     "risk": "high",
@@ -680,6 +756,7 @@
     "comments": "Epoch on many systems is Jan 1, 1970, but not on all systems"
   },
   {
+    "rule_id": "TACS-RULE-0041",
     "symbol": "_daylight",
     "category": "Env Variable",
     "risk": "high",
@@ -697,6 +774,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0042",
     "symbol": "_dstbias",
     "category": "Env Variable",
     "risk": "high",
@@ -714,6 +792,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0043",
     "symbol": "_timezone",
     "category": "Env Variable",
     "risk": "high",
@@ -731,6 +810,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0044",
     "symbol": "_tzname[0]",
     "category": "Env Variable",
     "risk": "high",
@@ -748,6 +828,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0045",
     "symbol": "_tzname[1]",
     "category": "Env Variable",
     "risk": "high",
@@ -765,6 +846,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0046",
     "symbol": "DATE",
     "category": "Env Variable",
     "risk": "high",
@@ -782,6 +864,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0047",
     "symbol": "DATEMSK",
     "category": "Env Variable",
     "risk": "high",
@@ -799,6 +882,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0048",
     "symbol": "HZ",
     "category": "Env Variable",
     "risk": "high",
@@ -816,6 +900,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0049",
     "symbol": "TIME",
     "category": "Env Variable",
     "risk": "high",
@@ -833,6 +918,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0050",
     "symbol": "TIMEZONE",
     "category": "Env Variable",
     "risk": "high",
@@ -850,6 +936,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0051",
     "symbol": "TZ",
     "category": "Env Variable",
     "risk": "high",
@@ -867,6 +954,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0052",
     "symbol": "TZDIR",
     "category": "Env Variable",
     "risk": "high",
@@ -884,6 +972,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0053",
     "symbol": "_fstat",
     "category": "File System",
     "risk": "high",
@@ -901,6 +990,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0054",
     "symbol": "_fstat32",
     "category": "File System",
     "risk": "high",
@@ -918,6 +1008,7 @@
     "comments": "Low occurrence, code should use fstat or _fstat"
   },
   {
+    "rule_id": "TACS-RULE-0055",
     "symbol": "_fstat32i64",
     "category": "File System",
     "risk": "high",
@@ -935,6 +1026,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0056",
     "symbol": "_fstat64",
     "category": "File System",
     "risk": "high",
@@ -952,6 +1044,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0057",
     "symbol": "_fstat64i32",
     "category": "File System",
     "risk": "high",
@@ -969,6 +1062,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0058",
     "symbol": "_fstati64",
     "category": "File System",
     "risk": "high",
@@ -986,6 +1080,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0059",
     "symbol": "_futime",
     "category": "File System",
     "risk": "high",
@@ -1003,6 +1098,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0060",
     "symbol": "_futime32",
     "category": "File System",
     "risk": "high",
@@ -1020,6 +1116,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0061",
     "symbol": "_futime64",
     "category": "File System",
     "risk": "high",
@@ -1037,6 +1134,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0062",
     "symbol": "_stat",
     "category": "File System",
     "risk": "high",
@@ -1054,6 +1152,7 @@
     "comments": "Low occurrence, code should use fstat or _fstat"
   },
   {
+    "rule_id": "TACS-RULE-0063",
     "symbol": "_stat32",
     "category": "File System",
     "risk": "high",
@@ -1071,6 +1170,7 @@
     "comments": "Low occurrence, code should use fstat or _fstat"
   },
   {
+    "rule_id": "TACS-RULE-0064",
     "symbol": "_stat32i64",
     "category": "File System",
     "risk": "high",
@@ -1088,6 +1188,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0065",
     "symbol": "_stat64",
     "category": "File System",
     "risk": "high",
@@ -1105,6 +1206,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0066",
     "symbol": "_stat64i32",
     "category": "File System",
     "risk": "high",
@@ -1122,6 +1224,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0067",
     "symbol": "_stati64",
     "category": "File System",
     "risk": "high",
@@ -1139,6 +1242,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0068",
     "symbol": "_utime",
     "category": "File System",
     "risk": "high",
@@ -1156,6 +1260,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0069",
     "symbol": "_utime32",
     "category": "File System",
     "risk": "high",
@@ -1173,6 +1278,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0070",
     "symbol": "_utime64",
     "category": "File System",
     "risk": "high",
@@ -1190,6 +1296,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0071",
     "symbol": "_wstat",
     "category": "File System",
     "risk": "high",
@@ -1207,6 +1314,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0072",
     "symbol": "_wstat32",
     "category": "File System",
     "risk": "high",
@@ -1224,6 +1332,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0073",
     "symbol": "_wstat32i64",
     "category": "File System",
     "risk": "high",
@@ -1241,6 +1350,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0074",
     "symbol": "_wstat64",
     "category": "File System",
     "risk": "high",
@@ -1258,6 +1368,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0075",
     "symbol": "_wstat64i32",
     "category": "File System",
     "risk": "high",
@@ -1275,6 +1386,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0076",
     "symbol": "_wstati64",
     "category": "File System",
     "risk": "high",
@@ -1292,6 +1404,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0077",
     "symbol": "_wutime",
     "category": "File System",
     "risk": "high",
@@ -1309,6 +1422,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0078",
     "symbol": "_wutime32",
     "category": "File System",
     "risk": "high",
@@ -1326,6 +1440,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0079",
     "symbol": "_wutime64",
     "category": "File System",
     "risk": "high",
@@ -1343,6 +1458,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0080",
     "symbol": "fstat",
     "category": "File System",
     "risk": "high",
@@ -1360,6 +1476,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0081",
     "symbol": "fstat64",
     "category": "File System",
     "risk": "high",
@@ -1377,6 +1494,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0082",
     "symbol": "fstatat",
     "category": "File System",
     "risk": "high",
@@ -1394,6 +1512,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0083",
     "symbol": "fstatat64",
     "category": "File System",
     "risk": "high",
@@ -1411,23 +1530,7 @@
     "comments": ""
   },
   {
-    "symbol": "GetFileTime",
-    "category": "File System",
-    "risk": "high",
-    "header": "Windows.h",
-    "os_support": {
-      "POSIX": false,
-      "Linux": false,
-      "Windows": true,
-      "MacOSX": false,
-      "VxWorks": false,
-      "Zephyr": false,
-      "FreeRTOS": false
-    },
-    "description": "Gets create, last write, and last access times for file opened with CreateFile",
-    "comments": ""
-  },
-  {
+    "rule_id": "TACS-RULE-0084",
     "symbol": "lstat",
     "category": "File System",
     "risk": "high",
@@ -1445,6 +1548,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0085",
     "symbol": "lstat64",
     "category": "File System",
     "risk": "high",
@@ -1462,6 +1566,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0086",
     "symbol": "stat",
     "category": "File System",
     "risk": "high",
@@ -1479,6 +1584,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0087",
     "symbol": "stat64",
     "category": "File System",
     "risk": "high",
@@ -1496,6 +1602,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0088",
     "symbol": "utime",
     "category": "File System",
     "risk": "high",
@@ -1513,6 +1620,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0089",
     "symbol": "_ctime32",
     "category": "Format Conv",
     "risk": "high",
@@ -1530,6 +1638,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0090",
     "symbol": "_ctime32_s",
     "category": "Format Conversion",
     "risk": "high",
@@ -1547,6 +1656,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0091",
     "symbol": "_ctime64",
     "category": "Format Conversion",
     "risk": "high",
@@ -1564,6 +1674,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0092",
     "symbol": "_ctime64_s",
     "category": "Format Conversion",
     "risk": "high",
@@ -1581,6 +1692,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0093",
     "symbol": "_gmtime32",
     "category": "Format Conversion",
     "risk": "high",
@@ -1598,6 +1710,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0094",
     "symbol": "_gmtime32_s",
     "category": "Format Conversion",
     "risk": "high",
@@ -1615,6 +1728,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0095",
     "symbol": "_gmtime64",
     "category": "Format Conversion",
     "risk": "high",
@@ -1632,6 +1746,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0096",
     "symbol": "_gmtime64_s",
     "category": "Format Conversion",
     "risk": "high",
@@ -1649,40 +1764,61 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0097",
     "symbol": "_localtime32",
     "category": "Format Conversion",
     "risk": "high",
     "header": "time.h",
     "os_support": {
-      "POSIX": false,
+      "FreeRTOS": false,
       "Linux": false,
-      "Windows": true,
       "MacOSX": false,
+      "POSIX": false,
       "VxWorks": false,
-      "Zephyr": false,
-      "FreeRTOS": false
+      "Windows": true,
+      "Zephyr": false
     },
-    "description": "Convert a time32_t to a tm struct, adjusting for time zone",
-    "comments": ""
+    "description": "Convert a time32_t to a tm struct, adjusting for time zone. Alternate catalog wording also documents this as a Windows localtime variant for the corresponding time width. The scanner matches the symbol only and does not distinguish which researched description applies.",
+    "comments": "",
+    "variants": [
+      {
+        "label": "convert_to_tm",
+        "category": "Format Conversion",
+        "header": "time.h",
+        "description": "Convert a time32_t to a tm struct, adjusting for time zone",
+        "comments": "",
+        "os_support": {
+          "POSIX": false,
+          "Linux": false,
+          "Windows": true,
+          "MacOSX": false,
+          "VxWorks": false,
+          "Zephyr": false,
+          "FreeRTOS": false
+        },
+        "risk": "high"
+      },
+      {
+        "label": "localtime_width_variant",
+        "category": "Format Conversion",
+        "header": "time.h",
+        "description": "Version of localtime for 32-bit time_t",
+        "comments": "",
+        "os_support": {
+          "POSIX": false,
+          "Linux": false,
+          "Windows": true,
+          "MacOSX": false,
+          "VxWorks": false,
+          "Zephyr": false,
+          "FreeRTOS": false
+        },
+        "risk": "high"
+      }
+    ]
   },
   {
-    "symbol": "_localtime32",
-    "category": "Format Conversion",
-    "risk": "high",
-    "header": "time.h",
-    "os_support": {
-      "POSIX": false,
-      "Linux": false,
-      "Windows": true,
-      "MacOSX": false,
-      "VxWorks": false,
-      "Zephyr": false,
-      "FreeRTOS": false
-    },
-    "description": "Version of localtime for 32-bit time_t",
-    "comments": ""
-  },
-  {
+    "rule_id": "TACS-RULE-0098",
     "symbol": "_localtime32_s",
     "category": "Format Conversion",
     "risk": "high",
@@ -1700,40 +1836,61 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0099",
     "symbol": "_localtime64",
     "category": "Format Conversion",
     "risk": "high",
     "header": "time.h",
     "os_support": {
-      "POSIX": false,
+      "FreeRTOS": false,
       "Linux": false,
-      "Windows": true,
       "MacOSX": false,
+      "POSIX": false,
       "VxWorks": false,
-      "Zephyr": false,
-      "FreeRTOS": false
+      "Windows": true,
+      "Zephyr": false
     },
-    "description": "Convert a time64_t to a tm struct, adjusting for time zone",
-    "comments": ""
+    "description": "Convert a time64_t to a tm struct, adjusting for time zone. Alternate catalog wording also documents this as a Windows localtime variant for the corresponding time width. The scanner matches the symbol only and does not distinguish which researched description applies.",
+    "comments": "",
+    "variants": [
+      {
+        "label": "convert_to_tm",
+        "category": "Format Conversion",
+        "header": "time.h",
+        "description": "Convert a time64_t to a tm struct, adjusting for time zone",
+        "comments": "",
+        "os_support": {
+          "POSIX": false,
+          "Linux": false,
+          "Windows": true,
+          "MacOSX": false,
+          "VxWorks": false,
+          "Zephyr": false,
+          "FreeRTOS": false
+        },
+        "risk": "high"
+      },
+      {
+        "label": "localtime_width_variant",
+        "category": "Format Conversion",
+        "header": "time.h",
+        "description": "Version of localtime for 64-bit time_t (valid until Dec 31, 3000)",
+        "comments": "",
+        "os_support": {
+          "POSIX": false,
+          "Linux": false,
+          "Windows": true,
+          "MacOSX": false,
+          "VxWorks": false,
+          "Zephyr": false,
+          "FreeRTOS": false
+        },
+        "risk": "high"
+      }
+    ]
   },
   {
-    "symbol": "_localtime64",
-    "category": "Format Conversion",
-    "risk": "high",
-    "header": "time.h",
-    "os_support": {
-      "POSIX": false,
-      "Linux": false,
-      "Windows": true,
-      "MacOSX": false,
-      "VxWorks": false,
-      "Zephyr": false,
-      "FreeRTOS": false
-    },
-    "description": "Version of localtime for 64-bit time_t (valid until Dec 31, 3000)",
-    "comments": ""
-  },
-  {
+    "rule_id": "TACS-RULE-0100",
     "symbol": "_localtime64_s",
     "category": "Format Conversion",
     "risk": "high",
@@ -1751,6 +1908,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0101",
     "symbol": "_mkgmtime",
     "category": "Format Conversion",
     "risk": "high",
@@ -1768,6 +1926,7 @@
     "comments": "Epoch is Jan 1, 1970"
   },
   {
+    "rule_id": "TACS-RULE-0102",
     "symbol": "_mkgmtime32",
     "category": "Format Conversion",
     "risk": "high",
@@ -1785,6 +1944,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0103",
     "symbol": "_mkgmtime64",
     "category": "Format Conversion",
     "risk": "high",
@@ -1802,6 +1962,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0104",
     "symbol": "_mktime32",
     "category": "Format Conversion",
     "risk": "high",
@@ -1819,6 +1980,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0105",
     "symbol": "_mktime64",
     "category": "Format Conversion",
     "risk": "high",
@@ -1836,6 +1998,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0106",
     "symbol": "_strdate",
     "category": "Format Conversion",
     "risk": "high",
@@ -1853,6 +2016,7 @@
     "comments": "Deprecated"
   },
   {
+    "rule_id": "TACS-RULE-0107",
     "symbol": "_strdate_s",
     "category": "Format Conversion",
     "risk": "high",
@@ -1870,6 +2034,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0108",
     "symbol": "_strftime_l",
     "category": "Format Conversion",
     "risk": "high",
@@ -1887,6 +2052,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0109",
     "symbol": "_strtime",
     "category": "Format Conversion",
     "risk": "high",
@@ -1904,6 +2070,7 @@
     "comments": "Deprecated"
   },
   {
+    "rule_id": "TACS-RULE-0110",
     "symbol": "_strtime_s",
     "category": "Format Conversion",
     "risk": "high",
@@ -1921,6 +2088,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0111",
     "symbol": "_tstrdate",
     "category": "Format Conversion",
     "risk": "high",
@@ -1938,6 +2106,7 @@
     "comments": "Deprecated"
   },
   {
+    "rule_id": "TACS-RULE-0112",
     "symbol": "_tstrdate_s",
     "category": "Format Conversion",
     "risk": "high",
@@ -1955,6 +2124,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0113",
     "symbol": "_tstrtime",
     "category": "Format Conversion",
     "risk": "high",
@@ -1972,6 +2142,7 @@
     "comments": "Deprecated"
   },
   {
+    "rule_id": "TACS-RULE-0114",
     "symbol": "_tstrtime_s",
     "category": "Format Conversion",
     "risk": "high",
@@ -1989,6 +2160,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0115",
     "symbol": "_wasctime_s",
     "category": "Format Conversion",
     "risk": "high",
@@ -2006,6 +2178,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0116",
     "symbol": "_wcsftime_l",
     "category": "Format Conversion",
     "risk": "high",
@@ -2023,6 +2196,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0117",
     "symbol": "_wctime",
     "category": "Format Conversion",
     "risk": "high",
@@ -2040,6 +2214,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0118",
     "symbol": "_wctime_s",
     "category": "Format Conversion",
     "risk": "high",
@@ -2057,6 +2232,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0119",
     "symbol": "_wctime32",
     "category": "Format Conversion",
     "risk": "high",
@@ -2074,6 +2250,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0120",
     "symbol": "_wctime32_s",
     "category": "Format Conversion",
     "risk": "high",
@@ -2091,6 +2268,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0121",
     "symbol": "_wctime64",
     "category": "Format Conversion",
     "risk": "high",
@@ -2108,6 +2286,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0122",
     "symbol": "_wctime64_s",
     "category": "Format Conversion",
     "risk": "high",
@@ -2125,6 +2304,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0123",
     "symbol": "_wstrdate",
     "category": "Format Conversion",
     "risk": "high",
@@ -2142,6 +2322,7 @@
     "comments": "Deprecated"
   },
   {
+    "rule_id": "TACS-RULE-0124",
     "symbol": "_wstrdate_s",
     "category": "Format Conversion",
     "risk": "high",
@@ -2159,6 +2340,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0125",
     "symbol": "_wstrtime",
     "category": "Format Conversion",
     "risk": "high",
@@ -2176,6 +2358,7 @@
     "comments": "Deprecated"
   },
   {
+    "rule_id": "TACS-RULE-0126",
     "symbol": "_wstrtime_s",
     "category": "Format Conversion",
     "risk": "high",
@@ -2193,6 +2376,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0127",
     "symbol": "asctime",
     "category": "Format Conversion",
     "risk": "high",
@@ -2210,6 +2394,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0128",
     "symbol": "asctime_r",
     "category": "Format Conversion",
     "risk": "high",
@@ -2227,6 +2412,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0129",
     "symbol": "asctime_s",
     "category": "Format Conversion",
     "risk": "high",
@@ -2244,6 +2430,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0130",
     "symbol": "ctime",
     "category": "Format Conversion",
     "risk": "high",
@@ -2261,6 +2448,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0131",
     "symbol": "ctime_r",
     "category": "Format Conversion",
     "risk": "high",
@@ -2278,6 +2466,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0132",
     "symbol": "ctime_s",
     "category": "Format Conversion",
     "risk": "high",
@@ -2295,6 +2484,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0133",
     "symbol": "DosDateTimeToFileTime",
     "category": "Format Conversion",
     "risk": "high",
@@ -2312,6 +2502,7 @@
     "comments": "MSDOS date uses a 7-bit year offset from 1980 (max date is Dec 31, 2107)"
   },
   {
+    "rule_id": "TACS-RULE-0134",
     "symbol": "ExLocalTimeToSystemTime",
     "category": "Format Conversion",
     "risk": "high",
@@ -2329,6 +2520,7 @@
     "comments": "For drivers etc, not user apps, uses LARGE_INT"
   },
   {
+    "rule_id": "TACS-RULE-0135",
     "symbol": "ExSystemTimeToLocalTime",
     "category": "Format Conversion",
     "risk": "high",
@@ -2346,6 +2538,7 @@
     "comments": "For drivers etc, not user apps, uses LARGE_INT"
   },
   {
+    "rule_id": "TACS-RULE-0136",
     "symbol": "FileTimeToDosDateTime",
     "category": "Format Conversion",
     "risk": "high",
@@ -2363,6 +2556,7 @@
     "comments": "MSDOS date uses a 7-bit year offset from 1980 (max date is Dec 31, 2107)"
   },
   {
+    "rule_id": "TACS-RULE-0137",
     "symbol": "FileTimeToLocalFileTime",
     "category": "Format Conversion",
     "risk": "high",
@@ -2380,6 +2574,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0138",
     "symbol": "FileTimeToSystemTime",
     "category": "Format Conversion",
     "risk": "high",
@@ -2397,6 +2592,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0139",
     "symbol": "getdate",
     "category": "Format Conversion",
     "risk": "high",
@@ -2414,6 +2610,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0140",
     "symbol": "getdate_r",
     "category": "Format Conversion",
     "risk": "high",
@@ -2431,6 +2628,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0141",
     "symbol": "gmtime",
     "category": "Format Conversion",
     "risk": "high",
@@ -2448,6 +2646,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0142",
     "symbol": "gmtime_r",
     "category": "Format Conversion",
     "risk": "high",
@@ -2465,6 +2664,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0143",
     "symbol": "gmtime_s",
     "category": "Format Conversion",
     "risk": "high",
@@ -2482,6 +2682,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0144",
     "symbol": "LocalFileTimeToFileTime",
     "category": "Format Conversion",
     "risk": "high",
@@ -2499,6 +2700,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0145",
     "symbol": "localtime",
     "category": "Format Conversion",
     "risk": "high",
@@ -2516,6 +2718,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0146",
     "symbol": "localtime_r",
     "category": "Format Conversion",
     "risk": "high",
@@ -2533,6 +2736,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0147",
     "symbol": "localtime_s",
     "category": "Format Conversion",
     "risk": "high",
@@ -2550,6 +2754,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0148",
     "symbol": "mktime",
     "category": "Format Conversion",
     "risk": "high",
@@ -2567,6 +2772,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0149",
     "symbol": "RtlLocalTimeToSystemTime",
     "category": "Format Conversion",
     "risk": "high",
@@ -2584,6 +2790,7 @@
     "comments": "Only available on Win2k and XP.  TBD: Confirm the epoch for this function"
   },
   {
+    "rule_id": "TACS-RULE-0150",
     "symbol": "RtlTimeToSecondsSince1970",
     "category": "Format Conversion",
     "risk": "high",
@@ -2601,6 +2808,7 @@
     "comments": "Only available on Win2k and XP, and only for system times from 1970 to 2105"
   },
   {
+    "rule_id": "TACS-RULE-0151",
     "symbol": "strftime",
     "category": "Format Conversion",
     "risk": "high",
@@ -2618,6 +2826,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0152",
     "symbol": "strftime_l",
     "category": "Format Conversion",
     "risk": "high",
@@ -2635,6 +2844,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0153",
     "symbol": "strptime",
     "category": "Format Conversion",
     "risk": "high",
@@ -2652,6 +2862,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0154",
     "symbol": "strptime_l",
     "category": "Format Conversion",
     "risk": "high",
@@ -2669,6 +2880,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0155",
     "symbol": "SystemTimeToFileTime",
     "category": "Format Conversion",
     "risk": "high",
@@ -2686,6 +2898,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0156",
     "symbol": "SystemTimeToTzSpecificLocalTime",
     "category": "Format Conversion",
     "risk": "high",
@@ -2703,6 +2916,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0157",
     "symbol": "SystemTimeToTzSpecificLocalTimeEx",
     "category": "Format Conversion",
     "risk": "high",
@@ -2720,6 +2934,7 @@
     "comments": "Also handles DST"
   },
   {
+    "rule_id": "TACS-RULE-0158",
     "symbol": "timegm",
     "category": "Format Conversion",
     "risk": "high",
@@ -2737,6 +2952,7 @@
     "comments": "Opposite of gmtime"
   },
   {
+    "rule_id": "TACS-RULE-0159",
     "symbol": "timelocal",
     "category": "Format Conversion",
     "risk": "high",
@@ -2754,6 +2970,7 @@
     "comments": "Opposite of localtime"
   },
   {
+    "rule_id": "TACS-RULE-0160",
     "symbol": "TzSpecificLocalTimeToSystemTime",
     "category": "Format Conversion",
     "risk": "high",
@@ -2771,6 +2988,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0161",
     "symbol": "TzSpecificLocalTimeToSystemTimeEx",
     "category": "Format Conversion",
     "risk": "high",
@@ -2788,6 +3006,7 @@
     "comments": "Also handles DST"
   },
   {
+    "rule_id": "TACS-RULE-0162",
     "symbol": "wcsftime",
     "category": "Format Conversion",
     "risk": "high",
@@ -2805,6 +3024,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0163",
     "symbol": "wcsftime_l",
     "category": "Format Conversion",
     "risk": "high",
@@ -2822,6 +3042,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0164",
     "symbol": "daylight",
     "category": "Global Variable",
     "risk": "high",
@@ -2839,23 +3060,61 @@
     "comments": "Usage in Windows & Mac seems undocumented"
   },
   {
+    "rule_id": "TACS-RULE-0165",
     "symbol": "timezone",
-    "category": "Global Variable",
+    "category": "Timezone",
     "risk": "high",
     "header": "time.h",
     "os_support": {
-      "POSIX": true,
+      "FreeRTOS": true,
       "Linux": true,
-      "Windows": true,
       "MacOSX": true,
+      "POSIX": true,
       "VxWorks": false,
-      "Zephyr": true,
-      "FreeRTOS": true
+      "Windows": true,
+      "Zephyr": true
     },
-    "description": "The difference in seconds between UTC and local standard time",
-    "comments": "Usage in Windows & Mac seems undocumented"
+    "description": "Timezone-related symbol in time.h. Interpretation depends on environment and usage context: it may refer to a global variable (UTC vs local standard-time offset on most applicable operating systems other than VxWorks) or a function-like form that returns a timezone abbreviation. The scanner matches the symbol only and does not determine which variant applies.",
+    "comments": "Merged umbrella rule. Global-variable row noted undocumented usage on Windows & Mac; function-like row preserves researched os_support (Windows not asserted in source).",
+    "variants": [
+      {
+        "label": "global_variable_time_h",
+        "category": "Global Variable",
+        "header": "time.h",
+        "description": "The difference in seconds between UTC and local standard time",
+        "comments": "Usage in Windows & Mac seems undocumented",
+        "os_support": {
+          "POSIX": true,
+          "Linux": true,
+          "Windows": true,
+          "MacOSX": true,
+          "VxWorks": false,
+          "Zephyr": true,
+          "FreeRTOS": true
+        },
+        "risk": "high"
+      },
+      {
+        "label": "function_timezone_abbreviation_time_h",
+        "category": "Timezone",
+        "header": "time.h",
+        "description": "Returns the timezone abbreviation",
+        "comments": "",
+        "os_support": {
+          "POSIX": false,
+          "Linux": false,
+          "Windows": false,
+          "MacOSX": true,
+          "VxWorks": false,
+          "Zephyr": true,
+          "FreeRTOS": true
+        },
+        "risk": "high"
+      }
+    ]
   },
   {
+    "rule_id": "TACS-RULE-0166",
     "symbol": "tzname[0]",
     "category": "Global Variable",
     "risk": "high",
@@ -2873,6 +3132,7 @@
     "comments": "Usage in Windows & Mac seems undocumented"
   },
   {
+    "rule_id": "TACS-RULE-0167",
     "symbol": "tzname[1]",
     "category": "Global Variable",
     "risk": "high",
@@ -2890,6 +3150,7 @@
     "comments": "Usage in Windows & Mac seems undocumented"
   },
   {
+    "rule_id": "TACS-RULE-0168",
     "symbol": "__DATE__",
     "category": "Macro",
     "risk": "high",
@@ -2907,6 +3168,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0169",
     "symbol": "__TIME__",
     "category": "Macro",
     "risk": "high",
@@ -2924,6 +3186,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0170",
     "symbol": "LC_TIME",
     "category": "Macro",
     "risk": "high",
@@ -2941,6 +3204,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0171",
     "symbol": "mq_timedreceive",
     "category": "Msg Queue",
     "risk": "high",
@@ -2958,6 +3222,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0172",
     "symbol": "mq_timedsend",
     "category": "Msg Queue",
     "risk": "high",
@@ -2975,6 +3240,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0173",
     "symbol": "__darwin_suseconds_t",
     "category": "Simple Type",
     "risk": "high",
@@ -2992,6 +3258,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0174",
     "symbol": "__darwin_time_t",
     "category": "Simple Type",
     "risk": "high",
@@ -3009,6 +3276,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0175",
     "symbol": "__darwin_useconds_t",
     "category": "Simple Type",
     "risk": "high",
@@ -3026,6 +3294,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0176",
     "symbol": "__int64",
     "category": "Simple Type",
     "risk": "high",
@@ -3043,6 +3312,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0177",
     "symbol": "__suseconds_t",
     "category": "Simple Type",
     "risk": "high",
@@ -3060,6 +3330,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0178",
     "symbol": "__time32_t",
     "category": "Simple Type",
     "risk": "high",
@@ -3077,6 +3348,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0179",
     "symbol": "__time64_t",
     "category": "Simple Type",
     "risk": "high",
@@ -3094,6 +3366,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0180",
     "symbol": "__useconds_t",
     "category": "Simple Type",
     "risk": "high",
@@ -3111,6 +3384,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0181",
     "symbol": "clock_res_t",
     "category": "Simple Type",
     "risk": "high",
@@ -3128,6 +3402,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0182",
     "symbol": "clock_t",
     "category": "Simple Type",
     "risk": "high",
@@ -3145,6 +3420,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0183",
     "symbol": "DWORD",
     "category": "Simple Type",
     "risk": "low",
@@ -3162,6 +3438,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0184",
     "symbol": "INT",
     "category": "Simple Type",
     "risk": "low",
@@ -3179,6 +3456,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0185",
     "symbol": "int",
     "category": "Simple Type",
     "risk": "low",
@@ -3196,6 +3474,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0186",
     "symbol": "LONG",
     "category": "Simple Type",
     "risk": "low",
@@ -3213,6 +3492,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0187",
     "symbol": "long",
     "category": "Simple Type",
     "risk": "low",
@@ -3230,6 +3510,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0188",
     "symbol": "long long",
     "category": "Simple Type",
     "risk": "low",
@@ -3247,6 +3528,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0189",
     "symbol": "LONGLONG",
     "category": "Simple Type",
     "risk": "low",
@@ -3264,6 +3546,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0190",
     "symbol": "size_t",
     "category": "Simple Type",
     "risk": "low",
@@ -3281,6 +3564,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0191",
     "symbol": "suseconds_t",
     "category": "Simple Type",
     "risk": "high",
@@ -3298,6 +3582,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0192",
     "symbol": "time_t",
     "category": "Simple Type",
     "risk": "high",
@@ -3315,6 +3600,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0193",
     "symbol": "UINT",
     "category": "Simple Type",
     "risk": "low",
@@ -3332,6 +3618,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0194",
     "symbol": "ULONG",
     "category": "Simple Type",
     "risk": "low",
@@ -3349,6 +3636,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0195",
     "symbol": "ULONGLONG",
     "category": "Simple Type",
     "risk": "low",
@@ -3366,6 +3654,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0196",
     "symbol": "unsigned int",
     "category": "Simple Type",
     "risk": "low",
@@ -3383,6 +3672,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0197",
     "symbol": "unsigned long",
     "category": "Simple Type",
     "risk": "low",
@@ -3400,6 +3690,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0198",
     "symbol": "unsigned long long",
     "category": "Simple Type",
     "risk": "low",
@@ -3417,6 +3708,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0199",
     "symbol": "useconds_t",
     "category": "Simple Type",
     "risk": "high",
@@ -3434,6 +3726,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0200",
     "symbol": "_sleep",
     "category": "Sleep Func",
     "risk": "high",
@@ -3451,6 +3744,7 @@
     "comments": "TBD: what units; this function does not seem to be documented"
   },
   {
+    "rule_id": "TACS-RULE-0201",
     "symbol": "_Thrd_sleep",
     "category": "Sleep Func",
     "risk": "high",
@@ -3468,6 +3762,7 @@
     "comments": "Not well documented"
   },
   {
+    "rule_id": "TACS-RULE-0202",
     "symbol": "clock_nanosleep",
     "category": "Sleep Func",
     "risk": "high",
@@ -3485,6 +3780,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0203",
     "symbol": "k_busy_wait",
     "category": "Sleep Func",
     "risk": "low",
@@ -3502,6 +3798,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0204",
     "symbol": "k_sleep",
     "category": "Sleep Func",
     "risk": "low",
@@ -3519,6 +3816,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0205",
     "symbol": "nanosleep",
     "category": "Sleep Func",
     "risk": "high",
@@ -3536,40 +3834,78 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0206",
     "symbol": "sleep",
     "category": "Sleep Func",
     "risk": "high",
-    "header": "thr/thread",
+    "header": null,
     "os_support": {
-      "POSIX": false,
-      "Linux": false,
+      "FreeRTOS": true,
+      "Linux": true,
+      "MacOSX": true,
+      "POSIX": true,
+      "VxWorks": true,
       "Windows": true,
-      "MacOSX": false,
-      "VxWorks": false,
-      "Zephyr": false,
-      "FreeRTOS": false
+      "Zephyr": true
     },
-    "description": "Sleep until the absolute time given in an xtime struct",
-    "comments": "This is likely for Boost integration"
+    "description": "Sleep-related symbol. Interpretation depends on environment and usage context (Windows thr/thread, FreeRTOS posix/unistd.h, or unistd.h on other researched operating systems). The scanner matches the symbol only and does not determine which environment-specific form applies.",
+    "comments": "Merged from environment-specific research rows; see variants. Windows note: sleep in thr/thread (likely Boost integration).",
+    "variants": [
+      {
+        "label": "windows_thr_thread",
+        "category": "Sleep Func",
+        "header": "thr/thread",
+        "description": "Sleep until the absolute time given in an xtime struct",
+        "comments": "This is likely for Boost integration",
+        "os_support": {
+          "POSIX": false,
+          "Linux": false,
+          "Windows": true,
+          "MacOSX": false,
+          "VxWorks": false,
+          "Zephyr": false,
+          "FreeRTOS": false
+        },
+        "risk": "high"
+      },
+      {
+        "label": "freertos_posix_unistd",
+        "category": "Sleep Func",
+        "header": "posix/unistd.h",
+        "description": "Sleep until the absolute time given in an unsigned int",
+        "comments": "",
+        "os_support": {
+          "POSIX": false,
+          "Linux": false,
+          "Windows": false,
+          "MacOSX": false,
+          "VxWorks": false,
+          "Zephyr": false,
+          "FreeRTOS": true
+        },
+        "risk": "high"
+      },
+      {
+        "label": "other_unistd",
+        "category": "Sleep Func",
+        "header": "unistd.h",
+        "description": "Sleep for given # of seconds in unsigned int",
+        "comments": "Windows has sleep function in thr/thread class",
+        "os_support": {
+          "POSIX": true,
+          "Linux": true,
+          "Windows": false,
+          "MacOSX": true,
+          "VxWorks": true,
+          "Zephyr": true,
+          "FreeRTOS": true
+        },
+        "risk": "high"
+      }
+    ]
   },
   {
-    "symbol": "sleep",
-    "category": "Sleep Func",
-    "risk": "high",
-    "header": "posix/unistd.h",
-    "os_support": {
-      "POSIX": false,
-      "Linux": false,
-      "Windows": false,
-      "MacOSX": false,
-      "VxWorks": false,
-      "Zephyr": false,
-      "FreeRTOS": true
-    },
-    "description": "Sleep until the absolute time given in an unsigned int",
-    "comments": ""
-  },
-  {
+    "rule_id": "TACS-RULE-0207",
     "symbol": "Sleep",
     "category": "Sleep Func",
     "risk": "high",
@@ -3587,23 +3923,7 @@
     "comments": ""
   },
   {
-    "symbol": "sleep",
-    "category": "Sleep Func",
-    "risk": "high",
-    "header": "unistd.h",
-    "os_support": {
-      "POSIX": true,
-      "Linux": true,
-      "Windows": false,
-      "MacOSX": true,
-      "VxWorks": true,
-      "Zephyr": true,
-      "FreeRTOS": true
-    },
-    "description": "Sleep for given # of seconds in unsigned int",
-    "comments": "Windows has sleep function in thr/thread class"
-  },
-  {
+    "rule_id": "TACS-RULE-0208",
     "symbol": "sleep_for",
     "category": "Sleep Func",
     "risk": "high",
@@ -3621,6 +3941,7 @@
     "comments": "Class"
   },
   {
+    "rule_id": "TACS-RULE-0209",
     "symbol": "sleep_until",
     "category": "Sleep Func",
     "risk": "high",
@@ -3638,6 +3959,7 @@
     "comments": "Class"
   },
   {
+    "rule_id": "TACS-RULE-0210",
     "symbol": "thrd_sleep",
     "category": "Sleep Func",
     "risk": "high",
@@ -3655,6 +3977,7 @@
     "comments": "Not well documented"
   },
   {
+    "rule_id": "TACS-RULE-0211",
     "symbol": "usleep",
     "category": "Sleep Func",
     "risk": "high",
@@ -3672,6 +3995,7 @@
     "comments": "Marked obsolete in POSIX.1-2001, Removed in POSIX.1-2008"
   },
   {
+    "rule_id": "TACS-RULE-0212",
     "symbol": "DYNAMIC_TIME_ZONE_INFORMATION",
     "category": "Structure",
     "risk": "high",
@@ -3689,6 +4013,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0213",
     "symbol": "FILETIME",
     "category": "Structure",
     "risk": "high",
@@ -3706,6 +4031,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0214",
     "symbol": "LARGE_INTEGER",
     "category": "Structure",
     "risk": "high",
@@ -3723,6 +4049,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0215",
     "symbol": "mach_timespec_t",
     "category": "Structure",
     "risk": "high",
@@ -3740,6 +4067,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0216",
     "symbol": "MMTIME",
     "category": "Structure",
     "risk": "high",
@@ -3757,6 +4085,7 @@
     "comments": "Contains msecs in a DWORD, also SMPTE sub-struct has hours in a BYTE"
   },
   {
+    "rule_id": "TACS-RULE-0217",
     "symbol": "struct __stat64",
     "category": "Structure",
     "risk": "high",
@@ -3774,6 +4103,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0218",
     "symbol": "struct __timeb32",
     "category": "Structure",
     "risk": "high",
@@ -3791,6 +4121,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0219",
     "symbol": "struct __timeb64",
     "category": "Structure",
     "risk": "high",
@@ -3808,6 +4139,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0220",
     "symbol": "struct __utimbuf32",
     "category": "Structure",
     "risk": "high",
@@ -3825,6 +4157,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0221",
     "symbol": "struct __utimbuf64",
     "category": "Structure",
     "risk": "high",
@@ -3842,6 +4175,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0222",
     "symbol": "struct _stat",
     "category": "Structure",
     "risk": "high",
@@ -3859,6 +4193,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0223",
     "symbol": "struct _stat32",
     "category": "Structure",
     "risk": "high",
@@ -3876,6 +4211,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0224",
     "symbol": "struct _stat32i64",
     "category": "Structure",
     "risk": "high",
@@ -3893,6 +4229,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0225",
     "symbol": "struct _stat64i32",
     "category": "Structure",
     "risk": "high",
@@ -3910,6 +4247,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0226",
     "symbol": "struct _stati64",
     "category": "Structure",
     "risk": "high",
@@ -3927,6 +4265,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0227",
     "symbol": "struct _timeb",
     "category": "Structure",
     "risk": "high",
@@ -3944,6 +4283,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0228",
     "symbol": "struct _utimbuf",
     "category": "Structure",
     "risk": "high",
@@ -3961,6 +4301,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0229",
     "symbol": "struct itimerspec",
     "category": "Structure",
     "risk": "high",
@@ -3978,6 +4319,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0230",
     "symbol": "struct itimerval",
     "category": "Structure",
     "risk": "high",
@@ -3995,6 +4337,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0231",
     "symbol": "struct mach_timespec",
     "category": "Structure",
     "risk": "high",
@@ -4012,6 +4355,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0232",
     "symbol": "struct rusage",
     "category": "Structure",
     "risk": "high",
@@ -4029,6 +4373,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0233",
     "symbol": "struct stat",
     "category": "Structure",
     "risk": "high",
@@ -4046,6 +4391,7 @@
     "comments": "time_t for POSIX, Linux, Windows; struct timespec on OSX, unsigned long on VxWorks"
   },
   {
+    "rule_id": "TACS-RULE-0234",
     "symbol": "struct stat64",
     "category": "Structure",
     "risk": "high",
@@ -4063,6 +4409,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0235",
     "symbol": "struct timeb",
     "category": "Structure",
     "risk": "high",
@@ -4080,6 +4427,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0236",
     "symbol": "struct timespec",
     "category": "Structure",
     "risk": "high",
@@ -4097,6 +4445,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0237",
     "symbol": "struct timeval",
     "category": "Structure",
     "risk": "high",
@@ -4114,6 +4463,7 @@
     "comments": "time_t/suseconds_t on POSIX, Linux, OSX; long/long on Windows, VxWorks"
   },
   {
+    "rule_id": "TACS-RULE-0238",
     "symbol": "struct tm",
     "category": "Structure",
     "risk": "high",
@@ -4131,6 +4481,7 @@
     "comments": "Linux (glibc) and OSX have fields for UTC offset (long) and timezone abbreviation"
   },
   {
+    "rule_id": "TACS-RULE-0239",
     "symbol": "struct tms",
     "category": "Structure",
     "risk": "high",
@@ -4148,6 +4499,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0240",
     "symbol": "struct utimbuf",
     "category": "Structure",
     "risk": "high",
@@ -4165,6 +4517,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0241",
     "symbol": "struct utimbuf32",
     "category": "Structure",
     "risk": "high",
@@ -4182,6 +4535,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0242",
     "symbol": "SYSTEMTIME",
     "category": "Structure",
     "risk": "high",
@@ -4199,6 +4553,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0243",
     "symbol": "TIME_FIELDS",
     "category": "Structure",
     "risk": "high",
@@ -4216,6 +4571,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0244",
     "symbol": "TIME_ZONE_INFORMATION",
     "category": "Structure",
     "risk": "high",
@@ -4233,6 +4589,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0245",
     "symbol": "TIMECAPS",
     "category": "Structure",
     "risk": "high",
@@ -4250,6 +4607,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0246",
     "symbol": "ULARGE_INTEGER",
     "category": "Structure",
     "risk": "high",
@@ -4267,6 +4625,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0247",
     "symbol": "WIN32_FILE_ATTRIBUTE_DATA",
     "category": "Structure",
     "risk": "high",
@@ -4284,6 +4643,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0248",
     "symbol": "xtime",
     "category": "Structure",
     "risk": "high",
@@ -4301,6 +4661,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0249",
     "symbol": "clock_get_res",
     "category": "System Clock",
     "risk": "high",
@@ -4318,6 +4679,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0250",
     "symbol": "clock_get_time",
     "category": "System Clock",
     "risk": "high",
@@ -4335,6 +4697,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0251",
     "symbol": "clock_getres",
     "category": "System Clock",
     "risk": "high",
@@ -4352,6 +4715,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0252",
     "symbol": "clock_gettime",
     "category": "System Clock",
     "risk": "high",
@@ -4369,6 +4733,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0253",
     "symbol": "clock_set_res",
     "category": "System Clock",
     "risk": "high",
@@ -4386,6 +4751,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0254",
     "symbol": "clock_set_time",
     "category": "System Clock",
     "risk": "high",
@@ -4403,6 +4769,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0255",
     "symbol": "clock_setres",
     "category": "System Clock",
     "risk": "high",
@@ -4420,6 +4787,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0256",
     "symbol": "clock_settime",
     "category": "System Clock",
     "risk": "high",
@@ -4437,6 +4805,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0257",
     "symbol": "sysAuxClkConnect",
     "category": "System Clock",
     "risk": "high",
@@ -4454,6 +4823,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0258",
     "symbol": "sysAuxClkDisable",
     "category": "System Clock",
     "risk": "high",
@@ -4471,6 +4841,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0259",
     "symbol": "sysAuxClkEnable",
     "category": "System Clock",
     "risk": "high",
@@ -4488,6 +4859,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0260",
     "symbol": "sysAuxClkRateGet",
     "category": "System Clock",
     "risk": "high",
@@ -4505,6 +4877,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0261",
     "symbol": "sysAuxClkRateSet",
     "category": "System Clock",
     "risk": "high",
@@ -4522,6 +4895,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0262",
     "symbol": "sysClkConnect",
     "category": "System Clock",
     "risk": "high",
@@ -4539,6 +4913,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0263",
     "symbol": "sysClkDisable",
     "category": "System Clock",
     "risk": "high",
@@ -4556,6 +4931,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0264",
     "symbol": "sysClkEnable",
     "category": "System Clock",
     "risk": "high",
@@ -4573,6 +4949,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0265",
     "symbol": "sysClkRateGet",
     "category": "System Clock",
     "risk": "high",
@@ -4590,6 +4967,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0266",
     "symbol": "sysClkRateSet",
     "category": "System Clock",
     "risk": "high",
@@ -4607,6 +4985,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0267",
     "symbol": "_difftime32",
     "category": "Time Calculation",
     "risk": "high",
@@ -4624,6 +5003,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0268",
     "symbol": "_difftime64",
     "category": "Time Calculation",
     "risk": "high",
@@ -4641,6 +5021,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0269",
     "symbol": "CompareFileTime",
     "category": "Time Calculation",
     "risk": "high",
@@ -4658,6 +5039,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0270",
     "symbol": "difftime",
     "category": "Time Calculation",
     "risk": "high",
@@ -4675,6 +5057,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0271",
     "symbol": "timersub",
     "category": "Time Calculation",
     "risk": "high",
@@ -4692,6 +5075,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0272",
     "symbol": "alarm",
     "category": "Timer/Alarm",
     "risk": "high",
@@ -4709,6 +5093,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0273",
     "symbol": "getitimer",
     "category": "Timer/Alarm",
     "risk": "high",
@@ -4726,6 +5111,7 @@
     "comments": "POSIX.1-2008 marked as obsolete"
   },
   {
+    "rule_id": "TACS-RULE-0274",
     "symbol": "KillTimer",
     "category": "Timer/Alarm",
     "risk": "high",
@@ -4743,6 +5129,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0275",
     "symbol": "setitimer",
     "category": "Timer/Alarm",
     "risk": "high",
@@ -4760,6 +5147,7 @@
     "comments": "POSIX.1-2008 marked as obsolete"
   },
   {
+    "rule_id": "TACS-RULE-0276",
     "symbol": "SetTimer",
     "category": "Timer/Alarm",
     "risk": "high",
@@ -4777,6 +5165,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0277",
     "symbol": "timer_cancel",
     "category": "Timer/Alarm",
     "risk": "high",
@@ -4794,6 +5183,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0278",
     "symbol": "timer_connect",
     "category": "Timer/Alarm",
     "risk": "high",
@@ -4811,6 +5201,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0279",
     "symbol": "timer_create",
     "category": "Timer/Alarm",
     "risk": "high",
@@ -4828,6 +5219,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0280",
     "symbol": "timer_delete",
     "category": "Timer/Alarm",
     "risk": "high",
@@ -4845,6 +5237,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0281",
     "symbol": "timer_getoverrun",
     "category": "Timer/Alarm",
     "risk": "high",
@@ -4862,6 +5255,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0282",
     "symbol": "timer_gettime",
     "category": "Timer/Alarm",
     "risk": "high",
@@ -4879,6 +5273,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0283",
     "symbol": "timer_settime",
     "category": "Timer/Alarm",
     "risk": "high",
@@ -4896,6 +5291,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0284",
     "symbol": "timerfd_create",
     "category": "Timer/Alarm",
     "risk": "high",
@@ -4913,6 +5309,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0285",
     "symbol": "timerfd_gettime",
     "category": "Timer/Alarm",
     "risk": "high",
@@ -4930,6 +5327,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0286",
     "symbol": "timerfd_settime",
     "category": "Timer/Alarm",
     "risk": "high",
@@ -4947,6 +5345,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0287",
     "symbol": "ualarm",
     "category": "Timer/Alarm",
     "risk": "high",
@@ -4964,6 +5363,7 @@
     "comments": "POSIX.1-2001 marked as obsolete, removed in POSIX.1-2008"
   },
   {
+    "rule_id": "TACS-RULE-0288",
     "symbol": "_get_daylight",
     "category": "Timezone",
     "risk": "high",
@@ -4981,6 +5381,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0289",
     "symbol": "_get_dstbias",
     "category": "Timezone",
     "risk": "high",
@@ -4998,6 +5399,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0290",
     "symbol": "_get_timezone",
     "category": "Timezone",
     "risk": "high",
@@ -5015,6 +5417,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0291",
     "symbol": "_get_tzname",
     "category": "Timezone",
     "risk": "high",
@@ -5032,6 +5435,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0292",
     "symbol": "_tzset",
     "category": "Timezone",
     "risk": "high",
@@ -5049,23 +5453,7 @@
     "comments": ""
   },
   {
-    "symbol": "timezone",
-    "category": "Timezone",
-    "risk": "high",
-    "header": "time.h",
-    "os_support": {
-      "POSIX": false,
-      "Linux": false,
-      "Windows": false,
-      "MacOSX": true,
-      "VxWorks": false,
-      "Zephyr": true,
-      "FreeRTOS": true
-    },
-    "description": "Returns the timezone abbreviation",
-    "comments": ""
-  },
-  {
+    "rule_id": "TACS-RULE-0293",
     "symbol": "tzset",
     "category": "Timezone",
     "risk": "high",
@@ -5083,6 +5471,7 @@
     "comments": "The link for Windows claims tzset is deprecated in POSIX"
   },
   {
+    "rule_id": "TACS-RULE-0294",
     "symbol": "tzsetwall",
     "category": "Timezone",
     "risk": "high",
@@ -5100,6 +5489,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0295",
     "symbol": "QueryInterruptTime",
     "category": "Windows Interrupt Time",
     "risk": "high",
@@ -5117,6 +5507,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0296",
     "symbol": "QueryInterruptTimePrecise",
     "category": "Windows Interrupt Time",
     "risk": "high",
@@ -5134,6 +5525,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0297",
     "symbol": "QueryUnbiasedInterruptTime",
     "category": "Windows Interrupt Time",
     "risk": "high",
@@ -5151,6 +5543,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0298",
     "symbol": "QueryUnbiasedInterruptTimePrecise",
     "category": "Windows Interrupt Time",
     "risk": "high",
@@ -5168,6 +5561,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0299",
     "symbol": "timeBeginPeriod",
     "category": "Windows MM Timer",
     "risk": "high",
@@ -5185,6 +5579,7 @@
     "comments": "Param for period is UINT, but meaning is unclear"
   },
   {
+    "rule_id": "TACS-RULE-0300",
     "symbol": "timeEndPeriod",
     "category": "Windows MM Timer",
     "risk": "high",
@@ -5202,6 +5597,7 @@
     "comments": "Param for period is UINT, but meaning is unclear"
   },
   {
+    "rule_id": "TACS-RULE-0301",
     "symbol": "timeGetDevCaps",
     "category": "Windows MM Timer",
     "risk": "high",
@@ -5219,6 +5615,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0302",
     "symbol": "timeGetSystemTime",
     "category": "Windows MM Timer",
     "risk": "high",
@@ -5236,6 +5633,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0303",
     "symbol": "timeGetTime",
     "category": "Windows MM Timer",
     "risk": "high",
@@ -5253,6 +5651,7 @@
     "comments": "Rollls over after 49.71 days"
   },
   {
+    "rule_id": "TACS-RULE-0304",
     "symbol": "timeKillEvent",
     "category": "Windows MM Timer",
     "risk": "high",
@@ -5270,6 +5669,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0305",
     "symbol": "TimeProc",
     "category": "Windows MM Timer",
     "risk": "high",
@@ -5287,6 +5687,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0306",
     "symbol": "timeSetEvent",
     "category": "Windows MM Timer",
     "risk": "high",
@@ -5304,6 +5705,7 @@
     "comments": "Can be one-shot or periodic"
   },
   {
+    "rule_id": "TACS-RULE-0307",
     "symbol": "KeQueryInterruptTime",
     "category": "Windows Perf Counter",
     "risk": "high",
@@ -5321,6 +5723,7 @@
     "comments": "For drivers etc"
   },
   {
+    "rule_id": "TACS-RULE-0308",
     "symbol": "KeQueryPerformanceCounter",
     "category": "Windows Perf Counter",
     "risk": "high",
@@ -5338,6 +5741,7 @@
     "comments": "For drivers etc"
   },
   {
+    "rule_id": "TACS-RULE-0309",
     "symbol": "KeQuerySystemTime",
     "category": "Windows Perf Counter",
     "risk": "high",
@@ -5355,6 +5759,7 @@
     "comments": "For drivers etc"
   },
   {
+    "rule_id": "TACS-RULE-0310",
     "symbol": "KeQueryTickCount",
     "category": "Windows Perf Counter",
     "risk": "high",
@@ -5372,6 +5777,7 @@
     "comments": "For drivers etc"
   },
   {
+    "rule_id": "TACS-RULE-0311",
     "symbol": "KeQueryTimeIncrement",
     "category": "Windows Perf Counter",
     "risk": "high",
@@ -5389,6 +5795,7 @@
     "comments": "For drivers etc"
   },
   {
+    "rule_id": "TACS-RULE-0312",
     "symbol": "QueryPerformanceCounter",
     "category": "Windows Perf Counter",
     "risk": "high",
@@ -5406,6 +5813,7 @@
     "comments": "For user apps"
   },
   {
+    "rule_id": "TACS-RULE-0313",
     "symbol": "QueryPerformanceFrequency",
     "category": "Windows Perf Counter",
     "risk": "high",
@@ -5423,6 +5831,7 @@
     "comments": "For user apps"
   },
   {
+    "rule_id": "TACS-RULE-0314",
     "symbol": "CreateWaitableTimer",
     "category": "Windows Timer",
     "risk": "high",
@@ -5440,6 +5849,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0315",
     "symbol": "SetWaitableTimer",
     "category": "Windows Timer",
     "risk": "high",
@@ -5457,6 +5867,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0316",
     "symbol": "SetWaitableTimerEx",
     "category": "Windows Timer",
     "risk": "high",
@@ -5474,6 +5885,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0317",
     "symbol": "WaitForSingleObject",
     "category": "Windows Timer",
     "risk": "high",
@@ -5491,6 +5903,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0318",
     "symbol": "NtGetTickCount",
     "category": "Windows Undoc",
     "risk": "high",
@@ -5508,6 +5921,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0319",
     "symbol": "NtQueryPerformanceCounter",
     "category": "Windows Undoc",
     "risk": "high",
@@ -5525,6 +5939,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0320",
     "symbol": "NtQuerySystemTime",
     "category": "Windows Undoc",
     "risk": "high",
@@ -5542,6 +5957,7 @@
     "comments": "Rolls over after ~29227.7 years, or August of the year 27627"
   },
   {
+    "rule_id": "TACS-RULE-0321",
     "symbol": "NtQueryTimerResolution",
     "category": "Windows Undoc",
     "risk": "high",
@@ -5559,6 +5975,7 @@
     "comments": "Hidden API function"
   },
   {
+    "rule_id": "TACS-RULE-0322",
     "symbol": "NtSetSystemTime",
     "category": "Windows Undoc",
     "risk": "high",
@@ -5576,6 +5993,7 @@
     "comments": "TBD: Verify that epoch is Jan 1, 1600"
   },
   {
+    "rule_id": "TACS-RULE-0323",
     "symbol": "NtSetTimerResolution",
     "category": "Windows Undoc",
     "risk": "high",
@@ -5593,6 +6011,7 @@
     "comments": "Hidden API function"
   },
   {
+    "rule_id": "TACS-RULE-0324",
     "symbol": "RtlTimeFieldsToTime",
     "category": "Windows Undoc",
     "risk": "high",
@@ -5610,6 +6029,7 @@
     "comments": "TBD: Verify that epoch is Jan 1, 1600, and that time is in UTC format"
   },
   {
+    "rule_id": "TACS-RULE-0325",
     "symbol": "RtlTimeToTimeFields",
     "category": "Windows Undoc",
     "risk": "high",
@@ -5627,6 +6047,7 @@
     "comments": "TBD: Verify that epoch is Jan 1, 1600, and that time is in UTC format"
   },
   {
+    "rule_id": "TACS-RULE-0326",
     "symbol": "_Xtime_diff_to_millis",
     "category": "Windows 'xtime'",
     "risk": "high",
@@ -5644,6 +6065,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0327",
     "symbol": "_Xtime_diff_to_millis2",
     "category": "Windows 'xtime'",
     "risk": "high",
@@ -5661,6 +6083,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0328",
     "symbol": "_Xtime_get_ticks",
     "category": "Windows 'xtime'",
     "risk": "high",
@@ -5678,6 +6101,7 @@
     "comments": "At given link, EPOCH is defined as 0x19DB1DED53E8000i64"
   },
   {
+    "rule_id": "TACS-RULE-0329",
     "symbol": "xtime_get",
     "category": "Windows 'xtime'",
     "risk": "high",
@@ -5695,6 +6119,7 @@
     "comments": ""
   },
   {
+    "rule_id": "TACS-RULE-0330",
     "symbol": "#define",
     "risk": "medium",
     "category": "macro",
@@ -5707,4 +6132,3 @@
     ]
   }
 ]
-

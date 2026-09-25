@@ -155,6 +155,13 @@ class Candidate(BaseModel):
             "Controlled detector label (see DISCOVERY_METHODS); not a catalog rule_id"
         ),
     )
+    rule_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "Producer-authored catalog rule_id when this candidate came from an "
+            "identified catalog rule; otherwise null"
+        ),
+    )
 
 
 class IOCandidate(Candidate):
@@ -271,8 +278,9 @@ class CandidateEvidence(BaseModel):
 
     Authorship is scanner/deterministic only. Model verdicts, confidence,
     severity, rationales, and human dispositions do not belong here.
-    ``rule_id`` is reserved for a genuine catalog identifier; it is null until
-    the catalog gains stable ids (separate migration).
+    ``rule_id`` is a genuine packaged/external catalog identifier when the
+    producer emitted one; otherwise null. It is never inferred from symbol,
+    risk, description, or detector name.
     """
     candidate_id: str = Field(
         ...,
