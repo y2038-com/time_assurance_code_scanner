@@ -68,6 +68,36 @@ class MigrationSeverity(str, Enum):
     LOW_RISK = "low_risk"  # Minor concern
 
 
+#: Controlled vocabulary for how a deterministic candidate was produced.
+#: Not a catalog rule id — detectors without a genuine rule_id use these labels.
+DISCOVERY_METHODS = frozenset({
+    "catalog_symbol_match",
+    "time_t_cast",
+    "define_scanner",
+    "arithmetic_scanner",
+    "io_boundary",
+    "migration",
+    "unknown",
+})
+
+#: Max characters kept on a public CandidateEvidence snippet (one line).
+CANDIDATE_SNIPPET_MAX_CHARS = 240
+
+#: Public result JSON schema version (independent of the package version).
+PUBLIC_RESULT_SCHEMA_VERSION = "1.0"
+
+
+class AnalysisCoverage(str, Enum):
+    """Factual pipeline coverage for a deterministic candidate.
+
+    ``grouped``: function association found an enclosing analysis unit.
+    ``ungrouped``: association was attempted and no enclosing function was found.
+    Does not describe model verdicts or Stage 7 triage outcomes.
+    """
+    GROUPED = "grouped"
+    UNGROUPED = "ungrouped"
+
+
 class Candidate(BaseModel):
     """A candidate finding from IR stage."""
     file: str = Field(..., description="File path")
@@ -79,6 +109,12 @@ class Candidate(BaseModel):
     col_start: Optional[int] = Field(default=None, description="Column start")
     col_end: Optional[int] = Field(default=None, description="Column end")
     symbol_role: Optional[str] = Field(default=None, description="AST role tag")
+    discovery_method: Optional[str] = Field(
+        default=None,
+        description=(
+            "Controlled detector label (see DISCOVERY_METHODS); not a catalog rule_id"
+        ),
+    )
 
 
 class IOCandidate(Candidate):
@@ -190,6 +226,70 @@ class Metrics(BaseModel):
     )
 
 
+class CandidateEvidence(BaseModel):
+    """Canonical deterministic discovery evidence for the public result JSON.
+
+    Authorship is scanner/deterministic only. Model verdicts, confidence,
+    severity, rationales, and human dispositions do not belong here.
+    ``rule_id`` is reserved for a genuine catalog identifier; it is null until
+    the catalog gains stable ids (separate migration).
+    """
+    candidate_id: str = Field(
+        ...,
+        description=(
+            "Deterministic in-report foreign key from make_candidate_id "
+            "(relpath:line:cols:risk:symbol). Stable within equivalent scans; "
+            "not stable across arbitrary source edits that shift lines."
+        ),
+    )
+    file: str = Field(..., description="Repository-relative source path")
+    line: int = Field(..., description="1-based line number")
+    col_start: Optional[int] = Field(default=None, description="Column start when known")
+    col_end: Optional[int] = Field(default=None, description="Column end when known")
+    symbol: str = Field(..., description="Matched symbol or detector label")
+    symbol_role: Optional[str] = Field(default=None, description="Optional role tag")
+    risk: str = Field(..., description="Risk category from the detector/rules")
+    description: str = Field(default="", description="Deterministic description text")
+    one_line_snippet: str = Field(
+        ...,
+        description=f"Bounded source line (max {CANDIDATE_SNIPPET_MAX_CHARS} chars)",
+    )
+    discovery_method: str = Field(
+        ...,
+        description="Controlled detector vocabulary entry; not a fabricated rule id",
+    )
+    rule_id: Optional[str] = Field(
+        default=None,
+        description="Genuine catalog rule id when one exists; otherwise null",
+    )
+    function_id: Optional[str] = Field(
+        default=None,
+        description="Enclosing function analysis unit id when grouped; null if ungrouped",
+    )
+    analysis_coverage: AnalysisCoverage = Field(
+        ...,
+        description="grouped if linked to a function unit; ungrouped if association found none",
+    )
+
+
+class DeterministicCandidateSummary(BaseModel):
+    """Counts for deterministic candidates in the public result."""
+    total: int = Field(0, description="Candidates in the canonical public collection")
+    grouped: int = Field(0, description="Candidates with a function_id")
+    ungrouped: int = Field(
+        0,
+        description="Candidates for which function association found no enclosing function",
+    )
+    functions_with_candidates: int = Field(
+        0,
+        description="Distinct function units that contain at least one candidate",
+    )
+    findings: int = Field(
+        0,
+        description="Compatibility findings retained in this result (post-filter)",
+    )
+
+
 class ScanMetadata(BaseModel):
     """Metadata for the scan."""
     root: str = Field(
@@ -211,9 +311,27 @@ class ScanMetadata(BaseModel):
     metrics: Metrics = Field(..., description="Code metrics")
     timestamp: str = Field(..., description="Scan timestamp (UTC ISO 8601)")
     environment_config: Optional[Dict[str, Any]] = Field(default=None, description="Environment configuration")
+    candidate_summary: Optional[DeterministicCandidateSummary] = Field(
+        default=None,
+        description="Deterministic candidate counts (absent on pre-1.0 results)",
+    )
 
 
 class ScanResults(BaseModel):
-    """Complete scan results."""
+    """Complete scan results.
+
+    ``candidates`` is the canonical deterministic evidence collection.
+    ``findings`` remains the model-oriented compatibility projection (filtering
+    unchanged). ``schema_version`` versions this public document shape, not the
+    package release.
+    """
+    schema_version: str = Field(
+        default=PUBLIC_RESULT_SCHEMA_VERSION,
+        description='Public result schema version (e.g. "1.0")',
+    )
     meta: ScanMetadata = Field(..., description="Scan metadata")
+    candidates: List[CandidateEvidence] = Field(
+        default_factory=list,
+        description="Canonical deterministic candidate evidence",
+    )
     findings: List[Finding] = Field(..., description="List of findings")

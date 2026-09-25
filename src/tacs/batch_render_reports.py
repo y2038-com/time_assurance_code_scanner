@@ -16,7 +16,8 @@ from typing import Any, Literal
 from report_renderer.core import (
     FindingsLoadError,
     apply_filters,
-    load_findings_json,
+    candidate_counts_from_document,
+    load_scan_document,
     normalize_findings,
     sort_findings,
 )
@@ -126,8 +127,8 @@ def _render_one(
     finding_index: int | None = None,
 ) -> tuple[bool, str]:
     try:
-        _meta, raw_findings = load_findings_json(str(findings_path))
-        norm = normalize_findings(raw_findings, strict=strict)
+        doc = load_scan_document(str(findings_path))
+        norm = normalize_findings(doc.findings, strict=strict)
     except FindingsLoadError as exc:
         return False, f"load error: {exc}"
 
@@ -139,23 +140,42 @@ def _render_one(
         rules=rules,
     )
     findings = sort_findings(findings, sort_mode)
-    if not findings:
+    has_candidate_section = doc.is_versioned
+    candidate_counts = (
+        candidate_counts_from_document(doc) if has_candidate_section else None
+    )
+    if not findings and not has_candidate_section:
         return False, "no findings matched filters"
 
     if finding_index is not None:
+        if not findings:
+            return False, "--finding requires model-retained findings"
         if finding_index < 1 or finding_index > len(findings):
             return False, f"--finding must be between 1 and {len(findings)}"
         findings = [findings[finding_index - 1]]
 
     if fmt == "text":
-        payload = render_text(findings, list_mode=list_mode and finding_index is None)
+        payload = render_text(
+            findings,
+            list_mode=list_mode and finding_index is None,
+            candidates=doc.candidates if has_candidate_section else None,
+            candidate_counts=candidate_counts,
+            has_candidate_section=has_candidate_section,
+        )
         if out_path is None:
             return True, payload
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(payload + "\n", encoding="utf-8")
         return True, str(out_path)
 
-    html = render_html(findings, title=title, group_by=group_by)
+    html = render_html(
+        findings,
+        title=title,
+        group_by=group_by,
+        candidates=doc.candidates if has_candidate_section else None,
+        candidate_counts=candidate_counts,
+        has_candidate_section=has_candidate_section,
+    )
     if out_path is None:
         return False, "html requires --out (or --out-dir in batch mode)"
     rendered_path = write_html_file(html, str(out_path))

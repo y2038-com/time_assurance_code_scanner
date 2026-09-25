@@ -51,8 +51,22 @@ class NormalizationResult:
     meta: dict[str, Any]
 
 
-def load_findings_json(path: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Load findings JSON from scanner output variants."""
+@dataclass
+class LoadedScanDocument:
+    """Scanner result JSON (versioned schema 1.0 or legacy findings-only)."""
+
+    meta: dict[str, Any]
+    findings: list[dict[str, Any]]
+    candidates: list[dict[str, Any]]
+    schema_version: str | None
+
+    @property
+    def is_versioned(self) -> bool:
+        return bool(self.schema_version) or bool(self.candidates)
+
+
+def load_scan_document(path: str) -> LoadedScanDocument:
+    """Load a scanner result JSON (schema 1.0 or legacy findings-only / bare array)."""
     in_path = Path(path)
     if not in_path.exists():
         raise FindingsLoadError(f"Input not found: {path}")
@@ -67,12 +81,107 @@ def load_findings_json(path: str) -> tuple[dict[str, Any], list[dict[str, Any]]]
         if not isinstance(findings, list):
             raise FindingsLoadError("Expected object with 'findings' array.")
         meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
-        return meta, findings
+        raw_candidates = payload.get("candidates")
+        candidates: list[dict[str, Any]] = []
+        if isinstance(raw_candidates, list):
+            candidates = [c for c in raw_candidates if isinstance(c, dict)]
+        schema_version = payload.get("schema_version")
+        if schema_version is not None and not isinstance(schema_version, str):
+            schema_version = str(schema_version)
+        return LoadedScanDocument(
+            meta=meta,
+            findings=findings,
+            candidates=candidates,
+            schema_version=schema_version,
+        )
 
     if isinstance(payload, list):
-        return {}, payload
+        return LoadedScanDocument(
+            meta={},
+            findings=payload,
+            candidates=[],
+            schema_version=None,
+        )
 
     raise FindingsLoadError("Expected top-level JSON object or array.")
+
+
+def load_findings_json(path: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Load findings JSON from scanner output variants.
+
+    Prefer :func:`load_scan_document` when candidate evidence is needed.
+    """
+    doc = load_scan_document(path)
+    return doc.meta, doc.findings
+
+
+def candidate_counts_from_document(
+    doc: LoadedScanDocument,
+) -> dict[str, int]:
+    """Derive deterministic-candidate counts from meta.candidate_summary or candidates[]."""
+    summary = doc.meta.get("candidate_summary") if isinstance(doc.meta, dict) else None
+    if isinstance(summary, dict):
+        total = int(summary.get("total") or 0)
+        grouped = int(summary.get("grouped") or 0)
+        ungrouped = int(summary.get("ungrouped") or 0)
+        functions = int(summary.get("functions_with_candidates") or 0)
+        findings = int(summary.get("findings") if summary.get("findings") is not None else len(doc.findings))
+        return {
+            "total": total,
+            "grouped": grouped,
+            "ungrouped": ungrouped,
+            "functions_with_candidates": functions,
+            "findings": findings,
+        }
+
+    total = len(doc.candidates)
+    grouped = sum(1 for c in doc.candidates if c.get("function_id") or c.get("analysis_coverage") == "grouped")
+    ungrouped = total - grouped
+    function_ids = {c.get("function_id") for c in doc.candidates if c.get("function_id")}
+    return {
+        "total": total,
+        "grouped": grouped,
+        "ungrouped": ungrouped,
+        "functions_with_candidates": len(function_ids),
+        "findings": len(doc.findings),
+    }
+
+
+def format_candidate_preservation_message(
+    *,
+    candidate_total: int,
+    ungrouped: int,
+    findings_shown: int,
+    has_candidate_section: bool,
+) -> str:
+    """Honest empty-findings / zero-candidate wording for reports."""
+    if not has_candidate_section:
+        # Legacy findings-only JSON: do not invent candidate counts.
+        if findings_shown == 0:
+            return "No findings match the selected filters."
+        return ""
+
+    if candidate_total == 0 and findings_shown == 0:
+        return "No deterministic candidates were found."
+
+    parts: list[str] = []
+    if findings_shown == 0 and candidate_total > 0:
+        parts.append(
+            f"No model-retained findings were produced; {candidate_total} "
+            "deterministic candidates were recorded for review."
+        )
+    elif candidate_total > 0:
+        parts.append(
+            f"{candidate_total} deterministic candidates were recorded"
+            + (
+                f", including {ungrouped} candidates not grouped into a recognized function."
+                if ungrouped
+                else "."
+            )
+        )
+    elif findings_shown == 0:
+        parts.append("No deterministic candidates were found.")
+    return " ".join(parts)
 
 
 def normalize_findings(

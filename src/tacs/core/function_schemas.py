@@ -50,6 +50,10 @@ class FunctionBody(BaseModel):
     end_line: int = Field(..., description="Ending line number")
     body: str = Field(..., description="Full function body")
     candidate_lines: List[int] = Field(default_factory=list, description="Lines containing Y2038 candidates")
+    candidate_ids: List[str] = Field(
+        default_factory=list,
+        description="Deterministic candidate_id values included in this function unit",
+    )
     context_additions: Optional[Dict[str, Any]] = Field(default=None, description="Additional context for iterative analysis")
     is_partial: bool = Field(default=False, description="Whether this is a partial function (split from a larger function)")
     original_function_id: Optional[str] = Field(default=None, description="Original function_id if this is a partial function")

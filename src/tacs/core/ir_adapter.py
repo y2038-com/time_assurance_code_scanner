@@ -17,6 +17,31 @@ from tacs.core.define_scanner import DefineScanner, DefineMatch
 from tacs.core.arithmetic_scanner import ArithmeticScanner, ArithmeticMatch
 from tacs.core.path_utils import canonical_source_path
 from tacs.core.candidate_utils import prepare_candidates
+from tacs.core.candidate_evidence import normalize_discovery_method
+
+
+def _ir_symbols_and_methods(item: Dict[str, Any]) -> List[tuple[str, Optional[str]]]:
+    """Pair each IR symbol with its producer-emitted discovery_method.
+
+    Propagates explicit values only. Does not classify from symbol, risk, or
+    description text. Missing methods stay None and become ``unknown`` via
+    :func:`normalize_discovery_method`.
+    """
+    if "symbols" in item:
+        symbols = item.get("symbols") or []
+        if isinstance(symbols, str):
+            symbols = [symbols]
+        methods = item.get("discovery_methods")
+        if not isinstance(methods, list):
+            methods = []
+        paired: List[tuple[str, Optional[str]]] = []
+        for i, symbol in enumerate(symbols):
+            method = methods[i] if i < len(methods) else None
+            paired.append((str(symbol or ""), method))
+        return paired
+
+    symbol = str(item.get("symbol") or "")
+    return [(symbol, item.get("discovery_method"))]
 
 
 class IRAdapter:
@@ -162,20 +187,16 @@ class IRAdapter:
             # Convert to Candidate objects
             candidates = []
             for item in raw_results:
-                # Handle both single symbol and grouped symbols
-                symbols = item.get('symbols', [item.get('symbol', '')])
-                if isinstance(symbols, str):
-                    symbols = [symbols]
-                
                 file_path = canonical_source_path(item['file'])
-                for symbol in symbols:
+                for symbol, method in _ir_symbols_and_methods(item):
                     candidate = Candidate(
                         file=file_path,
                         line=item['line'],
                         symbol=symbol,
                         one_line_snippet=item['lineText'],
                         risk=item['risk'],
-                        description=item.get('description', '')
+                        description=item.get('description', ''),
+                        discovery_method=normalize_discovery_method(method),
                     )
                     candidates.append(candidate)
             
@@ -255,7 +276,8 @@ class IRAdapter:
                 symbol=match.macro_name,
                 one_line_snippet=match.full_line,
                 risk="high" if match.subcheck_type in ['time_type_alias', 'time_struct_alias'] else "medium",
-                description=f"{match.subcheck_type}: {match.macro_name} -> {match.macro_value}"
+                description=f"{match.subcheck_type}: {match.macro_name} -> {match.macro_value}",
+                discovery_method="define_scanner",
             )
             candidates.append(candidate)
         
@@ -342,7 +364,8 @@ class IRAdapter:
                     symbol=f"arithmetic_{match.operation}",
                     one_line_snippet=match.full_line,
                     risk=match.risk_level,
-                    description=f"Arithmetic operation on time_t: {match.time_t_var} {match.operation} {match.operand}"
+                    description=f"Arithmetic operation on time_t: {match.time_t_var} {match.operation} {match.operand}",
+                    discovery_method="arithmetic_scanner",
                 )
                 candidates.append(candidate)
         

@@ -362,7 +362,8 @@ This scan session contains all data needed for debugging, review, and fine-tunin
         Save the scan summary, plus a session copy of the findings.
 
         Batch mode writes only summary.txt: ``tacs repos`` publishes the canonical
-        findings.json at the same root, and that document ({meta, findings}) is a
+        findings.json at the same root, and that document
+        ({schema_version, meta, candidates, findings} for schema 1.0) is a
         superset of the bare findings array kept for standalone sessions.
         """
         if self.batch_mode:

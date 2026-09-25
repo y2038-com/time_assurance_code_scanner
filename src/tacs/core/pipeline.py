@@ -741,7 +741,8 @@ class ScanningPipeline:
                         symbol=risk.get('symbol', 'migration_risk'),
                         one_line_snippet=risk.get('code', ''),
                         risk='high',
-                        description=f"Migration risk: {risk.get('type', 'unknown')}"
+                        description=f"Migration risk: {risk.get('type', 'unknown')}",
+                        discovery_method="migration",
                     )
                     filtered_candidates.append(candidate)
                 
@@ -775,6 +776,11 @@ class ScanningPipeline:
                     StatusLogger.timestamped_print(f"     Role: {candidate.symbol_role}")
             if len(filtered_candidates) > 5:
                 StatusLogger.timestamped_print(f"  ... and {len(filtered_candidates) - 5} more candidates")
+
+        # Canonical public evidence: final prepared deterministic set after I/O and
+        # migration merges, before any LLM-driven Stage 7 / S1 filtering.
+        filtered_candidates = prepare_candidates(filtered_candidates)
+        self._record_canonical_candidate_evidence(filtered_candidates, root_path)
         
         # Route to appropriate analysis approach
         if self.function_first:
@@ -796,6 +802,47 @@ class ScanningPipeline:
         
         # Convert findings to scan results
         return self._create_scan_results(findings, metrics, session, root_path, rules_path)
+
+    def _record_canonical_candidate_evidence(
+        self,
+        candidates: List[Candidate],
+        root_path: str,
+    ) -> None:
+        """Persist public CandidateEvidence from the full prepared set.
+
+        Function association runs on this full set so Stage 7 / legacy S1
+        filtering cannot mark an in-function candidate as ungrouped. The
+        analysis path may still functionize a filtered subset separately.
+        """
+        from tacs.core.candidate_evidence import (
+            attach_candidate_ids_to_functions,
+            build_candidate_evidence,
+        )
+        from tacs.core.function_analyzer import FunctionAnalyzer
+
+        if hasattr(self, "function_analyzer") and self.function_analyzer is not None:
+            analyzer = self.function_analyzer
+            # Prefer repo-relative function ids once the scan root is known.
+            if getattr(analyzer, "root_path", None) is None:
+                analyzer.root_path = root_path
+        else:
+            analyzer = FunctionAnalyzer(
+                max_function_lines=getattr(self, "max_function_lines", 10000),
+                max_function_chars=getattr(self, "max_function_chars", 20000),
+                root_path=root_path,
+            )
+
+        # Function association for public evidence only. Uses a shallow copy of
+        # the candidate list so Stage 7 / LLM still receive the original set
+        # unchanged (metadata linkage must not filter or rewrite analysis input).
+        functions = analyzer.extract_functions_with_candidates(list(candidates))
+        functions = attach_candidate_ids_to_functions(functions, candidates, root_path)
+        self._canonical_candidate_evidence = build_candidate_evidence(
+            candidates,
+            root_path=root_path,
+            functions=functions,
+        )
+        self._canonical_evidence_functions = functions
 
     def _display_path(self, path: str) -> str:
         """Name a scanned file relative to the scan root for output and diagnostics."""
@@ -905,6 +952,12 @@ class ScanningPipeline:
         # Re-prepare after Stage 4/5 may have appended I/O or migration candidates.
         candidates = prepare_candidates(candidates)
         functions = self.function_analyzer.extract_functions_with_candidates(candidates)
+        # Attach candidate_ids for multi-candidate / split-part linkage (analysis path).
+        # Public evidence already linked the full canonical set earlier.
+        from tacs.core.candidate_evidence import attach_candidate_ids_to_functions
+        root_for_ids = getattr(self.function_analyzer, "root_path", None) or ""
+        if root_for_ids:
+            functions = attach_candidate_ids_to_functions(functions, candidates, root_for_ids)
         StatusLogger.timestamped_print(
             f"Extracted {_format_count(len(functions), 'function')} containing candidates"
         )
@@ -1894,6 +1947,15 @@ class ScanningPipeline:
         
         # Collect token statistics
         token_stats = self._collect_token_stats()
+
+        from tacs.core.candidate_evidence import summarize_candidate_evidence
+        from tacs.core.schema import PUBLIC_RESULT_SCHEMA_VERSION
+
+        evidence = list(getattr(self, "_canonical_candidate_evidence", None) or [])
+        candidate_summary = summarize_candidate_evidence(
+            evidence,
+            findings_count=len(findings),
+        )
         
         # Create summary (total_ms was finalized in save_metadata)
         total_ms = session.timing.get("total_ms", 0)
@@ -1901,7 +1963,9 @@ class ScanningPipeline:
         if api_llm_type == "none":
             # Discovery-only: retained records are candidates, not LLM abstentions.
             pipeline_results = (
-                f"- Candidate findings retained: {len(findings)} (LLM disabled)"
+                f"- Candidate findings retained: {len(findings)} (LLM disabled)\n"
+                f"- Deterministic candidates recorded: {candidate_summary.total} "
+                f"({candidate_summary.grouped} grouped, {candidate_summary.ungrouped} ungrouped)"
             )
         else:
             pipeline_results = (
@@ -1910,7 +1974,9 @@ class ScanningPipeline:
                 f"- Retained finding records: {len(findings)}\n"
                 f"  - Yes: {yes_count}\n"
                 f"  - No: {no_count}\n"
-                f"  - Abstain: {abstain_count}"
+                f"  - Abstain: {abstain_count}\n"
+                f"- Deterministic candidates recorded: {candidate_summary.total} "
+                f"({candidate_summary.grouped} grouped, {candidate_summary.ungrouped} ungrouped)"
             )
         summary = f"""Y2038 Scan Summary
 ==================
@@ -2004,12 +2070,15 @@ Timing (ms):
             confidence_floor=self.confidence_floor,
             metrics=metrics,
             timestamp=datetime.utcnow().isoformat() + "Z",
-            environment_config=self.environment_config
+            environment_config=self.environment_config,
+            candidate_summary=candidate_summary,
         )
         
         return ScanResults(
+            schema_version=PUBLIC_RESULT_SCHEMA_VERSION,
             meta=metadata,
-            findings=findings
+            candidates=evidence,
+            findings=findings,
         )
     
     def _run_legacy_analysis(self, candidates: List[Candidate], session: ScanSession) -> List[Finding]:
@@ -2511,7 +2580,8 @@ Timing (ms):
             description=io_cand.description,
             col_start=io_cand.col_start,
             col_end=io_cand.col_end,
-            symbol_role=f"io_boundary_{io_cand.io_category.value}"
+            symbol_role=f"io_boundary_{io_cand.io_category.value}",
+            discovery_method="io_boundary",
         )
     
     def _track_time_assignments(
@@ -2813,22 +2883,56 @@ Timing (ms):
                     d['function_id'] = str(fid)
             return d
 
+        from tacs.core.candidate_evidence import summarize_serialized_candidates
+        from tacs.core.schema import PUBLIC_RESULT_SCHEMA_VERSION
+
+        schema_version = getattr(results, "schema_version", None) or PUBLIC_RESULT_SCHEMA_VERSION
+        candidates = list(getattr(results, "candidates", None) or [])
+
+        def _candidate_to_dict(c: Any) -> Dict[str, Any]:
+            try:
+                return _model_to_dict(c)
+            except Exception:
+                return dict(getattr(c, "__dict__", {}) or {})
+
+        def _reconcile_meta(meta_obj: Any, cand_rows: List[Dict[str, Any]], finding_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+            """Attach candidate_summary from the arrays about to be written."""
+            try:
+                meta = _model_to_dict(meta_obj) if meta_obj is not None else {}
+            except Exception:
+                meta = {}
+            if not isinstance(meta, dict):
+                meta = {}
+            summary = summarize_serialized_candidates(
+                cand_rows,
+                findings_count=len(finding_rows),
+            )
+            meta["candidate_summary"] = _model_to_dict(summary)
+            return meta
+
         try:
+            cand_rows = [_candidate_to_dict(c) for c in candidates]
+            finding_rows = [_finding_to_dict(f) for f in results.findings]
             out = {
-                'meta': _model_to_dict(results.meta),
-                'findings': [_finding_to_dict(f) for f in results.findings],
+                'schema_version': schema_version,
+                'meta': _reconcile_meta(results.meta, cand_rows, finding_rows),
+                'candidates': cand_rows,
+                'findings': finding_rows,
             }
         except Exception:
             # Fallback: build manually so serialization never fails
-            out = {
-                'meta': _model_to_dict(results.meta),
-                'findings': [],
-            }
+            cand_rows = []
+            for c in candidates:
+                try:
+                    cand_rows.append(_candidate_to_dict(c))
+                except Exception:
+                    continue
+            finding_rows = []
             for f in results.findings:
                 try:
-                    out['findings'].append(_finding_to_dict(f))
+                    finding_rows.append(_finding_to_dict(f))
                 except Exception:
-                    out['findings'].append({
+                    finding_rows.append({
                         'file': getattr(f, 'file', ''),
                         'region': getattr(f, 'region', {}),
                         'function_id': str(getattr(f, 'function_id', None) or 'unknown'),
@@ -2836,6 +2940,14 @@ Timing (ms):
                         'confidence': getattr(f, 'confidence', 0.0),
                         'reason': getattr(f, 'reason', ''),
                     })
+            out = {
+                'schema_version': schema_version,
+                'meta': _reconcile_meta(
+                    getattr(results, "meta", None), cand_rows, finding_rows
+                ),
+                'candidates': cand_rows,
+                'findings': finding_rows,
+            }
 
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(out, f, indent=2)

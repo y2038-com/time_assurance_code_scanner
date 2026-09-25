@@ -88,6 +88,13 @@ int main() {
         # Validate JSON structure
         assert "meta" in results, "Missing 'meta' field in results"
         assert "findings" in results, "Missing 'findings' field in results"
+        assert results.get("schema_version") == "1.0", "Expected schema_version 1.0"
+        assert isinstance(results.get("candidates"), list), "Missing candidates[]"
+        assert len(results["candidates"]) > 0, "Expected deterministic candidates"
+        assert all(c.get("rule_id") is None for c in results["candidates"])
+        assert results["meta"].get("candidate_summary", {}).get("total") == len(
+            results["candidates"]
+        )
         
         meta = results["meta"]
         assert "root" in meta, "Missing 'root' in meta"

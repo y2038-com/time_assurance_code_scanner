@@ -1,6 +1,6 @@
 # report_renderer
 
-Renders scanner `findings.json` as terminal text or a standalone HTML report.
+Renders scanner result JSON as terminal text or a standalone HTML report.
 
 ## Preferred CLI
 
@@ -23,6 +23,21 @@ tacs render results/batches/<run_id> --format html --out-dir results/reports/
 In batch mode each repository's canonical findings document is
 `repos/<repo-key>/findings.json`. Runs produced before the per-repo layout was
 flattened kept it at `repos/<repo-key>/scan/findings.json`; both still render.
+
+## Result schema (dual path)
+
+**Schema 1.0** documents include `schema_version`, `meta`, `candidates`, and
+`findings`:
+
+* `candidates` — deterministic discovery evidence (not confirmed defects).
+* `findings` — model-oriented compatibility view (existing filters still apply).
+
+Old unversioned `{meta, findings}` files remain renderable. When a versioned
+file has candidates but no model-retained findings, the report states that
+deterministic candidates were recorded rather than implying a zero-candidate
+scan. Candidate evidence shows `discovery_method` and a genuine `rule_id` only
+when one exists (currently null pending catalog IDs); legacy finding display may
+still show fallback rule labels for older findings-only JSON.
 
 ## Source paths
 

@@ -11,7 +11,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-from report_renderer.core import FindingsLoadError, apply_filters, load_findings_json, normalize_findings, sort_findings
+from report_renderer.core import (
+    FindingsLoadError,
+    apply_filters,
+    candidate_counts_from_document,
+    load_scan_document,
+    normalize_findings,
+    sort_findings,
+)
 from report_renderer.renderers import render_html, render_text, write_html_file
 
 
@@ -63,8 +70,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        _meta, raw_findings = load_findings_json(args.input)
-        norm = normalize_findings(raw_findings, strict=args.strict)
+        doc = load_scan_document(args.input)
+        norm = normalize_findings(doc.findings, strict=args.strict)
     except FindingsLoadError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 3
@@ -77,25 +84,54 @@ def main(argv: list[str] | None = None) -> int:
         rules=args.rule,
     )
     findings = sort_findings(findings, args.sort)
+    has_candidate_section = doc.is_versioned
+    candidate_counts = (
+        candidate_counts_from_document(doc) if has_candidate_section else None
+    )
 
     if norm.warnings:
         print(f"warning: {len(norm.warnings)} findings skipped or corrected during normalization", file=sys.stderr)
-    if not findings:
+    if not findings and not has_candidate_section:
         print("No findings matched filters.", file=sys.stderr)
         return 4
+    if not findings and has_candidate_section and not doc.candidates:
+        # Versioned empty scan: still render an honest zero-candidate report.
+        pass
 
     if args.format == "text":
         if args.finding is not None:
+            if not findings:
+                print("error: --finding requires model-retained findings", file=sys.stderr)
+                return 2
             if args.finding < 1 or args.finding > len(findings):
                 print(f"error: --finding must be between 1 and {len(findings)}", file=sys.stderr)
                 return 2
-            payload = render_text([findings[args.finding - 1]], list_mode=False)
+            payload = render_text(
+                [findings[args.finding - 1]],
+                list_mode=False,
+                candidates=doc.candidates if has_candidate_section else None,
+                candidate_counts=candidate_counts,
+                has_candidate_section=has_candidate_section,
+            )
         else:
-            payload = render_text(findings, list_mode=args.list)
+            payload = render_text(
+                findings,
+                list_mode=args.list,
+                candidates=doc.candidates if has_candidate_section else None,
+                candidate_counts=candidate_counts,
+                has_candidate_section=has_candidate_section,
+            )
         print(payload)
         return 0
 
-    html = render_html(findings, title=args.title, group_by=args.group_by)
+    html = render_html(
+        findings,
+        title=args.title,
+        group_by=args.group_by,
+        candidates=doc.candidates if has_candidate_section else None,
+        candidate_counts=candidate_counts,
+        has_candidate_section=has_candidate_section,
+    )
     out_path = write_html_file(html, args.out)
     print(f"HTML report written to: {out_path}")
     if args.open:
