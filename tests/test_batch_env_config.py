@@ -81,11 +81,11 @@ def test_build_pipeline_config_changes_consumer_behavior(tmp_path: Path) -> None
         != wide.function_llm_client.environment_config
     )
 
-    narrow_context = narrow.function_llm_client.base_client._build_environment_context()
-    wide_context = wide.function_llm_client.base_client._build_environment_context()
-    assert "32-bit signed" in narrow_context
-    assert "64-bit signed" in wide_context
-    assert "No environment configuration provided" not in narrow_context
+    narrow_facts = narrow.function_llm_client.base_client._environment_facts()
+    wide_facts = wide.function_llm_client.base_client._environment_facts()
+    assert (narrow_facts["time_t_size_bits"], narrow_facts["time_t_signed"]) == (32, "signed")
+    assert (wide_facts["time_t_size_bits"], wide_facts["time_t_signed"]) == (64, "signed")
+    assert narrow_facts["environment_config_provided"] is True
 
 
 def test_build_pipeline_requires_environment_config_path() -> None:

@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from tacs.core.function_schemas import FunctionAnalysis, FunctionBody, Y2038Summary
+from tacs.core.llm_prompt import LLMPromptParts
 from tacs.core.logging_config import configure_logging
 from tacs.core.schema import Finding, Y2038Issue
 from tacs.core.scan_session import ScanSession
@@ -49,10 +50,10 @@ class _StubLLMClient:
         self.model = "stub"
 
     def _build_pass_f2_prompt(self, function_batch, iteration):  # noqa: ANN001
-        return "pass 2b prompt"
+        return LLMPromptParts(system="pass 2b instructions", user="analysis data")
 
     def _build_pass_f3_prompt(self, function_batch):  # noqa: ANN001
-        return "stage 9 prompt"
+        return LLMPromptParts(system="stage 9 instructions", user="analysis data")
 
     def _analyses(self, function_batch):  # noqa: ANN001
         return [

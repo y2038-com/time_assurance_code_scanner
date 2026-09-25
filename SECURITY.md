@@ -57,6 +57,21 @@ Examples of issues we want reported privately:
 Ordinary model mistakes (incorrect findings, missed issues, or poor wording)
 are not security vulnerabilities. See [What is out of scope](#what-is-out-of-scope).
 
+### Prompt role separation is best-effort
+
+TACS sends its auditor instructions in the provider's trusted channel and sends
+scanned repository content, environment facts and migration facts in the
+untrusted user channel, labelled as data. Where a provider has no distinct
+field, the nearest one is used: the Ollama `/api/generate` request carries the
+instructions in `system` and the analysis data in `prompt`.
+
+This is defence in depth, not an injection-proof boundary. A model may still
+act on text it was told to treat as data, so a scanned repository can still
+influence a verdict. Treat findings from an untrusted tree accordingly. A report
+is in scope when the separation is not applied — for instance when repository
+content reaches the trusted channel — rather than when a model simply follows
+text that was correctly placed in the untrusted one.
+
 ## What is out of scope
 
 Please use normal GitHub issues (not a security advisory) for:

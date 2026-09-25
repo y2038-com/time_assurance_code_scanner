@@ -12,6 +12,7 @@ from click.testing import CliRunner
 
 from tacs.cli import app
 from tacs.core.function_schemas import FunctionBatch, FunctionBody
+from tacs.core.llm_prompt import LLMPromptParts, format_untrusted_user_payload
 from tacs.core.scan_session import ScanSession
 
 SECRET_BODY_LINE = "    time_t proprietary_deadline = internal_secret_clock() + 86400;"
@@ -43,15 +44,22 @@ def _make_batch(tmp_path: Path) -> FunctionBatch:
     return FunctionBatch(batch_id="s2_p1_batch_0001", functions=[function], iteration=1)
 
 
-def _prompt() -> str:
-    return (
-        "Analyze the following functions for Y2038 risk.\n"
-        "Target Environment (ilp32_signed_32bit):\n"
-        "Function deadline.c@check_deadline:1-4:\n"
-        "```c\n"
-        f"{BODY}\n"
-        "```\n"
-        "Respond with JSON.\n"
+def _prompt() -> LLMPromptParts:
+    """A batch prompt shaped like the real ones: source only in the user channel."""
+    return LLMPromptParts(
+        system=(
+            "Analyze the following functions for Y2038 risk.\n"
+            "Read the environment facts from the analysis data.\n"
+            "Respond with JSON.\n"
+        ),
+        user=format_untrusted_user_payload(
+            {
+                "environment_config": {"config_id": "ilp32_signed_32bit"},
+                "functions": [
+                    {"function_id": "deadline.c@check_deadline:1-4", "body": BODY}
+                ],
+            }
+        ),
     )
 
 
@@ -85,8 +93,14 @@ def _assert_manifest_fields(payload: dict) -> None:
     assert entry["candidate_lines"] == [2]
     assert entry["candidate_count"] == 1
     assert entry["body_lines"] == 4
-    assert payload["prompt_sha256"]
-    assert payload["prompt_chars"] > 0
+    # The two channels are sized and hashed apart: a single digest over a
+    # concatenation would describe a prompt that was never sent.
+    assert payload["system_prompt_sha256"]
+    assert payload["user_prompt_sha256"]
+    assert payload["system_prompt_sha256"] != payload["user_prompt_sha256"]
+    assert payload["system_prompt_chars"] > 0
+    assert payload["user_prompt_chars"] > 0
+    assert "prompt_sha256" not in payload
 
 
 def test_llm_enabled_default_persists_manifest_without_source(tmp_path: Path) -> None:
@@ -100,8 +114,10 @@ def test_llm_enabled_default_persists_manifest_without_source(tmp_path: Path) ->
     saved = _save_batch(session, tmp_path)
 
     _assert_manifest_fields(saved["payload"])
-    assert "full_prompt" not in saved["payload"]
-    assert "prompt_redacted" not in saved["payload"]
+    assert "full_system_prompt" not in saved["payload"]
+    assert "full_user_prompt" not in saved["payload"]
+    assert "system_prompt_redacted" not in saved["payload"]
+    assert "user_prompt_redacted" not in saved["payload"]
     assert "body" not in saved["payload"]["functions"][0]
     assert SECRET_BODY_LINE.strip() not in saved["raw_text"]
     assert "internal_secret_clock" not in saved["raw_text"]
@@ -120,13 +136,15 @@ def test_llm_logging_persists_redacted_prompt_only(tmp_path: Path) -> None:
     saved = _save_batch(session, tmp_path)
 
     _assert_manifest_fields(saved["payload"])
-    assert "full_prompt" not in saved["payload"]
+    assert "full_system_prompt" not in saved["payload"]
+    assert "full_user_prompt" not in saved["payload"]
     assert "body" not in saved["payload"]["functions"][0]
 
-    redacted = saved["payload"]["prompt_redacted"]
-    assert "Analyze the following functions" in redacted, "non-sensitive prompt structure kept"
-    assert "REDACTED" in redacted
-    assert SECRET_BODY_LINE.strip() not in redacted
+    system_redacted = saved["payload"]["system_prompt_redacted"]
+    user_redacted = saved["payload"]["user_prompt_redacted"]
+    assert "Analyze the following functions" in system_redacted, "non-sensitive prompt structure kept"
+    assert "REDACTED" in user_redacted
+    assert SECRET_BODY_LINE.strip() not in user_redacted
     assert "internal_secret_clock" not in saved["raw_text"]
     assert saved["payload"]["privacy"]["prompt_persisted"] == "redacted"
 
@@ -146,12 +164,41 @@ def test_redaction_covers_line_numbered_source_embedding(tmp_path: Path) -> None
         pass_name="stage_9_pass_1",
         batch_num=2,
         function_batch=_make_batch(tmp_path),
-        prompt=f"Analyze these lines:\n{numbered}\nRespond with JSON.\n",
+        prompt=LLMPromptParts(
+            system="Analyze these lines.\n",
+            user=f"Analyze these lines:\n{numbered}\nRespond with JSON.\n",
+        ),
     )
     batch_file = session.llm_dir / "stage_9_pass_1" / "batches" / "0002_input.json"
     text = batch_file.read_text(encoding="utf-8")
     assert "internal_secret_clock" not in text
     assert "REDACTED SOURCE LINE" in text
+
+
+def test_redaction_covers_json_encoded_source(tmp_path: Path) -> None:
+    """The untrusted channel is a JSON document, so a body arrives escaped on one line."""
+    session = _make_session(
+        tmp_path,
+        enable_llm_logging=True,
+        redact_prompts=True,
+        allow_raw_code_logging=False,
+    )
+    session.save_function_batch(
+        pass_name="stage_9_pass_1",
+        batch_num=3,
+        function_batch=_make_batch(tmp_path),
+        prompt=LLMPromptParts(
+            system="Analyze the functions in the analysis data.\n",
+            user=format_untrusted_user_payload(
+                {"functions": [{"function_id": "deadline.c@check_deadline:1-4", "body": BODY}]}
+            ),
+        ),
+    )
+    batch_file = session.llm_dir / "stage_9_pass_1" / "batches" / "0003_input.json"
+    text = batch_file.read_text(encoding="utf-8")
+
+    assert "internal_secret_clock" not in text
+    assert "REDACTED FUNCTION BODY" in text
 
 
 def test_redact_prompts_false_still_requires_raw_permission(tmp_path: Path) -> None:
@@ -164,7 +211,8 @@ def test_redact_prompts_false_still_requires_raw_permission(tmp_path: Path) -> N
     )
     saved = _save_batch(session, tmp_path)
 
-    assert "full_prompt" not in saved["payload"]
+    assert "full_system_prompt" not in saved["payload"]
+    assert "full_user_prompt" not in saved["payload"]
     assert "internal_secret_clock" not in saved["raw_text"]
     assert saved["payload"]["privacy"]["prompt_persisted"] == "redacted"
 
@@ -180,7 +228,8 @@ def test_allow_raw_code_logging_persists_verbatim_content(tmp_path: Path) -> Non
     saved = _save_batch(session, tmp_path)
 
     _assert_manifest_fields(saved["payload"])
-    assert saved["payload"]["full_prompt"] == _prompt()
+    assert saved["payload"]["full_system_prompt"] == _prompt().system
+    assert saved["payload"]["full_user_prompt"] == _prompt().user
     assert saved["payload"]["functions"][0]["body"] == BODY
     assert saved["payload"]["privacy"]["prompt_persisted"] == "verbatim"
     assert saved["payload"]["privacy"]["raw_function_bodies_persisted"] is True
@@ -196,7 +245,8 @@ def test_raw_code_logging_requires_llm_logging(tmp_path: Path) -> None:
     )
     saved = _save_batch(session, tmp_path)
 
-    assert "full_prompt" not in saved["payload"]
+    assert "full_system_prompt" not in saved["payload"]
+    assert "full_user_prompt" not in saved["payload"]
     assert "body" not in saved["payload"]["functions"][0]
     assert "internal_secret_clock" not in saved["raw_text"]
 
@@ -247,7 +297,8 @@ def test_batch_pipeline_privacy_flags_match_standalone_defaults(tmp_path: Path) 
         allow_raw_code_logging=pipeline.allow_raw_code_logging,
     )
     saved = _save_batch(session, tmp_path)
-    assert "full_prompt" not in saved["payload"]
+    assert "full_system_prompt" not in saved["payload"]
+    assert "full_user_prompt" not in saved["payload"]
     assert "body" not in saved["payload"]["functions"][0]
     assert "internal_secret_clock" not in saved["raw_text"]
 

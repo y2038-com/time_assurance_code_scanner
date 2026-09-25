@@ -22,6 +22,7 @@ import tacs.batch_scan_repos as bsr
 from tacs.cli import app
 from tacs.core.function_analyzer import FunctionAnalyzer
 from tacs.core.function_schemas import FunctionBatch
+from tacs.core.llm_prompt import LLMPromptParts
 from tacs.core.logging_config import configure_logging
 from tacs.core.path_utils import (
     display_local_path,
@@ -295,7 +296,7 @@ def test_llm_batch_manifest_paths_are_repo_relative(tmp_path: Path) -> None:
         pass_name="stage_8_pass_2a",
         batch_num=1,
         function_batch=FunctionBatch(batch_id="b1", functions=functions, iteration=1),
-        prompt="prompt text",
+        prompt=LLMPromptParts(system="instructions", user="analysis data"),
     )
 
     manifests = list(
@@ -361,7 +362,7 @@ def _run_stage_9(tmp_path: Path, level: str):
         model = "stub"
 
         def _build_pass_f3_prompt(self, function_batch):  # noqa: ANN001
-            return "stage 9 prompt"
+            return LLMPromptParts(system="stage 9 instructions", user="analysis data")
 
         def analyze_functions_pass_f3(self, function_batch):  # noqa: ANN001
             return [

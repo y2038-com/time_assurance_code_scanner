@@ -201,6 +201,7 @@ def _post_to_ollama(monkeypatch: pytest.MonkeyPatch, host: str) -> dict:
     import requests
 
     from tacs.core.llm_client import LLMClient
+    from tacs.core.llm_prompt import LLMPromptParts
 
     monkeypatch.setenv("OLLAMA_HOST", host)
     monkeypatch.setenv("OLLAMA_API_KEY", "secret-key")
@@ -208,7 +209,7 @@ def _post_to_ollama(monkeypatch: pytest.MonkeyPatch, host: str) -> dict:
     monkeypatch.setattr(requests, "post", captured)
 
     client = LLMClient(llm_type="ollama", model="llama3.1", timeout_sec=30)
-    client._make_local_request("prompt")
+    client._make_local_request(LLMPromptParts(system="instructions", user="analysis data"))
     return captured.kwargs
 
 

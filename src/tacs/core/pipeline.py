@@ -1018,10 +1018,10 @@ class ScanningPipeline:
             
             # Get prompt for saving (with error handling)
             try:
-                prompt = self.function_llm_client._build_pass_f1_prompt(function_batch)
+                prompt_parts = self.function_llm_client._build_pass_f1_prompt(function_batch)
             except Exception as e:
                 StatusLogger.timestamped_warning(f"Failed to build prompt for saving: {e}")
-                prompt = None
+                prompt_parts = None
             
             # Analyze functions
             analyses = self.function_llm_client.analyze_functions_pass_f1(function_batch)
@@ -1063,7 +1063,7 @@ class ScanningPipeline:
                 pass_name="stage_8_pass_2a",
                 batch_num=batch_num,
                 function_batch=function_batch,
-                prompt=prompt,
+                prompt=prompt_parts,
                 response=response_data
             )
             
@@ -1518,7 +1518,7 @@ class ScanningPipeline:
             )
             
             # Get prompt for saving
-            prompt = self.function_llm_client._build_pass_f2_prompt(function_batch, iteration)
+            prompt_parts = self.function_llm_client._build_pass_f2_prompt(function_batch, iteration)
             
             # Analyze functions
             analyses = self.function_llm_client.analyze_functions_pass_f2(function_batch, iteration)
@@ -1545,7 +1545,7 @@ class ScanningPipeline:
                 pass_name="stage_8_pass_2b",
                 batch_num=batch_num,
                 function_batch=function_batch,
-                prompt=prompt,
+                prompt=prompt_parts,
                 response=response_data
             )
             
@@ -1682,7 +1682,7 @@ class ScanningPipeline:
                 )
                 
                 # Get prompt for saving
-                prompt = self.function_llm_client._build_pass_f3_prompt(function_batch)
+                prompt_parts = self.function_llm_client._build_pass_f3_prompt(function_batch)
                 
                 # Analyze functions
                 analyses = self.function_llm_client.analyze_functions_pass_f3(function_batch)
@@ -1709,7 +1709,7 @@ class ScanningPipeline:
                     pass_name="stage_9_pass_1",
                     batch_num=batch_num,
                     function_batch=function_batch,
-                    prompt=prompt,
+                    prompt=prompt_parts,
                     response=response_data
                 )
                 

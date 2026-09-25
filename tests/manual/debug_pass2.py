@@ -91,9 +91,11 @@ def debug_pass2():
         print("\n2. Testing Pass 2 prompt building...")
         prompt = none_client._build_pass2_prompt(context_candidates)
         print("✓ Pass 2 prompt built successfully")
-        print(f"Prompt length: {len(prompt)} characters")
-        print("First 500 characters:")
-        print(prompt[:500] + "...")
+        print(f"System length: {len(prompt.system)} characters")
+        print(f"Untrusted user length: {len(prompt.user)} characters")
+        print("First 500 characters of each:")
+        print(prompt.system[:500] + "...")
+        print(prompt.user[:500] + "...")
         
         # Test context extraction
         print("\n3. Testing context extraction...")

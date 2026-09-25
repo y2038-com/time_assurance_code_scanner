@@ -52,9 +52,9 @@ def test_environment_integration():
         print("✓ LLM client initialized with environment config")
         
         # Test environment context building
-        env_context = llm_client._build_environment_context()
-        print("✓ Environment context built:")
-        print(env_context)
+        env_rules = llm_client._build_environment_rules()
+        print("✓ Environment rules built (trusted channel):")
+        print(env_rules)
         
         # Test scenario-specific examples
         examples = llm_client._get_scenario_examples()

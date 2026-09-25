@@ -52,8 +52,9 @@ def _config(**overrides) -> dict:
     return config
 
 
-def _environment_context(config: dict) -> str:
-    return LLMClient("none", "none", config)._build_environment_context()
+def _environment_facts(config: dict) -> dict:
+    """The environment as the untrusted analysis payload states it."""
+    return LLMClient("none", "none", config)._environment_facts()
 
 
 # --- 1. reading a capability -------------------------------------------------
@@ -329,7 +330,7 @@ def test_scenario_summary_does_not_report_unknown_as_unsupported() -> None:
 
 
 def test_prompt_reports_available_capabilities() -> None:
-    context = _environment_context(
+    facts = _environment_facts(
         _config(
             time64_functions_available=True,
             d_time_bits_supported=True,
@@ -337,12 +338,13 @@ def test_prompt_reports_available_capabilities() -> None:
         )
     )
 
-    assert "- time64 functions: available" in context
-    assert "- _TIME_BITS: supported (setting: 64)" in context
+    assert facts["time64_functions_available"] == "available"
+    assert facts["d_time_bits_supported"] == "supported"
+    assert facts["d_time_bits_setting"] == "64"
 
 
 def test_prompt_reports_absent_capabilities() -> None:
-    context = _environment_context(
+    facts = _environment_facts(
         _config(
             time64_functions_available=False,
             d_time_bits_supported=False,
@@ -350,59 +352,52 @@ def test_prompt_reports_absent_capabilities() -> None:
         )
     )
 
-    assert "- time64 functions: not available" in context
-    assert "- _TIME_BITS: not supported (setting: not_available)" in context
+    assert facts["time64_functions_available"] == "not available"
+    assert facts["d_time_bits_supported"] == "not supported"
+    assert facts["d_time_bits_setting"] == "not_available"
 
 
 def test_prompt_never_calls_an_unknown_capability_absent() -> None:
-    context = _environment_context(_config())
+    facts = _environment_facts(_config())
 
-    assert "- time64 functions: unknown (not established" in context
-    assert "- _TIME_BITS: support unknown (not established" in context
-    assert "not available" not in context.split("CRITICAL")[0]
-    assert "not supported" not in context.split("CRITICAL")[0]
+    assert facts["time64_functions_available"].startswith("unknown (not established")
+    assert facts["d_time_bits_supported"].startswith("support unknown (not established")
+    assert "not available" not in facts["time64_functions_available"]
+    assert "not supported" not in facts["d_time_bits_supported"]
 
 
 def test_prompt_tells_the_model_what_unknown_means() -> None:
-    context = _environment_context(_config())
+    """The rule is static instruction; the state it applies to arrives as data."""
+    rules = LLMClient("none", "none", _config())._build_environment_rules()
 
-    assert "Treat it as undetermined, not as absent" in context
+    assert "Treat it as undetermined, not as absent" in rules
 
 
 @pytest.mark.parametrize("config_id", sorted(VALID_CONFIG_IDS))
 def test_generated_configs_prompt_as_unknown(config_id: str) -> None:
-    context = _environment_context(_config_id_to_env_json(config_id))
+    facts = _environment_facts(_config_id_to_env_json(config_id))
 
-    assert "unknown (not established" in context
-    assert "support unknown (not established" in context
-
-
-# --- 6. example selection ----------------------------------------------------
+    assert "unknown (not established" in facts["time64_functions_available"]
+    assert "support unknown (not established" in facts["d_time_bits_supported"]
 
 
-@pytest.mark.parametrize(
-    "config_id, expected",
-    [
-        ("ilp32_signed_32bit", "_get_ilp32_risky_examples"),
-        ("ilp32_unsigned_32bit", "_get_ilp32_unsigned_examples"),
-        ("ilp32_signed_64bit", "_get_generic_examples"),
-        ("ilp32_unsigned_64bit", "_get_generic_examples"),
-        ("lp64_signed_32bit", "_get_generic_examples"),
-        ("lp64_unsigned_32bit", "_get_generic_examples"),
-        ("lp64_signed_64bit", "_get_lp64_examples"),
-        ("lp64_unsigned_64bit", "_get_lp64_examples"),
-    ],
-)
-def test_example_selection_survives_an_unknown_capability(config_id: str, expected: str) -> None:
-    """Selection reads the ABI fields, so it does not move when time64 goes unknown."""
+# --- 6. few-shot examples are configuration-independent ----------------------
+
+
+@pytest.mark.parametrize("config_id", sorted(VALID_CONFIG_IDS))
+def test_scenario_examples_do_not_depend_on_the_config(config_id: str) -> None:
+    """Every ABI endpoint gets the same static example set."""
+    baseline = LLMClient("none", "none", None)._get_scenario_examples()
     client = LLMClient("none", "none", _config_id_to_env_json(config_id))
 
-    assert client._get_scenario_examples() == getattr(client, expected)()
+    assert client._get_scenario_examples() == baseline
 
 
-def test_known_time64_still_moves_ilp32_signed_off_the_risky_examples() -> None:
-    client = LLMClient(
+def test_known_time64_does_not_rewrite_the_example_set() -> None:
+    """time64 availability used to move ILP32-signed onto a different example set."""
+    without = LLMClient("none", "none", _config())._get_scenario_examples()
+    with_time64 = LLMClient(
         "none", "none", _config(time64_functions_available=True, d_time_bits_setting="not_set")
-    )
+    )._get_scenario_examples()
 
-    assert client._get_scenario_examples() == client._get_generic_examples()
+    assert with_time64 == without
