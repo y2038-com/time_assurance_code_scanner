@@ -19,6 +19,7 @@ import requests
 from tacs.core.function_llm_client import FunctionLLMClient
 from tacs.core.function_schemas import FunctionBatch, FunctionBody
 from tacs.core.llm_client import LLMClient, LLMNonRetryableError
+from tacs.core.llm_prompt import LLMPromptParts
 
 
 def _client() -> LLMClient:
@@ -175,11 +176,15 @@ def test_function_llm_does_not_retry_nonretryable_errors(
     )
     calls = {"n": 0}
 
-    def boom(_prompt: str) -> Dict[str, Any]:
+    def boom(_prompt: LLMPromptParts) -> Dict[str, Any]:
         calls["n"] += 1
         raise LLMNonRetryableError("OpenAI request failed: 401 - unauthorized")
 
-    monkeypatch.setattr(client, "_build_pass_f1_prompt", lambda _batch: "prompt")
+    monkeypatch.setattr(
+        client,
+        "_build_pass_f1_prompt",
+        lambda _batch: LLMPromptParts(system="instructions", user="analysis data"),
+    )
     monkeypatch.setattr(client.base_client, "_make_api_request", boom)
     monkeypatch.setattr("time.sleep", lambda _s: None)
 
@@ -202,7 +207,7 @@ def test_function_llm_still_retries_retryable_errors(
     )
     calls = {"n": 0}
 
-    def flaky(_prompt: str) -> Dict[str, Any]:
+    def flaky(_prompt: LLMPromptParts) -> Dict[str, Any]:
         calls["n"] += 1
         if calls["n"] < 2:
             raise RuntimeError("temporary connection reset")
@@ -211,7 +216,11 @@ def test_function_llm_still_retries_retryable_errors(
             "usage": {"prompt_tokens": 1, "completion_tokens": 1},
         }
 
-    monkeypatch.setattr(client, "_build_pass_f1_prompt", lambda _batch: "prompt")
+    monkeypatch.setattr(
+        client,
+        "_build_pass_f1_prompt",
+        lambda _batch: LLMPromptParts(system="instructions", user="analysis data"),
+    )
     monkeypatch.setattr(client.base_client, "_make_api_request", flaky)
     monkeypatch.setattr(
         client,

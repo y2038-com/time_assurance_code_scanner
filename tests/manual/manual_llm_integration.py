@@ -81,9 +81,9 @@ def test_llm_integration():
         }
         
         env_client = LLMClient("none", "test-model", env_config)
-        env_context = env_client._build_environment_context()
-        print("✓ Environment context:")
-        print(env_context)
+        env_rules = env_client._build_environment_rules()
+        print("✓ Environment rules (trusted channel):")
+        print(env_rules)
         
         # Test 4: Scenario-specific examples
         print("\n4. Testing scenario-specific examples...")

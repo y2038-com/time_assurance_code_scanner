@@ -13,19 +13,21 @@ from tacs.core.function_schemas import (
     FunctionBody, FunctionAnalysis, FunctionBatch, FunctionCache,
     Y2038Summary, ContextNeed, FunctionFinding, IssueSpan
 )
-from tacs.core.llm_client import LLMNonRetryableError
+from tacs.core.llm_client import LLMNonRetryableError, _migration_endpoint_facts
+from tacs.core.llm_prompt import LLMPromptParts, format_untrusted_user_payload
+from tacs.core.llm_response import strip_optional_code_fence
 from tacs.core.status_logger import StatusLogger
 
 
 class FunctionLLMClient:
     """LLM client specialized for function-first analysis."""
-    
-    def __init__(self, llm_type: str, model: str, environment_config: Optional[Dict[str, Any]], 
+
+    def __init__(self, llm_type: str, model: str, environment_config: Optional[Dict[str, Any]],
                  timeout_sec: int, batch_size_func: int, confidence_floor: float,
                  debug_llm_raw: bool = False, detect_y2106: bool = False):
         """
         Initialize the function-first LLM client.
-        
+
         Args:
             llm_type: Type of LLM to use (ollama, etc.)
             model: Model name
@@ -44,16 +46,16 @@ class FunctionLLMClient:
         self.confidence_floor = confidence_floor
         self.debug_llm_raw = debug_llm_raw
         self.detect_y2106 = detect_y2106
-        
+
         # Migration mode (set by pipeline if enabled)
         self.migration_mode = False
         self.migration_from_config = None
         self.migration_to_config = None
-        
+
         # Track batch failures across the entire run
         self.total_batch_failures = 0
         self.max_total_failures = 3  # Abort after 3 total batch failures
-        
+
         # Initialize base LLM client for API calls
         from tacs.core.llm_client import LLMClient
         self.base_client = LLMClient(
@@ -64,27 +66,27 @@ class FunctionLLMClient:
             batch_size_pass2=10,  # Not used in function-first
             batch_size_pass3=10,  # Not used in function-first
             debug_llm_raw=debug_llm_raw,
-            # The base client writes the environment context these prompts carry,
+            # The base client writes the environment rules these prompts carry,
             # and it quotes the floor, so it needs the configured one.
             confidence_floor=confidence_floor,
         )
-    
+
     def analyze_functions_pass_f1(self, function_batch: FunctionBatch) -> List[FunctionAnalysis]:
         """
         Analyze functions in Pass F1 (initial function analysis).
-        
+
         Args:
             function_batch: Batch of functions to analyze
-            
+
         Returns:
             List of function analysis results
         """
         # Check if LLM is disabled
         if self.llm_type == "none":
             return self._fallback_pass_f1_responses(function_batch.functions, "LLM disabled (--llm none)")
-        
+
         StatusLogger.timestamped_print(f"Running Stage 8, Pass 2a on {len(function_batch.functions)} functions...")
-        
+
         # Build Stage 8, Pass 2a prompt
         try:
             prompt = self._build_pass_f1_prompt(function_batch)
@@ -92,22 +94,20 @@ class FunctionLLMClient:
             error_msg = f"Failed to build prompt: {e}"
             StatusLogger.timestamped_error(error_msg)
             return self._fallback_pass_f1_responses(function_batch.functions, error_msg)
-        
+
         # Debug: Show prompt if requested
         if self.debug_llm_raw:
-            StatusLogger.timestamped_print("=== PASS P1 PROMPT ===")
-            StatusLogger.timestamped_print(prompt)
-            StatusLogger.timestamped_print("=== END PASS P1 PROMPT ===")
-        
+            self.base_client._debug_print_prompt_parts("PASS P1 PROMPT", prompt)
+
         # Retry logic: up to 3 attempts per batch
         max_retries = 3
         last_exception = None
-        
+
         for attempt in range(1, max_retries + 1):
             try:
                 # Make API request
                 response_data = self.base_client._make_api_request(prompt)
-                
+
                 # Extract and track token usage from response
                 prompt_tokens = 0
                 completion_tokens = 0
@@ -115,28 +115,28 @@ class FunctionLLMClient:
                     prompt_tokens = response_data["usage"].get("prompt_tokens", 0)
                     completion_tokens = response_data["usage"].get("completion_tokens", 0)
                     self.base_client._track_tokens(prompt_tokens, completion_tokens, "S2_P1")
-                
+
                 # Debug: Show response if requested
                 if self.debug_llm_raw:
                     StatusLogger.timestamped_print("=== PASS F1 RESPONSE ===")
                     StatusLogger.timestamped_print(str(response_data))
                     StatusLogger.timestamped_print("=== END PASS F1 RESPONSE ===")
-                
+
                 # Parse responses
                 analyses = self._parse_pass_f1_response(response_data, function_batch.functions)
-                
+
                 # Log results
                 yes_count = sum(1 for a in analyses if a.y2038_summary == Y2038Summary.YES)
                 no_count = sum(1 for a in analyses if a.y2038_summary == Y2038Summary.NO)
                 abstain_count = sum(1 for a in analyses if a.y2038_summary == Y2038Summary.ABSTAIN)
-                
+
                 StatusLogger.timestamped_print(
                     f"Stage 8, Pass 2a function classifications: "
                     f"{yes_count} yes, {no_count} no, {abstain_count} abstain"
                 )
                 if prompt_tokens > 0 or completion_tokens > 0:
                     StatusLogger.timestamped_print(f"Token usage: {prompt_tokens} prompt + {completion_tokens} completion = {prompt_tokens + completion_tokens} total")
-                
+
                 return analyses
 
             except LLMNonRetryableError:
@@ -155,7 +155,7 @@ class FunctionLLMClient:
                     StatusLogger.timestamped_error(f"Stage 8, Pass 2a LLM request failed after {max_retries} attempts: {e}")
                     self.total_batch_failures += 1
                     StatusLogger.timestamped_error(f"Total batch failures: {self.total_batch_failures}/{self.max_total_failures}")
-                    
+
                     # Check if we should abort
                     if self.total_batch_failures >= self.max_total_failures:
                         raise RuntimeError(
@@ -163,45 +163,45 @@ class FunctionLLMClient:
                             "Common causes: LLM context/size limits, rate limits, network/VPN blocking the provider, "
                             "or a bad model/API configuration (check --model and provider errors above)."
                         )
-                    
+
                     # Fallback to abstain on error
                     return self._fallback_pass_f1_responses(function_batch.functions, str(e))
-    
+
     def analyze_functions_pass_f2(self, function_batch: FunctionBatch, iteration: int) -> List[FunctionAnalysis]:
         """
         Analyze functions in Stage 8, Pass 2b (iterative enrichment).
-        
+
         Args:
             function_batch: Batch of functions to analyze (with context additions)
             iteration: Iteration number (2+)
-            
+
         Returns:
             List of function analysis results
         """
         StatusLogger.timestamped_print(f"Running Stage 8, Pass 2b iteration {iteration} on {len(function_batch.functions)} functions...")
-        
+
         # Check if LLM is disabled
         if self.llm_type == "none":
             return self._fallback_pass_f2_responses(function_batch.functions, "LLM disabled (--llm none)")
-        
+
         # Build Stage 8, Pass 2b prompt
         prompt = self._build_pass_f2_prompt(function_batch, iteration)
-        
+
         # Debug: Show prompt if requested
         if self.debug_llm_raw:
-            StatusLogger.timestamped_print(f"=== PASS F2 ITERATION {iteration} PROMPT ===")
-            StatusLogger.timestamped_print(prompt)
-            StatusLogger.timestamped_print(f"=== END PASS F2 ITERATION {iteration} PROMPT ===")
-        
+            self.base_client._debug_print_prompt_parts(
+                f"PASS F2 ITERATION {iteration} PROMPT", prompt
+            )
+
         # Retry logic: up to 3 attempts per batch
         max_retries = 3
         last_exception = None
-        
+
         for attempt in range(1, max_retries + 1):
             try:
                 # Make API request
                 response_data = self.base_client._make_api_request(prompt)
-                
+
                 # Extract and track token usage from response
                 prompt_tokens = 0
                 completion_tokens = 0
@@ -209,28 +209,28 @@ class FunctionLLMClient:
                     prompt_tokens = response_data["usage"].get("prompt_tokens", 0)
                     completion_tokens = response_data["usage"].get("completion_tokens", 0)
                     self.base_client._track_tokens(prompt_tokens, completion_tokens, "S2_P2")
-                
+
                 # Debug: Show response if requested
                 if self.debug_llm_raw:
                     StatusLogger.timestamped_print(f"=== PASS F2 ITERATION {iteration} RESPONSE ===")
                     StatusLogger.timestamped_print(str(response_data))
                     StatusLogger.timestamped_print(f"=== END PASS F2 ITERATION {iteration} RESPONSE ===")
-                
+
                 # Parse responses
                 analyses = self._parse_pass_f2_response(response_data, function_batch.functions)
-                
+
                 # Log results
                 yes_count = sum(1 for a in analyses if a.y2038_summary == Y2038Summary.YES)
                 no_count = sum(1 for a in analyses if a.y2038_summary == Y2038Summary.NO)
                 abstain_count = sum(1 for a in analyses if a.y2038_summary == Y2038Summary.ABSTAIN)
-                
+
                 StatusLogger.timestamped_print(
                     f"Stage 8, Pass 2b iteration {iteration} function classifications: "
                     f"{yes_count} yes, {no_count} no, {abstain_count} abstain"
                 )
                 if prompt_tokens > 0 or completion_tokens > 0:
                     StatusLogger.timestamped_print(f"Token usage: {prompt_tokens} prompt + {completion_tokens} completion = {prompt_tokens + completion_tokens} total")
-                
+
                 return analyses
 
             except LLMNonRetryableError:
@@ -245,7 +245,7 @@ class FunctionLLMClient:
                     StatusLogger.timestamped_error(f"Stage 8, Pass 2b iteration {iteration} LLM request failed after {max_retries} attempts: {e}")
                     self.total_batch_failures += 1
                     StatusLogger.timestamped_error(f"Total batch failures: {self.total_batch_failures}/{self.max_total_failures}")
-                    
+
                     # Check if we should abort
                     if self.total_batch_failures >= self.max_total_failures:
                         raise RuntimeError(
@@ -253,44 +253,42 @@ class FunctionLLMClient:
                             "Common causes: LLM context/size limits, rate limits, network/VPN blocking the provider, "
                             "or a bad model/API configuration (check --model and provider errors above)."
                         )
-                    
+
                     # Fallback to abstain on error
                     return self._fallback_pass_f2_responses(function_batch.functions, str(e))
-    
+
     def analyze_functions_pass_f3(self, function_batch: FunctionBatch) -> List[FunctionAnalysis]:
         """
         Analyze functions in Stage 9, Pass 1 (file-leading context).
-        
+
         Args:
             function_batch: Batch of functions to analyze
-            
+
         Returns:
             List of function analysis results
         """
         StatusLogger.timestamped_print(f"Running Stage 9, Pass 1 on {len(function_batch.functions)} functions...")
-        
+
         # Check if LLM is disabled
         if self.llm_type == "none":
             return self._fallback_pass_f3_responses(function_batch.functions, "LLM disabled (--llm none)")
-        
+
         # Build Stage 9, Pass 1 prompt
         prompt = self._build_pass_f3_prompt(function_batch)
-        
+
         # Debug: Show prompt if requested
         if self.debug_llm_raw:
-            StatusLogger.timestamped_print("=== PASS F3 PROMPT ===")
-            StatusLogger.timestamped_print(prompt)
-            StatusLogger.timestamped_print("=== END PASS F3 PROMPT ===")
-        
+            self.base_client._debug_print_prompt_parts("PASS F3 PROMPT", prompt)
+
         # Retry logic: up to 3 attempts per batch
         max_retries = 3
         last_exception = None
-        
+
         for attempt in range(1, max_retries + 1):
             try:
                 # Make API request
                 response_data = self.base_client._make_api_request(prompt)
-                
+
                 # Extract and track token usage from response
                 prompt_tokens = 0
                 completion_tokens = 0
@@ -298,28 +296,28 @@ class FunctionLLMClient:
                     prompt_tokens = response_data["usage"].get("prompt_tokens", 0)
                     completion_tokens = response_data["usage"].get("completion_tokens", 0)
                     self.base_client._track_tokens(prompt_tokens, completion_tokens, "S3_P1")
-                
+
                 # Debug: Show response if requested
                 if self.debug_llm_raw:
                     StatusLogger.timestamped_print("=== PASS F3 RESPONSE ===")
                     StatusLogger.timestamped_print(str(response_data))
                     StatusLogger.timestamped_print("=== END PASS F3 RESPONSE ===")
-                
+
                 # Parse responses
                 analyses = self._parse_pass_f3_response(response_data, function_batch.functions)
-                
+
                 # Log results
                 yes_count = sum(1 for a in analyses if a.y2038_summary == Y2038Summary.YES)
                 no_count = sum(1 for a in analyses if a.y2038_summary == Y2038Summary.NO)
                 abstain_count = sum(1 for a in analyses if a.y2038_summary == Y2038Summary.ABSTAIN)
-                
+
                 StatusLogger.timestamped_print(
                     f"Stage 9, Pass 1 function classifications: "
                     f"{yes_count} yes, {no_count} no, {abstain_count} abstain"
                 )
                 if prompt_tokens > 0 or completion_tokens > 0:
                     StatusLogger.timestamped_print(f"Token usage: {prompt_tokens} prompt + {completion_tokens} completion = {prompt_tokens + completion_tokens} total")
-                
+
                 return analyses
 
             except LLMNonRetryableError:
@@ -338,7 +336,7 @@ class FunctionLLMClient:
                     StatusLogger.timestamped_error(f"Stage 9, Pass 1 LLM request failed after {max_retries} attempts: {e}")
                     self.total_batch_failures += 1
                     StatusLogger.timestamped_error(f"Total batch failures: {self.total_batch_failures}/{self.max_total_failures}")
-                    
+
                     # Check if we should abort
                     if self.total_batch_failures >= self.max_total_failures:
                         raise RuntimeError(
@@ -346,30 +344,30 @@ class FunctionLLMClient:
                             "Common causes: LLM context/size limits, rate limits, network/VPN blocking the provider, "
                             "or a bad model/API configuration (check --model and provider errors above)."
                         )
-                    
+
                     # Fallback to abstain on error
                     return self._fallback_pass_f3_responses(function_batch.functions, str(e))
-    
-    def _build_pass_f1_prompt(self, function_batch: FunctionBatch) -> str:
-        """Build prompt for Stage 8, Pass 2a (initial function analysis)."""
-        # Build environment context
+
+    def _build_pass_f1_prompt(self, function_batch: FunctionBatch) -> LLMPromptParts:
+        """Build trusted instructions and untrusted payload for Stage 8, Pass 2a."""
+        # Build the static environment rules (the values themselves travel as data)
         try:
-            env_context = self.base_client._build_environment_context()
+            env_rules = self.base_client._build_environment_rules()
         except Exception as e:
-            StatusLogger.timestamped_warning(f"Failed to build environment context: {e}")
-            env_context = "Environment context unavailable"
-        
-        # Build migration context with error handling
+            StatusLogger.timestamped_warning(f"Failed to build environment rules: {e}")
+            env_rules = "Environment rules unavailable"
+
+        # Build migration rules with error handling
         try:
-            migration_context = self._build_migration_context()
+            migration_rules = self._build_migration_rules()
         except Exception as e:
-            StatusLogger.timestamped_warning(f"Failed to build migration context: {e}")
-            migration_context = ""
-        
+            StatusLogger.timestamped_warning(f"Failed to build migration rules: {e}")
+            migration_rules = ""
+
         if self.detect_y2106:
             # Y2106 detection enabled - detect both Y2038 and Y2106
-            system_prompt = """You are a C/C++ time overflow auditor analyzing complete function bodies for Year 2038 and Year 2106 overflow risks.
-Use the environment context and the provided function code to assess both Y2038 and Y2106 risks.
+            system_prompt = f"""You are a C/C++ time overflow auditor analyzing complete function bodies for Year 2038 and Year 2106 overflow risks.
+{self.base_client._untrusted_data_notice()}
 
 CRITICAL DISTINCTIONS:
 - Y2038 ISSUES: Functions that will overflow BEFORE 2038 (32-bit signed time_t overflow on Jan 19, 2038)
@@ -393,18 +391,15 @@ Be decisive! Classify each issue type independently.
 
 IMPORTANT: Analyze each function independently. Don't assume all functions in a batch have the same risk level. Each function should be evaluated on its own merits.
 
-Environment Context:
-{env_context}
+{env_rules}
 
-{migration_context}
-""".format(
-            env_context=env_context,
-            migration_context=migration_context
-        )
+{migration_rules}
+"""
         else:
             # Y2106 detection disabled - only detect Y2038 (current behavior)
-            system_prompt = """You are a C/C++ Y2038 auditor analyzing complete function bodies for Year 2038 overflow risks.
-Use the environment context and the provided function code to assess Y2038 risks.
+            confidence_floor = self.base_client._confidence_floor_text()
+            system_prompt = f"""You are a C/C++ Y2038 auditor analyzing complete function bodies for Year 2038 overflow risks.
+{self.base_client._untrusted_data_notice()}
 
 CRITICAL: You are analyzing code for Y2038 risks. BE CONSERVATIVE - false positives are worse than false negatives.
 
@@ -430,7 +425,7 @@ Even if time_t is 64-bit, narrowing patterns ARE Y2038/Y2106 risks:
 - Implicit narrowing assignments: int32_t x = time_value; int y = time(NULL); → classify as YES
 - These patterns lose precision and can cause Y2038/Y2106 issues when the narrowed value is used
 
-CRITICAL: CHECK THE ENVIRONMENT CONTEXT BELOW TO DETERMINE IF time_t IS SIGNED OR UNSIGNED!
+CRITICAL: CHECK THE ENVIRONMENT FACTS IN THE ANALYSIS DATA TO DETERMINE IF time_t IS SIGNED OR UNSIGNED!
 
 RULES FOR SIGNED TIME_T ENVIRONMENTS (time_t_signed: "signed"):
 - **CRITICAL PATTERN 1**: Comparison operations checking for negative values:
@@ -460,16 +455,11 @@ Be decisive! Most functions should be NO, not YES. Only flag as YES if there's a
 
 IMPORTANT: Analyze each function independently. Don't assume all functions in a batch have the same risk level. Each function should be evaluated on its own merits.
 
-Environment Context:
-{env_context}
+{env_rules}
 
-{migration_context}
-""".format(
-            env_context=env_context,
-            migration_context=migration_context,
-            confidence_floor=self.base_client._confidence_floor_text(),
-        )
-        
+{migration_rules}
+"""
+
         if self.detect_y2106:
             # Y2106 detection enabled - include both Y2038 and Y2106 patterns
             system_prompt += """
@@ -577,20 +567,12 @@ Response: {"function_id": "test.c@print_message:20-22", "y2038_summary": "no", "
 Function: static int nanosleep_wrapper(struct timespec *ts) { return nanosleep(ts, NULL); }
 Response: {"function_id": "test.c@nanosleep_wrapper:30-32", "y2038_summary": "no", "confidence": 0.95, "issues": [{"type": "y2106_not_y2038", "line": 31, "description": "struct timespec.tv_sec is 32-bit unsigned time_t, overflows in 2106 not 2038"}], "needs_more_context": false, "needs": []}
 """
-        
+
         system_prompt += """
-Functions to analyze:
+Analyze every entry of the analysis data's 'functions' array. Each entry gives the
+function_id, the function body as written, and the absolute candidate line numbers.
 """
-        
-        # Add function bodies
-        for i, func in enumerate(function_batch.functions):
-            system_prompt += f"\n{i+1}. Function ID: {func.function_id}\n"
-            system_prompt += f"   Function Body:\n{func.body}\n"
-            if func.candidate_lines:
-                system_prompt += f"   Candidate Lines (absolute): {sorted(func.candidate_lines)}\n"
-            else:
-                system_prompt += "   Candidate Lines (absolute): []\n"
-        
+
         if self.detect_y2106:
             system_prompt += """
 Respond with a JSON array of analysis objects. Each object must have exactly these fields:
@@ -607,9 +589,9 @@ Respond with a JSON array of analysis objects. Each object must have exactly the
 
 LINE NUMBER REQUIREMENTS (VERY IMPORTANT):
 - `issues[].line` must be the 1-based ABSOLUTE line number in the original file.
-- The first line of `Function Body` corresponds to the `<start_line>` embedded in `function_id` (format: `<relpath>@<symbol>:<start>-<end>`).
+- The first line of a function's `body` corresponds to the `<start_line>` embedded in `function_id` (format: `<relpath>@<symbol>:<start>-<end>`).
 - If the issue spans a range, choose the most relevant line within that range from the function body.
-- When `Candidate Lines (absolute)` are provided for the function above, `issues[].line` MUST be one of those candidate line numbers.
+- When a function's `candidate_lines` array is non-empty, `issues[].line` MUST be one of those candidate line numbers.
 
 CRITICAL REQUIREMENTS:
 - Use the exact function_id format provided
@@ -636,9 +618,9 @@ Respond with a JSON array of analysis objects. Each object must have exactly the
 
 LINE NUMBER REQUIREMENTS (VERY IMPORTANT):
 - `issues[].line` must be the 1-based ABSOLUTE line number in the original file.
-- The first line of `Function Body` corresponds to the `<start_line>` embedded in `function_id` (`...:<start>-<end>`).
+- The first line of a function's `body` corresponds to the `<start_line>` embedded in `function_id` (`...:<start>-<end>`).
 - If unsure, choose the closest line in the provided function body that matches the described issue.
-- When `Candidate Lines (absolute)` are provided for the function above, `issues[].line` MUST be one of those candidate line numbers.
+- When a function's `candidate_lines` array is non-empty, `issues[].line` MUST be one of those candidate line numbers.
 
 CRITICAL REQUIREMENTS:
 - Use the exact function_id format provided
@@ -649,21 +631,25 @@ CRITICAL REQUIREMENTS:
 - For ABSTAIN: Explain what context is missing (typedef, struct, macro, callee, header)
 - ALWAYS provide at least one issue description for every function analyzed
 - Return valid JSON array - no extra text or formatting"""
-        
-        return system_prompt
-    
-    def _build_pass_f2_prompt(self, function_batch: FunctionBatch, iteration: int) -> str:
-        """Build prompt for Stage 8, Pass 2b (iterative enrichment)."""
-        # Build environment context
-        env_context = self.base_client._build_environment_context()
-        
-        system_prompt = """You are a C/C++ Y2038 auditor performing iterative analysis with additional context.
+
+        system_prompt += self._function_response_format_rules()
+
+        return LLMPromptParts(
+            system=system_prompt,
+            user=format_untrusted_user_payload(
+                self._function_payload("function_y2038_analysis", function_batch)
+            ),
+        )
+
+    def _build_pass_f2_prompt(self, function_batch: FunctionBatch, iteration: int) -> LLMPromptParts:
+        """Build trusted instructions and untrusted payload for Stage 8, Pass 2b."""
+        system_prompt = f"""You are a C/C++ Y2038 auditor performing iterative analysis with additional context.
+{self.base_client._untrusted_data_notice()}
 This is iteration {iteration} of analysis for functions that needed more context.
 
-Environment Context:
-{env_context}
+{self.base_client._build_environment_rules()}
 
-{migration_context}
+{self._build_migration_rules()}
 
 CRITICAL FOR ILP32 WITH 64-BIT TIME_T:
 Even if time_t is 64-bit, narrowing patterns ARE Y2038/Y2106 risks:
@@ -671,66 +657,35 @@ Even if time_t is 64-bit, narrowing patterns ARE Y2038/Y2106 risks:
 - Implicit narrowing assignments: int32_t x = time_value; int y = time(NULL); → classify as YES
 - These patterns lose precision and can cause Y2038/Y2106 issues when the narrowed value is used
 
-Context Additions:
-"""
-        
-        # Add context additions for each function
-        # Note: We need to escape curly braces in user content to prevent format string errors
-        def escape_braces(text: str) -> str:
-            """Escape curly braces in text to prevent format string errors."""
-            if not isinstance(text, str):
-                text = str(text)
-            return text.replace('{', '{{').replace('}', '}}')
-        
-        for i, func in enumerate(function_batch.functions):
-            system_prompt += f"\n{i+1}. Function ID: {escape_braces(func.function_id)}\n"
-            system_prompt += f"   Original Function:\n{escape_braces(func.body)}\n"
-            if func.candidate_lines:
-                system_prompt += f"   Candidate Lines (absolute): {sorted(func.candidate_lines)}\n"
-            else:
-                system_prompt += "   Candidate Lines (absolute): []\n"
-            
-            if func.context_additions:
-                system_prompt += f"   Additional Context:\n"
-                for key, value in func.context_additions.items():
-                    system_prompt += f"   {escape_braces(key.upper())}:\n"
-                    if isinstance(value, list):
-                        for item in value:
-                            system_prompt += f"     {escape_braces(item)}\n"
-                    else:
-                        system_prompt += f"     {escape_braces(value)}\n"
-        
-        system_prompt += """
+Each entry of the analysis data's 'functions' array carries the original body, its
+absolute candidate_lines, and the context_additions gathered for it.
+
 With this additional context, provide your final analysis. Respond with a JSON array matching the same schema as Pass F1.
-Be decisive - this is your final chance to classify these functions."""
-        system_prompt += """
+Be decisive - this is your final chance to classify these functions.
+
 LINE NUMBER REQUIREMENT:
-- For each issue, set `issues[].line` to one of the Candidate Lines (absolute) listed for that function (pick the most relevant match).
+- For each issue, set `issues[].line` to one of the function's `candidate_lines` (pick the most relevant match).
 """
-        
-        # Format the prompt with all parameters including migration context
-        migration_context = self._build_migration_context()
-        return system_prompt.format(
-            iteration=iteration,
-            env_context=env_context,
-            migration_context=migration_context
+        system_prompt += self._function_response_format_rules()
+
+        payload = self._function_payload("function_y2038_analysis_with_added_context", function_batch)
+        payload["iteration"] = iteration
+        return LLMPromptParts(
+            system=system_prompt,
+            user=format_untrusted_user_payload(payload),
         )
-    
-    def _build_pass_f3_prompt(self, function_batch: FunctionBatch) -> str:
-        """Build prompt for Stage 9, Pass 1 (file-leading context)."""
-        # Build environment context
-        env_context = self.base_client._build_environment_context()
-        migration_context = self._build_migration_context()
-        
+
+    def _build_pass_f3_prompt(self, function_batch: FunctionBatch) -> LLMPromptParts:
+        """Build trusted instructions and untrusted payload for Stage 9, Pass 1."""
         system_prompt = f"""You are a C/C++ Y2038 auditor performing FINAL analysis with full file context.
+{self.base_client._untrusted_data_notice()}
 These functions remain ambiguous after iterative analysis, but with full file context you should be able to make a definitive decision.
 
 CRITICAL: This is the FINAL pass. You MUST make a decision - YES or NO. Only use ABSTAIN if the code is genuinely impossible to analyze even with full file context (extremely rare).
 
-Environment Context:
-{env_context}
+{self.base_client._build_environment_rules()}
 
-{migration_context}
+{self._build_migration_rules()}
 
 DECISION CRITERIA (same as Pass F1):
 - YES: Function contains time_t usage that WILL overflow BEFORE 2038 (for signed time_t) OR narrowing patterns that reduce 64-bit time_t to 32-bit in ILP32 systems
@@ -745,53 +700,12 @@ Even if time_t is 64-bit, narrowing patterns ARE Y2038/Y2106 risks:
 
 Be DECISIVE! With full file context, you should be able to classify 99% of cases as YES or NO.
 
-Functions with full file context:
+Each entry of the analysis data's 'functions' array carries the body, the absolute
+candidate_lines, the leading lines of the file it came from, and every typedef,
+struct and macro found anywhere in that file.
 """
-        
-        # This prompt is never passed through str.format, unlike Pass F2's, so the
-        # code goes in as written. Escaping here would show the model C with every
-        # brace doubled, in the pass meant to be decisive.
-        for i, func in enumerate(function_batch.functions):
-            system_prompt += f"\n{i+1}. Function ID: {func.function_id}\n"
-            system_prompt += f"   Function Body:\n{func.body}\n"
-            if func.candidate_lines:
-                system_prompt += f"   Candidate Lines (absolute): {sorted(func.candidate_lines)}\n"
-            else:
-                system_prompt += "   Candidate Lines (absolute): []\n"
-            
-            # Add file-leading context (first 50 lines) AND all typedefs/structs/macros from entire file
-            try:
-                with open(func.file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    lines = f.readlines()
-                    file_context = ''.join(lines[:50])
-                    system_prompt += f"   File Context (first 50 lines):\n{file_context}\n"
-                    
-                    # Also extract ALL typedefs, structs, and macros from the entire file
-                    # This ensures we have complete type information even if defined later in the file
-                    # Import here to avoid circular dependency
-                    from tacs.core.function_analyzer import FunctionAnalyzer
-                    analyzer = FunctionAnalyzer()
-                    all_typedefs = analyzer._extract_typedefs(lines)
-                    all_structs = analyzer._extract_structs(lines)
-                    all_macros = analyzer._extract_macros(lines)
-                    
-                    if all_typedefs or all_structs or all_macros:
-                        system_prompt += f"   Complete Type Definitions from File:\n"
-                        if all_typedefs:
-                            system_prompt += f"   TYPEDEFS:\n"
-                            for typedef in all_typedefs:
-                                system_prompt += f"     {typedef}\n"
-                        if all_structs:
-                            system_prompt += f"   STRUCTS:\n"
-                            for struct in all_structs:
-                                system_prompt += f"     {struct}\n"
-                        if all_macros:
-                            system_prompt += f"   MACROS:\n"
-                            for macro in all_macros:
-                                system_prompt += f"     {macro}\n"
-            except Exception as e:
-                system_prompt += f"   File Context: Error reading file - {e}\n"
-        
+
+        # The schema below is literal JSON, so it stays out of the f-string above.
         system_prompt += """
 This is your FINAL analysis opportunity. You have full file context - make a DECISIVE decision.
 Respond with a JSON array matching the same schema as Pass F1:
@@ -806,29 +720,110 @@ Respond with a JSON array matching the same schema as Pass F1:
 
 LINE NUMBER REQUIREMENTS (VERY IMPORTANT):
 - `issues[].line` must be the 1-based ABSOLUTE line number in the original file.
-- The first line of `Function Body` corresponds to the `<start_line>` embedded in `function_id` (`...:<start>-<end>`).
+- The first line of a function's `body` corresponds to the `<start_line>` embedded in `function_id` (`...:<start>-<end>`).
 - Prefer a line that best pinpoints the described issue in the provided function body.
-- When `Candidate Lines (absolute)` are provided for the function above, `issues[].line` MUST be one of those candidate line numbers.
+- When a function's `candidate_lines` array is non-empty, `issues[].line` MUST be one of those candidate line numbers.
 
-IMPORTANT: 
+IMPORTANT:
 - Use "needs_more_context": false (this is the final pass)
 - Use "needs": [] (no more context needed)
 - Be DECISIVE - classify as YES or NO unless truly impossible
 - Only use ABSTAIN if genuinely impossible to determine even with full file context"""
-        return system_prompt
-    
+        system_prompt += self._function_response_format_rules()
+
+        return LLMPromptParts(
+            system=system_prompt,
+            user=format_untrusted_user_payload(
+                self._function_payload(
+                    "function_y2038_analysis_with_file_context",
+                    function_batch,
+                    include_file_context=True,
+                )
+            ),
+        )
+
+    @staticmethod
+    def _function_response_format_rules() -> str:
+        """How the answer must be shaped, given nothing partial is salvaged."""
+        return (
+            "\n\nRESPONSE FORMAT:\n"
+            "- Respond with one complete JSON array and nothing else. A single markdown "
+            "fence around the whole response is tolerated; nothing else is.\n"
+            "- A truncated or partial array is rejected whole and every function in the "
+            "batch abstains, so answer within the batch you were given.\n"
+        )
+
+    def _function_payload(
+        self,
+        task: str,
+        function_batch: FunctionBatch,
+        *,
+        include_file_context: bool = False,
+    ) -> Dict[str, Any]:
+        """The untrusted half of a function-pass prompt: environment and code facts."""
+        payload: Dict[str, Any] = {
+            "task": task,
+            "environment_config": self.base_client._environment_facts(),
+            "functions": [
+                self._function_facts(func, include_file_context=include_file_context)
+                for func in function_batch.functions
+            ],
+        }
+        migration = self._migration_facts()
+        if migration:
+            payload["migration"] = migration
+        return payload
+
+    def _function_facts(
+        self, func: FunctionBody, *, include_file_context: bool = False
+    ) -> Dict[str, Any]:
+        """One function as untrusted structured facts."""
+        facts: Dict[str, Any] = {
+            "function_id": func.function_id,
+            "symbol": func.symbol,
+            "start_line": func.start_line,
+            "end_line": func.end_line,
+            "body": func.body,
+            "candidate_lines": sorted(func.candidate_lines or []),
+        }
+        if func.context_additions:
+            facts["context_additions"] = {
+                str(key): value for key, value in func.context_additions.items()
+            }
+        if include_file_context:
+            facts["file_context"] = self._file_context_facts(func)
+        return facts
+
+    def _file_context_facts(self, func: FunctionBody) -> Dict[str, Any]:
+        """File-leading lines plus every type definition in the function's file."""
+        try:
+            with open(func.file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                lines = f.readlines()
+        except Exception as e:
+            return {"error": f"Error reading file - {e}"}
+
+        # Import here to avoid circular dependency
+        from tacs.core.function_analyzer import FunctionAnalyzer
+        analyzer = FunctionAnalyzer()
+        return {
+            "leading_lines": ''.join(lines[:50]),
+            "typedefs": analyzer._extract_typedefs(lines),
+            "structs": analyzer._extract_structs(lines),
+            "macros": analyzer._extract_macros(lines),
+        }
+
     def _parse_pass_f1_response(self, response_data: Dict[str, Any], functions: List[FunctionBody]) -> List[FunctionAnalysis]:
         """Parse Stage 8, Pass 2a LLM response."""
         return self._parse_function_response(response_data, functions, "S2_P1")
-    
+
     def _parse_pass_f2_response(self, response_data: Dict[str, Any], functions: List[FunctionBody]) -> List[FunctionAnalysis]:
         """Parse Stage 8, Pass 2b LLM response."""
         return self._parse_function_response(response_data, functions, "S2_P2")
-    
+
     def _parse_pass_f3_response(self, response_data: Dict[str, Any], functions: List[FunctionBody]) -> List[FunctionAnalysis]:
         """Parse Stage 9, Pass 1 LLM response."""
         return self._parse_function_response(response_data, functions, "S3_P1")
-    
+
     def _align_analyses_to_functions(
         self,
         analyses: List[FunctionAnalysis],
@@ -923,21 +918,28 @@ IMPORTANT:
         return out
 
     def _parse_function_response(self, response_data: Dict[str, Any], functions: List[FunctionBody], pass_name: str) -> List[FunctionAnalysis]:
-        """Parse function analysis response."""
+        """Parse function analysis response.
+
+        The whole response must be the requested JSON array, optionally inside one
+        markdown fence. Nothing is read out of a malformed reply: a truncation or
+        an injected span would otherwise answer for functions the model never
+        judged, and a partial batch is indistinguishable from a complete one once
+        the leftovers are padded with abstains.
+        """
         try:
             # Extract content from response
             content = self.base_client._extract_content(response_data)
             if not content:
                 return self._fallback_function_responses(functions, f"Empty response from {pass_name}")
-            
-            # Strip markdown code blocks if present
-            content = self._strip_markdown_code_blocks(content)
-            
+
+            # Unwrap one whole-response markdown fence if present
+            content = strip_optional_code_fence(content)
+
             # Parse JSON
             parsed = json.loads(content)
             if not isinstance(parsed, list):
                 return self._fallback_function_responses(functions, f"{pass_name} response is not a JSON array")
-            
+
             # Convert to FunctionAnalysis objects
             analyses = []
             for i, item in enumerate(parsed):
@@ -946,7 +948,7 @@ IMPORTANT:
                     normalized_item = self._normalize_function_analysis_item(item, functions[i] if i < len(functions) else None)
                     analysis = FunctionAnalysis(**normalized_item)
                     analyses.append(analysis)
-                    
+
                     # Debug: Show parsed analysis details
                     if self.debug_llm_raw:
                         StatusLogger.timestamped_print(f"Parsed analysis {i+1}: {analysis.function_id} -> {analysis.y2038_summary.value} (confidence: {analysis.confidence:.2f})")
@@ -960,7 +962,7 @@ IMPORTANT:
                             StatusLogger.timestamped_print(f"  Needs: {analysis.needs}")
                         if analysis.needs_more_context:
                             StatusLogger.timestamped_print(f"  Needs more context: {analysis.needs_more_context}")
-                            
+
                 except Exception as e:
                     StatusLogger.timestamped_warning(f"Failed to parse {pass_name} analysis item: {e}")
                     StatusLogger.timestamped_warning(f"Raw item: {item}")
@@ -969,63 +971,23 @@ IMPORTANT:
             return self._align_analyses_to_functions(
                 analyses, functions, pass_name, "fewer valid array entries than functions"
             )
-            
+
         except json.JSONDecodeError as e:
-            # JSON parsing error - likely truncated response
-            StatusLogger.timestamped_warning(f"{pass_name} JSON parsing error (likely truncated response): {e}")
-            
-            # Try to salvage partial responses
-            try:
-                # Look for complete JSON objects in the partial response
-                partial_analyses = self._try_parse_partial_response(content, functions, pass_name)
-                if partial_analyses:
-                    StatusLogger.timestamped_print(
-                        f"Salvaged {len(partial_analyses)} complete object(s) from truncated JSON; "
-                        f"padding batch to {len(functions)} (missing entries → abstain)"
-                    )
-                    return self._align_analyses_to_functions(
-                        partial_analyses, functions, pass_name, "truncated JSON response"
-                    )
-            except Exception as salvage_error:
-                StatusLogger.timestamped_warning(f"Failed to salvage partial responses: {salvage_error}")
-            
-            # Fallback to abstain for any functions we couldn't parse
+            # A response that is not one complete JSON array is not read at all.
+            StatusLogger.timestamped_warning(
+                f"{pass_name} response was not a complete JSON array "
+                f"(truncated or malformed): {e}; the batch abstains"
+            )
             return self._fallback_function_responses(functions, f"{pass_name} JSON parsing error (truncated response): {e}")
         except Exception as e:
             StatusLogger.timestamped_error(f"{pass_name} parsing error: {e}")
-            
-            # Try to salvage partial responses
-            try:
-                # Look for complete JSON objects in the partial response
-                partial_analyses = self._try_parse_partial_response(content, functions, pass_name)
-                if partial_analyses:
-                    StatusLogger.timestamped_print(
-                        f"Salvaged {len(partial_analyses)} complete object(s) from partial JSON; "
-                        f"padding batch to {len(functions)}"
-                    )
-                    return self._align_analyses_to_functions(
-                        partial_analyses, functions, pass_name, "partial JSON response"
-                    )
-            except Exception as salvage_error:
-                StatusLogger.timestamped_warning(f"Failed to salvage partial responses: {salvage_error}")
-            
             return self._fallback_function_responses(functions, f"{pass_name} parsing error: {e}")
-    
-    def _strip_markdown_code_blocks(self, content: str) -> str:
-        """Strip markdown code blocks from content."""
-        import re
-        # Remove ```json ... ``` blocks
-        content = re.sub(r'```json\s*\n', '', content)
-        content = re.sub(r'```\s*\n', '', content)
-        content = re.sub(r'```json', '', content)
-        content = re.sub(r'```', '', content)
-        return content.strip()
-    
+
     def _normalize_function_analysis_item(self, item: Dict[str, Any], function: Optional[FunctionBody] = None) -> Dict[str, Any]:
         """Normalize LLM response item to match FunctionAnalysis schema."""
-        
+
         normalized = {}
-        
+
         # Map function_id from various field names
         function_id = (
             item.get('function_id') or
@@ -1046,7 +1008,7 @@ IMPORTANT:
         # Ensure function_id is always a non-empty string (required by FunctionAnalysis; LLM may return null/number)
         raw = function_id or 'unknown'
         normalized['function_id'] = str(raw).strip() or 'unknown'
-        
+
         # Map y2038_summary from various field names and values
         y2038_summary = None
         summary_value = (
@@ -1057,7 +1019,7 @@ IMPORTANT:
             item.get('y2038_problem') or
             item.get('classification')
         )
-        
+
         if summary_value:
             summary_str = str(summary_value).lower()
             if summary_str in ['yes', 'true', 'risky', 'risky_narrowing']:
@@ -1071,7 +1033,7 @@ IMPORTANT:
                     y2038_summary = Y2038Summary.NO
             elif summary_str in ['abstain', 'unknown', 'ambiguous']:
                 y2038_summary = Y2038Summary.ABSTAIN
-        
+
         # If still not determined, check y2038_safe field
         if y2038_summary is None:
             y2038_safe = item.get('y2038_safe')
@@ -1079,9 +1041,9 @@ IMPORTANT:
                 y2038_summary = Y2038Summary.NO if y2038_safe else Y2038Summary.YES
             else:
                 y2038_summary = Y2038Summary.ABSTAIN
-        
+
         normalized['y2038_summary'] = y2038_summary
-        
+
         # Map y2106_summary (when Y2106 detection enabled)
         if self.detect_y2106:
             y2106_summary = None
@@ -1091,7 +1053,7 @@ IMPORTANT:
                 item.get('Y2106Affected') or
                 item.get('y2106')
             )
-            
+
             if y2106_value:
                 y2106_str = str(y2106_value).lower()
                 if y2106_str in ['yes', 'true', 'risky']:
@@ -1100,18 +1062,18 @@ IMPORTANT:
                     y2106_summary = Y2038Summary.NO
                 elif y2106_str in ['abstain', 'unknown', 'ambiguous']:
                     y2106_summary = Y2038Summary.ABSTAIN
-            
+
             # If not explicitly provided, infer from issue_type or issues
             if y2106_summary is None:
                 issue_type = item.get('issue_type', '').lower()
                 issues = item.get('issues', [])
-                
+
                 # Check if any issues are Y2106
                 has_y2106_issue = any(
-                    issue.get('type', '').lower() in ['y2106', 'both'] 
+                    issue.get('type', '').lower() in ['y2106', 'both']
                     for issue in issues if isinstance(issue, dict)
                 )
-                
+
                 if issue_type in ['y2106', 'both'] or has_y2106_issue:
                     y2106_summary = Y2038Summary.YES
                 elif issue_type == 'none':
@@ -1128,9 +1090,9 @@ IMPORTANT:
                         y2106_summary = Y2038Summary.YES if has_y2106_pattern else Y2038Summary.NO
                     else:
                         y2106_summary = Y2038Summary.NO
-            
+
             normalized['y2106_summary'] = y2106_summary
-            
+
             # Map issue_type
             issue_type = item.get('issue_type', '').lower()
             if issue_type:
@@ -1150,7 +1112,7 @@ IMPORTANT:
                 from tacs.core.schema import TimeIssueType
                 has_y2038 = y2038_summary == Y2038Summary.YES
                 has_y2106 = normalized.get('y2106_summary') == Y2038Summary.YES
-                
+
                 if has_y2038 and has_y2106:
                     normalized['issue_type'] = TimeIssueType.BOTH
                 elif has_y2038:
@@ -1161,7 +1123,7 @@ IMPORTANT:
                     normalized['issue_type'] = TimeIssueType.ABSTAIN
                 else:
                     normalized['issue_type'] = TimeIssueType.NONE
-        
+
         # Map confidence from various field names and convert string to float
         confidence = item.get('confidence', 0.5)
         if isinstance(confidence, str):
@@ -1182,14 +1144,14 @@ IMPORTANT:
                 confidence = float(confidence)
             except (TypeError, ValueError):
                 confidence = 0.5
-        
+
         normalized['confidence'] = max(0.0, min(1.0, confidence))
-        
+
         # Map issues - normalize to list of dicts
         issues = item.get('issues', [])
         if not isinstance(issues, list):
             issues = []
-        
+
         # Normalize issues: convert strings to dicts, ensure all are dicts
         normalized_issues = []
         for issue in issues:
@@ -1213,7 +1175,7 @@ IMPORTANT:
                         normalized_issue[key] = value
                 normalized_issues.append(normalized_issue)
             # Skip non-string, non-dict items
-        
+
         # If no issues found, try to create from other fields
         if not normalized_issues:
             if 'explanation' in item:
@@ -1240,75 +1202,23 @@ IMPORTANT:
                     'description': item['notes'],
                     'line': item.get('line', item.get('line_start', function.start_line if function else 0))
                 }]
-        
+
         normalized['issues'] = normalized_issues
-        
+
         # Map needs_more_context
         needs_more_context = item.get('needs_more_context', False)
         if not isinstance(needs_more_context, bool):
             needs_more_context = False
         normalized['needs_more_context'] = needs_more_context
-        
+
         # Map needs
         needs = item.get('needs', [])
         if not isinstance(needs, list):
             needs = []
         normalized['needs'] = [ContextNeed(n) if isinstance(n, str) else n for n in needs]
-        
+
         return normalized
-    
-    def _try_parse_partial_response(self, content: str, functions: List[FunctionBody], pass_name: str) -> List[FunctionAnalysis]:
-        """Try to salvage partial JSON responses from truncated content."""
-        analyses = []
-        
-        try:
-            # Strip markdown code blocks first
-            content = self._strip_markdown_code_blocks(content)
-            
-            # Look for complete JSON objects by finding balanced braces
-            start_idx = 0
-            obj_index = 0
-            while start_idx < len(content):
-                # Find the start of a JSON object
-                obj_start = content.find('{', start_idx)
-                if obj_start == -1:
-                    break
-                
-                # Find the matching closing brace
-                brace_count = 0
-                obj_end = -1
-                for i in range(obj_start, len(content)):
-                    if content[i] == '{':
-                        brace_count += 1
-                    elif content[i] == '}':
-                        brace_count -= 1
-                        if brace_count == 0:
-                            obj_end = i
-                            break
-                
-                if obj_end != -1:
-                    # Extract the complete JSON object
-                    json_str = content[obj_start:obj_end + 1]
-                    try:
-                        item = json.loads(json_str)
-                        # Normalize the item
-                        function = functions[obj_index] if obj_index < len(functions) else None
-                        normalized_item = self._normalize_function_analysis_item(item, function)
-                        analysis = FunctionAnalysis(**normalized_item)
-                        analyses.append(analysis)
-                        StatusLogger.timestamped_print(f"Salvaged analysis for {analysis.function_id}: {analysis.y2038_summary.value}")
-                        obj_index += 1
-                    except Exception as parse_error:
-                        StatusLogger.timestamped_warning(f"Failed to parse salvaged JSON object: {parse_error}")
-                
-                start_idx = obj_end + 1 if obj_end != -1 else obj_start + 1
-            
-            return analyses
-            
-        except Exception as e:
-            StatusLogger.timestamped_warning(f"Failed to salvage partial responses: {e}")
-            return []
-    
+
     def _fallback_function_responses(self, functions: List[FunctionBody], error_msg: str) -> List[FunctionAnalysis]:
         """Create fallback responses for function analysis."""
         analyses = []
@@ -1323,52 +1233,40 @@ IMPORTANT:
             )
             analyses.append(analysis)
         return analyses
-    
+
     def _fallback_pass_f1_responses(self, functions: List[FunctionBody], error_msg: str) -> List[FunctionAnalysis]:
         """Create fallback responses for Stage 8, Pass 2a."""
         return self._fallback_function_responses(functions, f"Stage 8, Pass 2a error: {error_msg}")
-    
+
     def _fallback_pass_f2_responses(self, functions: List[FunctionBody], error_msg: str) -> List[FunctionAnalysis]:
         """Create fallback responses for Stage 8, Pass 2b."""
         return self._fallback_function_responses(functions, f"Stage 8, Pass 2b error: {error_msg}")
-    
+
     def _fallback_pass_f3_responses(self, functions: List[FunctionBody], error_msg: str) -> List[FunctionAnalysis]:
         """Create fallback responses for Stage 9, Pass 1."""
         return self._fallback_function_responses(functions, f"Stage 9, Pass 1 error: {error_msg}")
-    
-    def _build_migration_context(self) -> str:
-        """Build migration context string for prompts."""
+
+    def _migration_facts(self) -> Dict[str, Any]:
+        """Source and target configs as untrusted facts, or empty when not migrating."""
+        if not self.migration_mode or not self.migration_from_config or not self.migration_to_config:
+            return {}
+        try:
+            return {
+                "from": _migration_endpoint_facts(self.migration_from_config),
+                "to": _migration_endpoint_facts(self.migration_to_config),
+            }
+        except Exception:
+            return {}
+
+    def _build_migration_rules(self) -> str:
+        """Static migration rules for the trusted channel, or empty when not migrating."""
         if not self.migration_mode or not self.migration_from_config or not self.migration_to_config:
             return ""
-        
-        try:
-            from tacs.core.config_validator import ConfigValidator
-            from_id = ConfigValidator.get_config_id(self.migration_from_config)
-            to_id = ConfigValidator.get_config_id(self.migration_to_config)
-        except Exception:
-            from_id = "unknown"
-            to_id = "unknown"
-        
-        # Safely get config values with defaults
-        try:
-            from_hw = self.migration_from_config.get('hardware_model', 'unknown')
-            from_bits = self.migration_from_config.get('time_t_size_bits', 'unknown')
-            from_signed = self.migration_from_config.get('time_t_signed', 'unknown')
-        except Exception:
-            from_hw = from_bits = from_signed = "unknown"
-        
-        try:
-            to_hw = self.migration_to_config.get('hardware_model', 'unknown')
-            to_bits = self.migration_to_config.get('time_t_size_bits', 'unknown')
-            to_signed = self.migration_to_config.get('time_t_signed', 'unknown')
-        except Exception:
-            to_hw = to_bits = to_signed = "unknown"
-        
-        migration_context = f"""
+
+        return """
 MIGRATION ANALYSIS MODE:
-You are analyzing code for migration from:
-  Source: {from_id} ({from_hw} {from_bits}bit {from_signed})
-  Target: {to_id} ({to_hw} {to_bits}bit {to_signed})
+The analysis data's 'migration' object names the source and target configurations
+you are judging the code against.
 
 Focus on patterns that would:
 1. BREAK during migration (blockers):
@@ -1394,4 +1292,3 @@ Classification in migration mode:
 - 'abstain': Uncertain migration impact
 
 """
-        return migration_context

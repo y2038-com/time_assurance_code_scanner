@@ -25,6 +25,7 @@ from click.testing import CliRunner
 import tacs.batch_scan_repos as bsr
 from tacs.cli import app
 from tacs.core.function_schemas import FunctionAnalysis, Y2038Summary
+from tacs.core.llm_prompt import LLMPromptParts
 
 SOURCE = """#include <time.h>
 
@@ -64,13 +65,13 @@ class _StubLLMClient:
         ]
 
     def _build_pass_f1_prompt(self, function_batch):  # noqa: ANN001
-        return "stage 8 pass 2a prompt"
+        return LLMPromptParts(system="stage 8 pass 2a instructions", user="analysis data")
 
     def _build_pass_f2_prompt(self, function_batch, iteration):  # noqa: ANN001
-        return "stage 8 pass 2b prompt"
+        return LLMPromptParts(system="stage 8 pass 2b instructions", user="analysis data")
 
     def _build_pass_f3_prompt(self, function_batch):  # noqa: ANN001
-        return "stage 9 prompt"
+        return LLMPromptParts(system="stage 9 instructions", user="analysis data")
 
     def analyze_functions_pass_f1(self, function_batch):  # noqa: ANN001
         return self._analyses(function_batch)
@@ -279,7 +280,8 @@ def test_llm_batch_manifests_sit_under_repo_root(
 
     # Privacy gating is unchanged by the layout move.
     payload = json.loads(manifest.read_text(encoding="utf-8"))
-    assert "full_prompt" not in payload
+    assert "full_system_prompt" not in payload
+    assert "full_user_prompt" not in payload
     assert "body" not in payload["functions"][0]
     assert payload["functions"][0]["file_path"] == "benchmark/timezone_gmt_time.c"
 

@@ -84,9 +84,14 @@ What it contains depends on the flags above:
 
 | Flags | Persisted |
 |-------|-----------|
-| default (no `--log-llm`) | Manifest only: batch/function ids, relative paths, line ranges, symbols, candidate line numbers, prompt size and SHA-256. No prompt text, no function bodies. |
-| `--log-llm` | Manifest plus a redacted prompt: function bodies are replaced by placeholders, source lines are removed, paths are hashed. |
-| `--log-llm --allow-raw-code-logging` | Manifest plus the verbatim prompt and verbatim function bodies. |
+| default (no `--log-llm`) | Manifest only: batch/function ids, relative paths, line ranges, symbols, candidate line numbers, and the size and SHA-256 of each prompt channel. No prompt text, no function bodies. |
+| `--log-llm` | Manifest plus both prompt channels redacted: function bodies are replaced by placeholders, source lines are removed, paths are hashed. |
+| `--log-llm --allow-raw-code-logging` | Manifest plus both verbatim prompt channels and verbatim function bodies. |
+
+A prompt has two channels, and they are sized, hashed and persisted separately
+(`system_prompt_*` and `user_prompt_*`). A single digest over a concatenation
+would describe a prompt that was never sent and would hide which channel a given
+line travelled in.
 
 `--allow-raw-code-logging` is the authoritative switch for verbatim source retention.
 `--no-redact-prompts` on its own does not grant it, and `--allow-raw-code-logging`
@@ -104,6 +109,15 @@ When LLM mode is enabled, prompts that include source code context go to the con
 API endpoint — typically complete extracted function bodies, and in later stages file
 preamble (for example leading lines) plus typedefs, structs, and macros gathered from
 the file. Treat provider choice as a data-handling decision.
+
+That content is sent in the provider's untrusted user channel, labelled as
+analysis data, while TACS's own auditor instructions go in the trusted channel:
+a `system` message for OpenAI-compatible APIs, a top-level `system` for
+Anthropic, `systemInstruction` for Gemini, and the `system` field alongside
+`prompt` for the Ollama `/api/generate` endpoint. Environment and migration
+facts travel with the code rather than with the instructions. The separation is
+best-effort and not injection-proof: a model may still act on text it was told
+to treat as data.
 
 ## Operational hygiene
 

@@ -20,12 +20,23 @@ from tacs.core.path_utils import (
     repo_relative_path,
     update_latest_symlink,
 )
+from tacs.core.llm_prompt import LLMPromptParts
 from tacs.core.run_ids import new_run_id
 
 
 # Line-number prefixes used when source is embedded in prompts, e.g. "  12 | code"
 # or "12: code"; stripped before matching so prefixed source lines still redact.
 _SOURCE_LINE_PREFIX = re.compile(r"^\s*\d+\s*[:|]\s?")
+
+
+def _json_renderings(text: str) -> tuple[str, str]:
+    """How ``text`` reads as a JSON string value, unquoted, in both escape styles.
+
+    The untrusted prompt payload serializes with ``ensure_ascii=False``; the
+    ASCII-escaped form is matched too so non-ASCII source cannot slip past a
+    redaction because of how a caller happened to serialize it.
+    """
+    return json.dumps(text, ensure_ascii=False)[1:-1], json.dumps(text)[1:-1]
 
 
 class ScanSession:
@@ -418,11 +429,14 @@ This scan session contains all data needed for debugging, review, and fine-tunin
     
     def _redact_function_batch_prompt(self, prompt: str, functions: List[Any]) -> str:
         """
-        Remove embedded source from a function-batch prompt.
+        Remove embedded source from one channel of a function-batch prompt.
 
         Each function body is replaced by a placeholder, then any remaining prompt
-        line that reproduces a source line is dropped. The result is passed through
-        the shared LLM log redaction so paths are hashed and long lines truncated.
+        line that reproduces a source line is dropped. Both the verbatim and the
+        JSON-escaped rendering of the source are matched, because the untrusted
+        channel carries a JSON document in which a whole body sits on one physical
+        line. The result is passed through the shared LLM log redaction so paths
+        are hashed and long lines truncated.
         """
         from tacs.core.llm_logger import redact_prompt_text
 
@@ -438,41 +452,72 @@ This scan session contains all data needed for debugging, review, and fine-tunin
                 f"<REDACTED FUNCTION BODY function_id={function_id} "
                 f"lines={len(body.splitlines())} chars={len(body)}>"
             )
-            redacted = redacted.replace(body, placeholder)
+            for rendering in (body, *_json_renderings(body)):
+                redacted = redacted.replace(rendering, placeholder)
             for line in body.splitlines():
                 stripped = line.strip()
                 if len(stripped) >= 4:
                     source_lines.add(stripped)
+                    source_lines.update(_json_renderings(stripped))
 
         if source_lines:
-            kept: List[str] = []
-            for line in redacted.split('\n'):
-                unprefixed = _SOURCE_LINE_PREFIX.sub('', line).strip()
-                if line.strip() in source_lines or unprefixed in source_lines:
-                    kept.append("<REDACTED SOURCE LINE>")
-                else:
-                    kept.append(line)
+            kept: List[str] = [
+                self._redact_source_in_line(line, source_lines)
+                for line in redacted.split('\n')
+            ]
             redacted = '\n'.join(kept)
 
         return redact_prompt_text(redacted)
 
-    def save_function_batch(self, pass_name: str, batch_num: int, function_batch: Any, prompt: str, 
+    @staticmethod
+    def _redact_source_in_line(line: str, source_lines: set[str]) -> str:
+        """Drop source-bearing text from one physical prompt line.
+
+        A JSON-encoded payload puts many source lines on one physical line with
+        escaped newlines between them, so the segments are checked individually
+        rather than the line as a whole.
+        """
+        segments = line.split('\\n')
+        kept: List[str] = []
+        hit = False
+        for segment in segments:
+            unprefixed = _SOURCE_LINE_PREFIX.sub('', segment).strip()
+            if segment.strip() in source_lines or unprefixed in source_lines:
+                kept.append("<REDACTED SOURCE LINE>")
+                hit = True
+            else:
+                kept.append(segment)
+        return '\\n'.join(kept) if hit else line
+
+    def save_function_batch(self, pass_name: str, batch_num: int, function_batch: Any,
+                           prompt: Optional[LLMPromptParts],
                            response: Optional[List[Dict[str, Any]]] = None):
         """
         Save a function-batch artifact for audit and debugging.
 
         The manifest (batch/function ids, relative paths, line ranges, candidate line
-        numbers, prompt size and digest) is always written. Source-bearing content is
+        numbers, prompt sizes and digests) is always written. Source-bearing content is
         gated:
 
         - enable_llm_logging=False: manifest only, no prompt or body text
-        - enable_llm_logging=True: prompt is persisted in redacted form
+        - enable_llm_logging=True: both prompt channels are persisted in redacted form
         - enable_llm_logging=True and allow_raw_code_logging=True: verbatim prompt
-          and function bodies are persisted
+          channels and function bodies are persisted
 
         allow_raw_code_logging is authoritative for verbatim source retention, so
         redact_prompts=False alone does not permit raw prompt/body persistence.
+
+        The trusted and untrusted channels are sized, hashed and persisted
+        separately. Concatenating them for the artifact would record a prompt that
+        was never sent and hide which channel a given line travelled in.
         """
+        if isinstance(prompt, str):
+            raise TypeError(
+                "save_function_batch takes LLMPromptParts; a flattened prompt string "
+                "cannot show which channel content travelled in"
+            )
+        if prompt is not None and not isinstance(prompt, LLMPromptParts):
+            raise TypeError(f"Expected LLMPromptParts, got {type(prompt).__name__}")
         # pass_name should be in format like "stage_8_pass_2a" or "stage_8_pass_2b" - use as-is without prefix
         batches_dir = self._ensure_dir(self.llm_dir / pass_name.lower() / "batches")
 
@@ -518,13 +563,20 @@ This scan session contains all data needed for debugging, review, and fine-tunin
             },
         }
 
-        if prompt:
-            batch_input["prompt_chars"] = len(prompt)
-            batch_input["prompt_sha256"] = hashlib.sha256(prompt.encode('utf-8')).hexdigest()
-            if persist_raw_code:
-                batch_input["full_prompt"] = prompt
-            elif persist_prompt:
-                batch_input["prompt_redacted"] = self._redact_function_batch_prompt(prompt, functions)
+        if prompt is not None:
+            for channel, text in (("system", prompt.system), ("user", prompt.user)):
+                if not text:
+                    continue
+                batch_input[f"{channel}_prompt_chars"] = len(text)
+                batch_input[f"{channel}_prompt_sha256"] = hashlib.sha256(
+                    text.encode('utf-8')
+                ).hexdigest()
+                if persist_raw_code:
+                    batch_input[f"full_{channel}_prompt"] = text
+                elif persist_prompt:
+                    batch_input[f"{channel}_prompt_redacted"] = (
+                        self._redact_function_batch_prompt(text, functions)
+                    )
 
         with open(batches_dir / f"{batch_num:04d}_input.json", 'w', encoding='utf-8') as f:
             json.dump(batch_input, f, indent=2)
