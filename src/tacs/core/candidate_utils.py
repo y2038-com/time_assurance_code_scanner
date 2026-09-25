@@ -5,10 +5,12 @@
 
 from __future__ import annotations
 
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from tacs.core.path_utils import canonical_source_path
 from tacs.core.schema import Candidate
+
+CandidateRuleIdConflictError = type("CandidateRuleIdConflictError", (ValueError,), {})
 
 
 def normalize_candidate_file(candidate: Candidate) -> Candidate:
@@ -26,14 +28,13 @@ def candidate_identity_key(candidate: Candidate) -> Tuple[str, int, int, int, st
     Tuple: ``(canonical_file, line, col_start, col_end, symbol, risk)``.
 
     Why ``risk`` (not description / a synthetic rule id):
-    * ``Candidate`` has no ``rule_id`` or ``category`` field; ``risk`` is the
-      stable severity tag supplied by rules JSON and by the define/arithmetic
-      detectors.
+    * ``risk`` is the stable severity tag supplied by rules JSON and by the
+      define/arithmetic detectors.
+    * Catalog ``rule_id`` is a separate attribution field on ``Candidate`` /
+      ``CandidateEvidence``; it is not part of this identity tuple.
     * It is deterministic for a given ruleset/detector (not model output or a
       timestamp). Distinct severity at the same site stays distinct.
-    * ``description`` is deliberately omitted: wording is unstable, and the
-      bundled ruleset has several same-symbol/same-risk entries that differ
-      only in prose (OS/header variants). Collapsing those is correct.
+    * ``description`` is deliberately omitted: wording is unstable.
     * On the sample ruleset every symbol maps to one risk, so risk rarely
       splits IR hits by itself; columns + symbol already separate sites. Risk
       still belongs in the key for detector severity differences and for
@@ -92,17 +93,51 @@ def candidate_id_for(candidate: Candidate, relpath: str) -> str:
     )
 
 
+def _normalized_rule_id(candidate: Candidate) -> Optional[str]:
+    rid = getattr(candidate, "rule_id", None)
+    if isinstance(rid, str) and rid.strip():
+        return rid.strip()
+    return None
+
+
+def _merge_rule_attribution(existing: Candidate, incoming: Candidate) -> Candidate:
+    """Reconcile rule_id when two candidates share the same identity key.
+
+    * Equal non-null IDs → keep ``existing`` (first-seen).
+    * Conflicting non-null IDs → raise ``CandidateRuleIdConflictError``.
+    * One null and one non-null → keep the non-null ID (truthful attribution)
+      without changing the identity key.
+    * Both null → keep ``existing``.
+    """
+    a = _normalized_rule_id(existing)
+    b = _normalized_rule_id(incoming)
+    if a is not None and b is not None and a != b:
+        raise CandidateRuleIdConflictError(
+            f"Conflicting rule_id values for identical candidate "
+            f"{candidate_identity_key(existing)!r}: {a!r} vs {b!r}"
+        )
+    if a is None and b is not None:
+        return existing.model_copy(update={"rule_id": b})
+    return existing
+
+
 def dedupe_candidates(candidates: Sequence[Candidate]) -> List[Candidate]:
-    """Drop exact semantic duplicates, preserving first-seen order."""
-    seen = set()
+    """Drop exact semantic duplicates, preserving first-seen order.
+
+    Conflicting non-null ``rule_id`` values for the same identity raise
+    :class:`CandidateRuleIdConflictError` rather than silently choosing one.
+    """
+    seen: Dict[Tuple[str, int, int, int, str, str], int] = {}
     out: List[Candidate] = []
     for candidate in candidates:
         normalized = normalize_candidate_file(candidate)
         key = candidate_identity_key(normalized)
-        if key in seen:
+        if key not in seen:
+            seen[key] = len(out)
+            out.append(normalized)
             continue
-        seen.add(key)
-        out.append(normalized)
+        idx = seen[key]
+        out[idx] = _merge_rule_attribution(out[idx], normalized)
     return out
 
 

@@ -35,9 +35,9 @@ flattened kept it at `repos/<repo-key>/scan/findings.json`; both still render.
 Old unversioned `{meta, findings}` files remain renderable. When a versioned
 file has candidates but no model-retained findings, the report states that
 deterministic candidates were recorded rather than implying a zero-candidate
-scan. Candidate evidence shows `discovery_method` and a genuine `rule_id` only
-when one exists (currently null pending catalog IDs); legacy finding display may
-still show fallback rule labels for older findings-only JSON.
+scan. Candidate evidence shows `discovery_method` and a genuine catalog
+`rule_id` when the producer emitted one (otherwise `(none)` / null). Legacy
+finding display may still show fallback rule labels for older findings-only JSON.
 
 ## Source paths
 

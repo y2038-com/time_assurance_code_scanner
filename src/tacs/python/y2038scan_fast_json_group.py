@@ -48,14 +48,35 @@ def load_rules(path: str, min_risk: str) -> Tuple[Dict[str, List[Dict[str,Any]]]
     Load rules JSON. Build a token-index dict: key (token or bigram) -> [rules].
     Also compute 'needs_paren' from 'category' (unless explicitly provided).
     Returns (tok_idx, min_rank)
+
+    ``rule_id`` is copied from the catalog when present. Packaged catalogs are
+    validated fail-closed. External catalogs may omit IDs (null); any supplied
+    non-null ID must be well-formed.
     """
-    with open(path, 'r', encoding='utf-8') as f:
-        raw = json.load(f)
+    from tacs.core.rule_catalog import (
+        CatalogRuleIdError,
+        is_packaged_rules_path,
+        load_rules_document,
+        validate_catalog_entries,
+        validate_packaged_catalog,
+        validate_rule_id_value,
+    )
+
+    if is_packaged_rules_path(path):
+        raw_entries = validate_packaged_catalog(path)
+    else:
+        raw_entries, _retired = load_rules_document(path)
+        try:
+            validate_catalog_entries(
+                raw_entries, strict=False, context=str(path)
+            )
+        except CatalogRuleIdError:
+            raise
 
     tok_idx: Dict[str, List[Dict[str,Any]]] = defaultdict(list)
     min_rank = RANK[min_risk]
 
-    for entry in raw:
+    for entry in raw_entries:
         e = _norm_keys(entry)
         # symbol/name normalization
         symbol = e.get('symbol') or e.get('name')
@@ -78,12 +99,21 @@ def load_rules(path: str, min_risk: str) -> Tuple[Dict[str, List[Dict[str,Any]]]
         if needs_paren is None:
             needs_paren = (category_l not in NON_CALLABLE_CATEGORIES)
 
+        raw_rid = e.get('rule_id')
+        rule_id = None
+        if raw_rid is not None and not (isinstance(raw_rid, str) and not raw_rid.strip()):
+            # Non-null IDs always validated (never silently nulled).
+            rule_id = validate_rule_id_value(
+                raw_rid, context=f"rules file {path} symbol={symbol!r}"
+            )
+
         rule = {
             'symbol': symbol,                 # case-sensitive match
             'risk': risk,
             'category': category,
             'description': e.get('description') or '',
             'needs_paren': bool(needs_paren),
+            'rule_id': rule_id,
         }
 
         # Index the exact symbol; if it's multi-word, we store it as-is (bigram key).
@@ -484,6 +514,7 @@ def scan_file(path: str,
                             'lineText': original,
                             'description': rule.get('description','') or '',
                             'discovery_method': 'catalog_symbol_match',
+                            'rule_id': rule.get('rule_id'),
                         })
                         per_symbol[sym] += 1
                 
@@ -494,6 +525,7 @@ def scan_file(path: str,
                         cast_match['file'] = path
                         cast_match['line'] = ln
                         cast_match['discovery_method'] = 'time_t_cast'
+                        cast_match['rule_id'] = None
                         # Apply risk filter
                         if RANK[cast_match['risk']] >= min_rank:
                             results.append(cast_match)
@@ -508,13 +540,14 @@ def scan_file(path: str,
 def group_by_line(results: List[Dict[str,Any]]) -> List[Dict[str,Any]]:
     """
     Merge results with the same (file,line) into one record.
-    symbols → list; discovery_methods → parallel list; risk → max risk among
-    merged; lineText preserved from first.
+    symbols → list; discovery_methods / rule_ids → parallel lists; risk → max
+    risk among merged; lineText preserved from first.
     """
     grouped_map: Dict[Tuple[str,int], Dict[str,Any]] = {}
     for r in results:
         key = (r['file'], r['line'])
         method = r.get('discovery_method')
+        rule_id = r.get('rule_id')
         g = grouped_map.get(key)
         if not g:
             grouped_map[key] = {
@@ -522,6 +555,7 @@ def group_by_line(results: List[Dict[str,Any]]) -> List[Dict[str,Any]]:
                 'line': r['line'],
                 'symbols': [r['symbol']],
                 'discovery_methods': [method],
+                'rule_ids': [rule_id],
                 'risk': r['risk'],
                 'lineText': r['lineText'],
                 'description': r.get('description','') or ''
@@ -530,6 +564,7 @@ def group_by_line(results: List[Dict[str,Any]]) -> List[Dict[str,Any]]:
             if r['symbol'] not in g['symbols']:
                 g['symbols'].append(r['symbol'])
                 g['discovery_methods'].append(method)
+                g['rule_ids'].append(rule_id)
             if RANK[r['risk']] > RANK[g['risk']]:
                 g['risk'] = r['risk']
     return sorted(grouped_map.values(), key=lambda x: (x['file'], x['line']))

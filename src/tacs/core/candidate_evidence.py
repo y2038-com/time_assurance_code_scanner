@@ -128,7 +128,12 @@ def build_candidate_evidence(
                 description=candidate.description or "",
                 one_line_snippet=bound_candidate_snippet(candidate.one_line_snippet or ""),
                 discovery_method=normalize_discovery_method(candidate.discovery_method),
-                rule_id=None,
+                rule_id=(
+                    candidate.rule_id
+                    if isinstance(getattr(candidate, "rule_id", None), str)
+                    and candidate.rule_id.strip()
+                    else None
+                ),
                 function_id=function_id,
                 analysis_coverage=coverage,
             )

@@ -20,12 +20,14 @@ from tacs.core.candidate_utils import prepare_candidates
 from tacs.core.candidate_evidence import normalize_discovery_method
 
 
-def _ir_symbols_and_methods(item: Dict[str, Any]) -> List[tuple[str, Optional[str]]]:
-    """Pair each IR symbol with its producer-emitted discovery_method.
+def _ir_symbols_methods_and_rule_ids(
+    item: Dict[str, Any],
+) -> List[tuple[str, Optional[str], Optional[str]]]:
+    """Pair each IR symbol with discovery_method and rule_id.
 
-    Propagates explicit values only. Does not classify from symbol, risk, or
-    description text. Missing methods stay None and become ``unknown`` via
-    :func:`normalize_discovery_method`.
+    Propagates producer-emitted values only. Does not classify from symbol,
+    risk, or description text. Missing methods become ``unknown`` via
+    :func:`normalize_discovery_method`. Missing rule_ids stay None.
     """
     if "symbols" in item:
         symbols = item.get("symbols") or []
@@ -34,14 +36,23 @@ def _ir_symbols_and_methods(item: Dict[str, Any]) -> List[tuple[str, Optional[st
         methods = item.get("discovery_methods")
         if not isinstance(methods, list):
             methods = []
-        paired: List[tuple[str, Optional[str]]] = []
+        rule_ids = item.get("rule_ids")
+        if not isinstance(rule_ids, list):
+            rule_ids = []
+        paired: List[tuple[str, Optional[str], Optional[str]]] = []
         for i, symbol in enumerate(symbols):
             method = methods[i] if i < len(methods) else None
-            paired.append((str(symbol or ""), method))
+            rule_id = rule_ids[i] if i < len(rule_ids) else None
+            paired.append((str(symbol or ""), method, rule_id))
         return paired
 
     symbol = str(item.get("symbol") or "")
-    return [(symbol, item.get("discovery_method"))]
+    return [(symbol, item.get("discovery_method"), item.get("rule_id"))]
+
+
+# Backward-compatible alias used by older tests.
+def _ir_symbols_and_methods(item: Dict[str, Any]) -> List[tuple[str, Optional[str]]]:
+    return [(sym, method) for sym, method, _rid in _ir_symbols_methods_and_rule_ids(item)]
 
 
 class IRAdapter:
@@ -188,7 +199,7 @@ class IRAdapter:
             candidates = []
             for item in raw_results:
                 file_path = canonical_source_path(item['file'])
-                for symbol, method in _ir_symbols_and_methods(item):
+                for symbol, method, rule_id in _ir_symbols_methods_and_rule_ids(item):
                     candidate = Candidate(
                         file=file_path,
                         line=item['line'],
@@ -197,6 +208,7 @@ class IRAdapter:
                         risk=item['risk'],
                         description=item.get('description', ''),
                         discovery_method=normalize_discovery_method(method),
+                        rule_id=rule_id if isinstance(rule_id, str) and rule_id.strip() else None,
                     )
                     candidates.append(candidate)
             
@@ -234,8 +246,9 @@ class IRAdapter:
         """Scan for #define statements using the integrated define scanner."""
         # Check if #define rule exists in rules file
         try:
-            with open(rules_path, 'r', encoding='utf-8') as f:
-                rules = json.load(f)
+            from tacs.core.rule_catalog import load_rules_document
+
+            rules, _retired = load_rules_document(rules_path)
             has_define_rule = any(rule.get('symbol') == '#define' for rule in rules)
             if not has_define_rule:
                 return []
@@ -268,6 +281,7 @@ class IRAdapter:
         self.define_scanner.print_discovered_defines(define_matches)
         
         # Convert DefineMatch objects to Candidate objects
+        # Subchecks are detector metadata, not independent catalog rules; rule_id stays null.
         candidates = []
         for match in define_matches:
             candidate = Candidate(
@@ -278,6 +292,7 @@ class IRAdapter:
                 risk="high" if match.subcheck_type in ['time_type_alias', 'time_struct_alias'] else "medium",
                 description=f"{match.subcheck_type}: {match.macro_name} -> {match.macro_value}",
                 discovery_method="define_scanner",
+                rule_id=None,
             )
             candidates.append(candidate)
         
@@ -366,6 +381,7 @@ class IRAdapter:
                     risk=match.risk_level,
                     description=f"Arithmetic operation on time_t: {match.time_t_var} {match.operation} {match.operand}",
                     discovery_method="arithmetic_scanner",
+                    rule_id=None,
                 )
                 candidates.append(candidate)
         
