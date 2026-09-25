@@ -14,6 +14,7 @@ from pathlib import Path
 from report_renderer.core import (
     FindingsLoadError,
     apply_filters,
+    assessment_counts_from_document,
     candidate_counts_from_document,
     load_scan_document,
     normalize_findings,
@@ -85,8 +86,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     findings = sort_findings(findings, args.sort)
     has_candidate_section = doc.is_versioned
+    has_assessment_section = doc.has_assessment_section
     candidate_counts = (
         candidate_counts_from_document(doc) if has_candidate_section else None
+    )
+    assessment_counts = (
+        assessment_counts_from_document(doc) if has_assessment_section else None
     )
 
     if norm.warnings:
@@ -97,6 +102,15 @@ def main(argv: list[str] | None = None) -> int:
     if not findings and has_candidate_section and not doc.candidates:
         # Versioned empty scan: still render an honest zero-candidate report.
         pass
+
+    render_kwargs = dict(
+        candidates=doc.candidates if has_candidate_section else None,
+        candidate_counts=candidate_counts,
+        assessments=doc.assessments if has_assessment_section else None,
+        assessment_counts=assessment_counts,
+        has_candidate_section=has_candidate_section,
+        has_assessment_section=has_assessment_section,
+    )
 
     if args.format == "text":
         if args.finding is not None:
@@ -109,17 +123,13 @@ def main(argv: list[str] | None = None) -> int:
             payload = render_text(
                 [findings[args.finding - 1]],
                 list_mode=False,
-                candidates=doc.candidates if has_candidate_section else None,
-                candidate_counts=candidate_counts,
-                has_candidate_section=has_candidate_section,
+                **render_kwargs,
             )
         else:
             payload = render_text(
                 findings,
                 list_mode=args.list,
-                candidates=doc.candidates if has_candidate_section else None,
-                candidate_counts=candidate_counts,
-                has_candidate_section=has_candidate_section,
+                **render_kwargs,
             )
         print(payload)
         return 0
@@ -128,9 +138,7 @@ def main(argv: list[str] | None = None) -> int:
         findings,
         title=args.title,
         group_by=args.group_by,
-        candidates=doc.candidates if has_candidate_section else None,
-        candidate_counts=candidate_counts,
-        has_candidate_section=has_candidate_section,
+        **render_kwargs,
     )
     out_path = write_html_file(html, args.out)
     print(f"HTML report written to: {out_path}")

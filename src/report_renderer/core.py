@@ -53,20 +53,30 @@ class NormalizationResult:
 
 @dataclass
 class LoadedScanDocument:
-    """Scanner result JSON (versioned schema 1.0 or legacy findings-only)."""
+    """Scanner result JSON (versioned schema or legacy findings-only)."""
 
     meta: dict[str, Any]
     findings: list[dict[str, Any]]
     candidates: list[dict[str, Any]]
+    assessments: list[dict[str, Any]]
     schema_version: str | None
 
     @property
     def is_versioned(self) -> bool:
-        return bool(self.schema_version) or bool(self.candidates)
+        return bool(self.schema_version) or bool(self.candidates) or bool(self.assessments)
+
+    @property
+    def has_assessment_section(self) -> bool:
+        """True when the document is schema 1.1+ (assessments array is meaningful)."""
+        if self.assessments:
+            return True
+        from tacs.core.model_assessment import schema_supports_assessments
+
+        return schema_supports_assessments(self.schema_version)
 
 
 def load_scan_document(path: str) -> LoadedScanDocument:
-    """Load a scanner result JSON (schema 1.0 or legacy findings-only / bare array)."""
+    """Load a scanner result JSON (schema 1.x or legacy findings-only / bare array)."""
     in_path = Path(path)
     if not in_path.exists():
         raise FindingsLoadError(f"Input not found: {path}")
@@ -85,6 +95,10 @@ def load_scan_document(path: str) -> LoadedScanDocument:
         candidates: list[dict[str, Any]] = []
         if isinstance(raw_candidates, list):
             candidates = [c for c in raw_candidates if isinstance(c, dict)]
+        raw_assessments = payload.get("assessments")
+        assessments: list[dict[str, Any]] = []
+        if isinstance(raw_assessments, list):
+            assessments = [a for a in raw_assessments if isinstance(a, dict)]
         schema_version = payload.get("schema_version")
         if schema_version is not None and not isinstance(schema_version, str):
             schema_version = str(schema_version)
@@ -92,6 +106,7 @@ def load_scan_document(path: str) -> LoadedScanDocument:
             meta=meta,
             findings=findings,
             candidates=candidates,
+            assessments=assessments,
             schema_version=schema_version,
         )
 
@@ -100,6 +115,7 @@ def load_scan_document(path: str) -> LoadedScanDocument:
             meta={},
             findings=payload,
             candidates=[],
+            assessments=[],
             schema_version=None,
         )
 
@@ -144,6 +160,53 @@ def candidate_counts_from_document(
         "ungrouped": ungrouped,
         "functions_with_candidates": len(function_ids),
         "findings": len(doc.findings),
+    }
+
+
+def assessment_counts_from_document(
+    doc: LoadedScanDocument,
+) -> dict[str, int | str | None]:
+    """Derive assessment counts / analysis_status from meta or assessments[]."""
+    status = None
+    if isinstance(doc.meta, dict):
+        status = doc.meta.get("analysis_status")
+    summary = doc.meta.get("assessment_summary") if isinstance(doc.meta, dict) else None
+    if isinstance(summary, dict):
+        return {
+            "total": int(summary.get("total") or 0),
+            "completed": int(summary.get("completed") or 0),
+            "yes": int(summary.get("yes") or 0),
+            "no": int(summary.get("no") or 0),
+            "abstain": int(summary.get("abstain") or 0),
+            "analysis_errors": int(summary.get("analysis_errors") or 0),
+            "not_requested": int(summary.get("not_requested") or 0),
+            "analysis_status": status,
+        }
+    completed = yes = no = abstain = errors = not_requested = 0
+    for row in doc.assessments:
+        exec_status = row.get("execution_status")
+        verdict = row.get("verdict")
+        if exec_status == "completed":
+            completed += 1
+            if verdict == "yes":
+                yes += 1
+            elif verdict == "no":
+                no += 1
+            elif verdict == "abstain":
+                abstain += 1
+        elif exec_status == "analysis_error":
+            errors += 1
+        elif exec_status == "not_requested":
+            not_requested += 1
+    return {
+        "total": len(doc.assessments),
+        "completed": completed,
+        "yes": yes,
+        "no": no,
+        "abstain": abstain,
+        "analysis_errors": errors,
+        "not_requested": not_requested,
+        "analysis_status": status,
     }
 
 

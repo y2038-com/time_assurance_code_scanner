@@ -16,6 +16,7 @@ from typing import Any, Literal
 from report_renderer.core import (
     FindingsLoadError,
     apply_filters,
+    assessment_counts_from_document,
     candidate_counts_from_document,
     load_scan_document,
     normalize_findings,
@@ -141,8 +142,12 @@ def _render_one(
     )
     findings = sort_findings(findings, sort_mode)
     has_candidate_section = doc.is_versioned
+    has_assessment_section = doc.has_assessment_section
     candidate_counts = (
         candidate_counts_from_document(doc) if has_candidate_section else None
+    )
+    assessment_counts = (
+        assessment_counts_from_document(doc) if has_assessment_section else None
     )
     if not findings and not has_candidate_section:
         return False, "no findings matched filters"
@@ -154,13 +159,20 @@ def _render_one(
             return False, f"--finding must be between 1 and {len(findings)}"
         findings = [findings[finding_index - 1]]
 
+    render_kwargs = dict(
+        candidates=doc.candidates if has_candidate_section else None,
+        candidate_counts=candidate_counts,
+        assessments=doc.assessments if has_assessment_section else None,
+        assessment_counts=assessment_counts,
+        has_candidate_section=has_candidate_section,
+        has_assessment_section=has_assessment_section,
+    )
+
     if fmt == "text":
         payload = render_text(
             findings,
             list_mode=list_mode and finding_index is None,
-            candidates=doc.candidates if has_candidate_section else None,
-            candidate_counts=candidate_counts,
-            has_candidate_section=has_candidate_section,
+            **render_kwargs,
         )
         if out_path is None:
             return True, payload
@@ -172,9 +184,7 @@ def _render_one(
         findings,
         title=title,
         group_by=group_by,
-        candidates=doc.candidates if has_candidate_section else None,
-        candidate_counts=candidate_counts,
-        has_candidate_section=has_candidate_section,
+        **render_kwargs,
     )
     if out_path is None:
         return False, "html requires --out (or --out-dir in batch mode)"

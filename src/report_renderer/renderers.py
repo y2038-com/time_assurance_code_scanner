@@ -24,7 +24,16 @@ _ASSURANCE_DISCLAIMER = (
 
 _CANDIDATE_EVIDENCE_NOTE = (
     "Deterministic candidate evidence records discovery hits; they are not "
-    "confirmed defects. Model-retained findings below are a separate compatibility view."
+    "confirmed defects. Model assessments and compatibility findings below are "
+    "separate layers."
+)
+
+_ASSESSMENT_NOTE = (
+    "Model assessments record execution status and, when completed, a model "
+    "verdict for each analyzed function. They do not validate or erase "
+    "deterministic candidates. Compatibility findings may still use abstain "
+    "for operational analysis errors; that is a legacy projection, not the "
+    "assessment truth."
 )
 
 
@@ -34,11 +43,16 @@ def render_text(
     list_mode: bool = False,
     candidates: Sequence[dict[str, Any]] | None = None,
     candidate_counts: dict[str, int] | None = None,
+    assessments: Sequence[dict[str, Any]] | None = None,
+    assessment_counts: dict[str, Any] | None = None,
     has_candidate_section: bool = False,
+    has_assessment_section: bool = False,
 ) -> str:
-    """Render findings (and optional deterministic candidates) as readable CLI text."""
+    """Render findings (and optional candidates/assessments) as readable CLI text."""
     candidates = list(candidates or [])
+    assessments = list(assessments or [])
     counts = candidate_counts or {}
+    a_counts = assessment_counts or {}
     candidate_total = int(counts.get("total", len(candidates)))
     ungrouped = int(counts.get("ungrouped", 0))
     header_lines = [_ASSURANCE_DISCLAIMER, ""]
@@ -68,11 +82,40 @@ def render_text(
                     _render_text_candidate(cand, index=i, total=len(candidates))
                 )
                 header_lines.append("")
-            header_lines.append("## Model-retained findings")
+
+    if has_assessment_section:
+        header_lines.append(_ASSESSMENT_NOTE)
+        status = a_counts.get("analysis_status") or "unknown"
+        header_lines.append(
+            f"Model analysis status: {status}; assessments: {a_counts.get('total', len(assessments))} "
+            f"(completed {a_counts.get('completed', 0)}: "
+            f"yes {a_counts.get('yes', 0)}, no {a_counts.get('no', 0)}, "
+            f"abstain {a_counts.get('abstain', 0)}; "
+            f"analysis_errors {a_counts.get('analysis_errors', 0)})"
+        )
+        header_lines.append("")
+        header_lines.append("## Model assessments")
+        header_lines.append("")
+        if assessments:
+            for i, row in enumerate(assessments, start=1):
+                header_lines.extend(
+                    _render_text_assessment(row, index=i, total=len(assessments))
+                )
+                header_lines.append("")
+        else:
+            header_lines.append(
+                "No per-function model assessments "
+                "(analysis not requested, or no eligible analysis units)."
+            )
             header_lines.append("")
+        header_lines.append("## Model-retained findings")
+        header_lines.append("")
+    elif has_candidate_section and candidates:
+        header_lines.append("## Model-retained findings")
+        header_lines.append("")
 
     if not findings:
-        if has_candidate_section:
+        if has_candidate_section or has_assessment_section:
             return "\n".join(header_lines).rstrip() + "\n"
         return f"{_ASSURANCE_DISCLAIMER}\n\nNo findings match the selected filters."
 
@@ -96,9 +139,33 @@ def render_text(
         return "\n".join(lines)
 
     finding_blocks = [_render_text_finding(f, total=total) for f in findings]
-    if has_candidate_section:
+    if has_candidate_section or has_assessment_section:
         return "\n".join(header_lines).rstrip() + "\n\n" + "\n\n".join(finding_blocks)
     return "\n\n".join([_ASSURANCE_DISCLAIMER] + finding_blocks)
+
+
+def _render_text_assessment(
+    row: dict[str, Any], *, index: int, total: int
+) -> list[str]:
+    verdict = row.get("verdict")
+    verdict_display = verdict if isinstance(verdict, str) and verdict.strip() else "(none)"
+    conf = row.get("confidence")
+    conf_display = f"{float(conf):.2f}" if isinstance(conf, (int, float)) else "N/A"
+    ids = row.get("candidate_ids") or []
+    if isinstance(ids, list):
+        ids_display = ", ".join(str(x) for x in ids) if ids else "(none)"
+    else:
+        ids_display = str(ids)
+    return [
+        f"Assessment {index} of {total}",
+        f"assessment_id: {row.get('assessment_id') or ''}",
+        f"function_id: {row.get('function_id') or ''}",
+        f"execution_status: {row.get('execution_status') or ''}",
+        f"verdict: {verdict_display}",
+        f"confidence: {conf_display}",
+        f"candidate_ids: {ids_display}",
+        f"reason: {row.get('reason') or ''}",
+    ]
 
 
 def _render_text_candidate(
@@ -152,11 +219,16 @@ def render_html(
     group_by: str,
     candidates: Sequence[dict[str, Any]] | None = None,
     candidate_counts: dict[str, int] | None = None,
+    assessments: Sequence[dict[str, Any]] | None = None,
+    assessment_counts: dict[str, Any] | None = None,
     has_candidate_section: bool = False,
+    has_assessment_section: bool = False,
 ) -> str:
-    """Render findings (and optional deterministic candidates) as a standalone HTML report."""
+    """Render findings (and optional candidates/assessments) as a standalone HTML report."""
     candidates = list(candidates or [])
+    assessments = list(assessments or [])
     counts = candidate_counts or {}
+    a_counts = assessment_counts or {}
     candidate_total = int(counts.get("total", len(candidates)))
     ungrouped = int(counts.get("ungrouped", 0))
     grouped = int(counts.get("grouped", 0))
@@ -189,10 +261,19 @@ def render_html(
             f'<script id="candidates-data" type="application/json">'
             f"{candidates_payload}</script>\n"
         )
+    assessments_script = ""
+    if has_assessment_section:
+        assessments_payload = _json_for_script(assessments)
+        assessments_script = (
+            f'<script id="assessments-data" type="application/json">'
+            f"{assessments_payload}</script>\n"
+        )
 
     preservation = ""
     candidate_summary_html = ""
+    assessment_summary_html = ""
     candidate_section_html = ""
+    assessment_section_html = ""
     findings_closing = ""
     if has_candidate_section:
         msg = format_candidate_preservation_message(
@@ -221,13 +302,40 @@ def render_html(
     <p class="meta">{html.escape(_CANDIDATE_EVIDENCE_NOTE)}</p>
     {candidate_cards or '<p class="meta">No deterministic candidates were found.</p>'}
   </section>
+"""
+
+    if has_assessment_section:
+        status = str(a_counts.get("analysis_status") or "unknown")
+        assessment_summary_html = f"""
+      <div class="pill">analysis: {html.escape(status)}</div>
+      <div class="pill">assessments: {int(a_counts.get('total', len(assessments)))}</div>
+      <div class="pill">model yes: {int(a_counts.get('yes', 0))}</div>
+      <div class="pill">model no: {int(a_counts.get('no', 0))}</div>
+      <div class="pill">model abstain: {int(a_counts.get('abstain', 0))}</div>
+      <div class="pill">analysis_errors: {int(a_counts.get('analysis_errors', 0))}</div>
+"""
+        assessment_cards = "".join(
+            _render_assessment_card(a, i) for i, a in enumerate(assessments, start=1)
+        )
+        assessment_section_html = f"""
+  <section class="group" id="model-assessments">
+    <h2>Model assessments</h2>
+    <p class="meta">{html.escape(_ASSESSMENT_NOTE)}</p>
+    {assessment_cards or '<p class="meta">No per-function model assessments.</p>'}
+  </section>
+"""
+
+    if has_candidate_section or has_assessment_section:
+        findings_closing = "</section>"
+        findings_open = """
   <section class="group">
     <h2>Model-retained findings</h2>
 """
-        findings_closing = "</section>"
+    else:
+        findings_open = ""
 
     empty_findings_note = ""
-    if not findings and has_candidate_section:
+    if not findings and (has_candidate_section or has_assessment_section):
         empty_findings_note = (
             '<p class="meta">No model-retained findings in this view.</p>'
         )
@@ -288,6 +396,7 @@ def render_html(
     </div>
     <div class="stats">
       {candidate_summary_html}
+      {assessment_summary_html}
       <div class="pill">yes: {stats.get('yes', 0)}</div>
       <div class="pill">no: {stats.get('no', 0)}</div>
       <div class="pill">abstain: {stats.get('abstain', 0)}</div>
@@ -311,13 +420,15 @@ def render_html(
   </div>
   <div id="report">
     {candidate_section_html}
+    {assessment_section_html}
+    {findings_open}
     {''.join(sections)}
     {empty_findings_note}
     {findings_closing}
   </div>
 </main>
 <script id="findings-data" type="application/json">{payload}</script>
-{candidates_script}<script>
+{candidates_script}{assessments_script}<script>
 // Findings data is held in a non-executable element and parsed, so the report
 // never evaluates values that came from the scanned repository.
 const data = JSON.parse(document.getElementById('findings-data').textContent);
@@ -369,6 +480,35 @@ def write_html_file(html_content: str, output_path: str) -> Path:
     path = Path(output_path)
     path.write_text(html_content, encoding="utf-8")
     return path
+
+
+def _render_assessment_card(row: dict[str, Any], index: int) -> str:
+    verdict = row.get("verdict")
+    verdict_display = verdict if isinstance(verdict, str) and verdict.strip() else "(none)"
+    status = str(row.get("execution_status") or "")
+    function_id = str(row.get("function_id") or "")
+    reason = str(row.get("reason") or "")
+    conf = row.get("confidence")
+    conf_display = f"{float(conf):.2f}" if isinstance(conf, (int, float)) else "N/A"
+    ids = row.get("candidate_ids") or []
+    ids_display = ", ".join(str(x) for x in ids) if isinstance(ids, list) and ids else "(none)"
+    aid = str(row.get("assessment_id") or "")
+    return f"""
+      <details class="card" id="assessment-{index}">
+        <summary>
+          <span>
+            <span class="badge candidate">assessment</span>
+            Assessment {index}: {html.escape(status)} / {html.escape(verdict_display)}
+          </span>
+          <span class="meta">{html.escape(function_id)} | conf {html.escape(conf_display)}</span>
+        </summary>
+        <div class="body">
+          <p><strong>assessment_id:</strong> {html.escape(aid)}</p>
+          <p><strong>candidate_ids:</strong> {html.escape(ids_display)}</p>
+          <p><strong>reason:</strong> {html.escape(reason)}</p>
+        </div>
+      </details>
+    """
 
 
 def _render_candidate_card(cand: dict[str, Any], index: int) -> str:
