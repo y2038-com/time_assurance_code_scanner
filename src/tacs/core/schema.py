@@ -83,8 +83,23 @@ DISCOVERY_METHODS = frozenset({
 #: Max characters kept on a public CandidateEvidence snippet (one line).
 CANDIDATE_SNIPPET_MAX_CHARS = 240
 
+#: Max characters kept on a public ModelAssessment reason.
+ASSESSMENT_REASON_MAX_CHARS = 200
+
+#: Allowlisted keys for public assessments[] serialization.
+PUBLIC_ASSESSMENT_KEYS = (
+    "assessment_id",
+    "function_id",
+    "candidate_ids",
+    "execution_status",
+    "verdict",
+    "confidence",
+    "reason",
+    "analysis_mode",
+)
+
 #: Public result JSON schema version (independent of the package version).
-PUBLIC_RESULT_SCHEMA_VERSION = "1.0"
+PUBLIC_RESULT_SCHEMA_VERSION = "1.1"
 
 
 class AnalysisCoverage(str, Enum):
@@ -96,6 +111,31 @@ class AnalysisCoverage(str, Enum):
     """
     GROUPED = "grouped"
     UNGROUPED = "ungrouped"
+
+
+class AssessmentExecutionStatus(str, Enum):
+    """Whether a model assessment unit ran to a usable conclusion."""
+
+    COMPLETED = "completed"
+    ANALYSIS_ERROR = "analysis_error"
+    NOT_REQUESTED = "not_requested"
+
+
+class ModelVerdict(str, Enum):
+    """Model conclusion when execution_status is completed."""
+
+    YES = "yes"
+    NO = "no"
+    ABSTAIN = "abstain"
+
+
+class RunAnalysisStatus(str, Enum):
+    """Run-level model-analysis status for the public result."""
+
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+    FAILED = "failed"
+    NOT_REQUESTED = "not_requested"
 
 
 class Candidate(BaseModel):
@@ -290,6 +330,72 @@ class DeterministicCandidateSummary(BaseModel):
     )
 
 
+class ModelAssessment(BaseModel):
+    """Public model-authored analysis of one function analysis unit.
+
+    Distinct from deterministic ``CandidateEvidence`` and from the compatibility
+    ``Finding`` projection. A verdict does not validate or erase candidates.
+    Operational stubs use ``execution_status=analysis_error`` with ``verdict``
+    null; genuine model abstention is ``completed`` + ``abstain``.
+    """
+
+    assessment_id: str = Field(
+        ...,
+        description="In-report assessment id (stable within this result document)",
+    )
+    function_id: str = Field(..., description="Analyzed function unit id")
+    candidate_ids: List[str] = Field(
+        default_factory=list,
+        description="Canonical candidate_id values linked to this analysis unit",
+    )
+    execution_status: AssessmentExecutionStatus = Field(
+        ...,
+        description="completed | analysis_error | not_requested",
+    )
+    verdict: Optional[ModelVerdict] = Field(
+        default=None,
+        description="Model yes/no/abstain when execution_status is completed; else null",
+    )
+    confidence: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Model confidence when present",
+    )
+    reason: Optional[str] = Field(
+        default=None,
+        max_length=ASSESSMENT_REASON_MAX_CHARS,
+        description=(
+            f"Short model or controlled operational reason "
+            f"(max {ASSESSMENT_REASON_MAX_CHARS} chars); never prompts, "
+            "bodies, or raw exception dumps"
+        ),
+    )
+    analysis_mode: str = Field(
+        default="function_first",
+        description="Analysis task mode (e.g. function_first)",
+    )
+
+
+class AssessmentSummary(BaseModel):
+    """Counts for public assessments, reconciled from serialized arrays."""
+
+    total: int = Field(0, description="Assessments in the public collection")
+    completed: int = Field(0, description="execution_status=completed")
+    yes: int = Field(0, description="completed with verdict=yes")
+    no: int = Field(0, description="completed with verdict=no")
+    abstain: int = Field(0, description="completed with verdict=abstain")
+    analysis_errors: int = Field(0, description="execution_status=analysis_error")
+    not_requested: int = Field(
+        0,
+        description="Per-assessment not_requested count (usually 0 when run-level)",
+    )
+    findings: int = Field(
+        0,
+        description="Compatibility findings retained in this result (post-filter)",
+    )
+
+
 class ScanMetadata(BaseModel):
     """Metadata for the scan."""
     root: str = Field(
@@ -315,23 +421,39 @@ class ScanMetadata(BaseModel):
         default=None,
         description="Deterministic candidate counts (absent on pre-1.0 results)",
     )
+    analysis_status: Optional[RunAnalysisStatus] = Field(
+        default=None,
+        description=(
+            "Run-level model analysis status: complete | partial | failed | "
+            "not_requested (absent on pre-1.1 results)"
+        ),
+    )
+    assessment_summary: Optional[AssessmentSummary] = Field(
+        default=None,
+        description="Model assessment counts (absent on pre-1.1 results)",
+    )
 
 
 class ScanResults(BaseModel):
     """Complete scan results.
 
     ``candidates`` is the canonical deterministic evidence collection.
+    ``assessments`` is the durable model-analysis record (schema 1.1+).
     ``findings`` remains the model-oriented compatibility projection (filtering
     unchanged). ``schema_version`` versions this public document shape, not the
     package release.
     """
     schema_version: str = Field(
         default=PUBLIC_RESULT_SCHEMA_VERSION,
-        description='Public result schema version (e.g. "1.0")',
+        description='Public result schema version (e.g. "1.1")',
     )
     meta: ScanMetadata = Field(..., description="Scan metadata")
     candidates: List[CandidateEvidence] = Field(
         default_factory=list,
         description="Canonical deterministic candidate evidence",
+    )
+    assessments: List[ModelAssessment] = Field(
+        default_factory=list,
+        description="Model assessments linked to candidate ids (schema 1.1+)",
     )
     findings: List[Finding] = Field(..., description="List of findings")

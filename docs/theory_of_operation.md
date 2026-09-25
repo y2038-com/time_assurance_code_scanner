@@ -966,13 +966,18 @@ assumptions, and which potential risks were identified.
 
 The principal user-facing result is typically `findings.json`.
 
-Starting with public result **schema_version `1.0`**, that document has the shape:
+Starting with public result **schema_version `1.1`**, that document has the shape:
 
 ```json
 {
-  "schema_version": "1.0",
-  "meta": { "...": "...", "candidate_summary": {} },
+  "schema_version": "1.1",
+  "meta": {
+    "candidate_summary": {},
+    "analysis_status": "complete|partial|failed|not_requested",
+    "assessment_summary": {}
+  },
   "candidates": [],
+  "assessments": [],
   "findings": []
 }
 ```
@@ -981,12 +986,25 @@ Starting with public result **schema_version `1.0`**, that document has the shap
   Every prepared deterministic candidate appears here once, including candidates
   outside recognized functions and candidates later dropped from analysis by
   Stage 7 (when that opt-in filter is enabled). Presence in `candidates` does
-  **not** mean the hit is a confirmed defect.
+  **not** mean the hit is a confirmed defect. Candidate evidence never carries
+  model verdicts.
+* `assessments` is the durable **model-analysis** record for function units
+  (schema 1.1+). Each assessment links `candidate_ids` and separates
+  `execution_status` (`completed` / `analysis_error`) from `verdict`
+  (`yes` / `no` / `abstain` only when completed). A model conclusion does not
+  validate or erase candidates. Parse/alignment/provider stubs are
+  `analysis_error` with null verdict; compatibility `findings` may still use
+  abstain-shaped rows for those stubs as a legacy exception. Public assessment
+  `reason` text for operational stubs is a controlled message (not raw
+  exception dumps, prompts, or function bodies).
 * `findings` remains the existing **model-oriented compatibility projection**
-  (filtering such as `--include-no-findings` unchanged). A model `no`, abstain,
-  or parse failure must not erase the corresponding deterministic evidence.
-* `meta.candidate_summary` reports total / grouped / ungrouped candidate counts
-  and the retained findings count.
+  (filtering such as `--include-no-findings` unchanged). `--include-no-findings`
+  affects only `findings[]`, not `candidates[]` or `assessments[]`.
+* `--llm none` sets `meta.analysis_status=not_requested` with an empty
+  `assessments[]` while retaining full `candidates[]` (and existing abstain
+  compatibility findings).
+* `meta.candidate_summary` / `meta.assessment_summary` are reconciled from the
+  serialized arrays at write time.
 * `rule_id` on candidate evidence is reserved for genuine catalog identifiers; it
   is currently null until a catalog ID migration (planned before a future 0.2.0).
   Detectors emit controlled `discovery_method` values at production time
@@ -997,7 +1015,10 @@ Starting with public result **schema_version `1.0`**, that document has the shap
   association found an enclosing unit, `ungrouped` when association was attempted
   and none was found. Stage 7 filtering does not relabel an in-function candidate
   as ungrouped; linkage is derived from the full canonical set before Stage 7.
-* Globally aborted scans still do not emit structured partial public reports.
+* Globally aborted scans (for example after repeated batch provider failures)
+  still do not emit structured partial public reports; that remains deferred.
+  Operational failure must not be silently represented as a negative model
+  conclusion in assessments.
 
 A retained finding can contain information such as:
 
@@ -1011,10 +1032,10 @@ A retained finding can contain information such as:
 * function identity,
 * Y2038/Y2106 classification where applicable.
 
-With `--llm none`, deterministic candidates are emitted with
-`y2038_issue=abstain`. They remain candidates awaiting human review or a later
-run with an LLM enabled; the scanner does not invent a yes/no verdict without a
-model.
+With `--llm none`, `meta.analysis_status` is `not_requested` and `assessments[]`
+is empty. Compatibility `findings` still use `y2038_issue=abstain` for review.
+Deterministic `candidates[]` are retained in full; the scanner does not invent
+model assessments or yes/no verdicts without a model.
 
 With an LLM enabled, later stages may classify candidates as `yes`, `no`, or
 `abstain`. By default, findings classified as `y2038_issue=no` are **dropped**

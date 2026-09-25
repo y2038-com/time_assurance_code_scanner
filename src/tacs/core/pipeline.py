@@ -157,6 +157,11 @@ class ScanningPipeline:
         # Scan root, set by scan(). Persisted source identifiers and diagnostics are
         # named relative to it so they do not carry the host filesystem layout.
         self.root_path: Optional[str] = None
+        # Public model assessments (schema 1.1), keyed by function_id until finalize.
+        self._assessment_store: Dict[str, Any] = {}
+        self._canonical_assessments: List[Any] = []
+        self._llm_analysis_requested: bool = False
+        self._run_analysis_status: Optional[Any] = None
 
         # Migration mode
         self.migration_mode = migration_mode
@@ -903,6 +908,10 @@ class ScanningPipeline:
     ) -> List[Finding]:
         """Run function-first analysis pipeline."""
         StatusLogger.timestamped_debug("Running function-first analysis...")
+        self._assessment_store = {}
+        self._canonical_assessments = []
+        self._llm_analysis_requested = self.llm_type != "none"
+        self._run_analysis_status = None
         
         # Stage 7: LLM Pass 1 - Line-level analysis (single-line triage) - OPTIONAL PRE-FILTER
         StatusLogger.timestamped_debug("Stage 7: LLM Pass 1 (line-level analysis)...")
@@ -1005,8 +1014,31 @@ class ScanningPipeline:
                     f"  Note: {missing} I/O candidates did not get metadata attached "
                     f"(may be in functions classified as NO, or path matching issue)"
                 )
+
+        from tacs.core.model_assessment import (
+            derive_run_analysis_status,
+            finalize_assessments,
+        )
+
+        self._canonical_assessments = finalize_assessments(self._assessment_store)
+        self._run_analysis_status = derive_run_analysis_status(
+            llm_requested=self._llm_analysis_requested,
+            assessments=self._canonical_assessments,
+        )
         
         return findings
+
+    def _record_function_assessments(
+        self,
+        analyses: List[FunctionAnalysis],
+        functions: List[FunctionBody],
+    ) -> None:
+        """Upsert public assessments from aligned function analyses."""
+        from tacs.core.model_assessment import record_assessments
+
+        if not self._llm_analysis_requested:
+            return
+        record_assessments(self._assessment_store, analyses, functions)
     
     def _run_pass_f1(
         self,
@@ -1122,6 +1154,7 @@ class ScanningPipeline:
             
             # Convert analyses to findings
             batch_findings = self._convert_analyses_to_findings(analyses, batch_functions)
+            self._record_function_assessments(analyses, batch_functions)
             findings.extend(batch_findings)
             
             # Log batch results by unique function classification (not per-issue findings)
@@ -1610,6 +1643,7 @@ class ScanningPipeline:
                     
                     # Convert new analysis to findings
                     batch_findings = self._convert_analyses_to_findings([analysis], [function])
+                    self._record_function_assessments([analysis], [function])
                     
                     # Update iteration count and final pass
                     for finding in batch_findings:
@@ -1770,6 +1804,7 @@ class ScanningPipeline:
                 for analysis, function in zip(analyses, batch_functions):
                     # Convert new analysis to findings
                     batch_findings = self._convert_analyses_to_findings([analysis], [function])
+                    self._record_function_assessments([analysis], [function])
                     
                     # Update iteration count and final pass
                     for finding in batch_findings:
@@ -2063,6 +2098,27 @@ Timing (ms):
         session.log_message("INFO", f"Scan completed: {len(findings)} final findings")
         
         # Create scan metadata (display forms — findings are already repo-relative)
+        from tacs.core.model_assessment import (
+            derive_run_analysis_status,
+            filter_candidate_ids,
+            summarize_assessments,
+        )
+
+        assessments = list(getattr(self, "_canonical_assessments", None) or [])
+        valid_candidate_ids = {e.candidate_id for e in evidence}
+        assessments = filter_candidate_ids(assessments, valid_candidate_ids)
+
+        analysis_status = getattr(self, "_run_analysis_status", None)
+        if analysis_status is None:
+            analysis_status = derive_run_analysis_status(
+                llm_requested=bool(getattr(self, "_llm_analysis_requested", False)),
+                assessments=assessments,
+            )
+        assessment_summary = summarize_assessments(
+            assessments,
+            findings_count=len(findings),
+        )
+
         metadata = ScanMetadata(
             root=display_scan_root(root_path),
             rules_path=display_rules_path(rules_path),
@@ -2072,18 +2128,34 @@ Timing (ms):
             timestamp=datetime.utcnow().isoformat() + "Z",
             environment_config=self.environment_config,
             candidate_summary=candidate_summary,
+            analysis_status=analysis_status,
+            assessment_summary=assessment_summary,
         )
         
         return ScanResults(
             schema_version=PUBLIC_RESULT_SCHEMA_VERSION,
             meta=metadata,
             candidates=evidence,
+            assessments=assessments,
             findings=findings,
         )
     
     def _run_legacy_analysis(self, candidates: List[Candidate], session: ScanSession) -> List[Finding]:
         """Run legacy analysis pipeline."""
+        from tacs.core.model_assessment import derive_run_analysis_status
+        from tacs.core.schema import RunAnalysisStatus
+
         StatusLogger.timestamped_print("Running legacy analysis...")
+        # Line-level assessments are deferred; run-level status still reflects
+        # whether a model was requested. Public assessments[] stays empty.
+        self._assessment_store = {}
+        self._canonical_assessments = []
+        self._llm_analysis_requested = self.llm_type != "none"
+        self._run_analysis_status = (
+            RunAnalysisStatus.NOT_REQUESTED
+            if not self._llm_analysis_requested
+            else RunAnalysisStatus.COMPLETE
+        )
         
         # Stage S1: Line-level analysis, Pass P1 (single-line triage) - BYPASSABLE
         session.start_timing("stage_s1_pass_p1")
@@ -2884,10 +2956,12 @@ Timing (ms):
             return d
 
         from tacs.core.candidate_evidence import summarize_serialized_candidates
+        from tacs.core.model_assessment import summarize_serialized_assessments
         from tacs.core.schema import PUBLIC_RESULT_SCHEMA_VERSION
 
         schema_version = getattr(results, "schema_version", None) or PUBLIC_RESULT_SCHEMA_VERSION
         candidates = list(getattr(results, "candidates", None) or [])
+        assessments = list(getattr(results, "assessments", None) or [])
 
         def _candidate_to_dict(c: Any) -> Dict[str, Any]:
             try:
@@ -2895,36 +2969,62 @@ Timing (ms):
             except Exception:
                 return dict(getattr(c, "__dict__", {}) or {})
 
-        def _reconcile_meta(meta_obj: Any, cand_rows: List[Dict[str, Any]], finding_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
-            """Attach candidate_summary from the arrays about to be written."""
+        def _assessment_to_dict(a: Any) -> Dict[str, Any]:
+            from tacs.core.model_assessment import assessment_to_public_dict
+
+            return assessment_to_public_dict(a)
+
+        def _reconcile_meta(
+            meta_obj: Any,
+            cand_rows: List[Dict[str, Any]],
+            assessment_rows: List[Dict[str, Any]],
+            finding_rows: List[Dict[str, Any]],
+        ) -> Dict[str, Any]:
+            """Attach summaries from the arrays about to be written."""
             try:
                 meta = _model_to_dict(meta_obj) if meta_obj is not None else {}
             except Exception:
                 meta = {}
             if not isinstance(meta, dict):
                 meta = {}
-            summary = summarize_serialized_candidates(
-                cand_rows,
-                findings_count=len(finding_rows),
+            meta["candidate_summary"] = _model_to_dict(
+                summarize_serialized_candidates(
+                    cand_rows,
+                    findings_count=len(finding_rows),
+                )
             )
-            meta["candidate_summary"] = _model_to_dict(summary)
+            meta["assessment_summary"] = _model_to_dict(
+                summarize_serialized_assessments(
+                    assessment_rows,
+                    findings_count=len(finding_rows),
+                )
+            )
             return meta
 
         try:
             cand_rows = [_candidate_to_dict(c) for c in candidates]
+            assessment_rows = [_assessment_to_dict(a) for a in assessments]
             finding_rows = [_finding_to_dict(f) for f in results.findings]
             out = {
                 'schema_version': schema_version,
-                'meta': _reconcile_meta(results.meta, cand_rows, finding_rows),
+                'meta': _reconcile_meta(
+                    results.meta, cand_rows, assessment_rows, finding_rows
+                ),
                 'candidates': cand_rows,
+                'assessments': assessment_rows,
                 'findings': finding_rows,
             }
         except Exception:
-            # Fallback: build manually so serialization never fails
             cand_rows = []
             for c in candidates:
                 try:
                     cand_rows.append(_candidate_to_dict(c))
+                except Exception:
+                    continue
+            assessment_rows = []
+            for a in assessments:
+                try:
+                    assessment_rows.append(_assessment_to_dict(a))
                 except Exception:
                     continue
             finding_rows = []
@@ -2943,9 +3043,13 @@ Timing (ms):
             out = {
                 'schema_version': schema_version,
                 'meta': _reconcile_meta(
-                    getattr(results, "meta", None), cand_rows, finding_rows
+                    getattr(results, "meta", None),
+                    cand_rows,
+                    assessment_rows,
+                    finding_rows,
                 ),
                 'candidates': cand_rows,
+                'assessments': assessment_rows,
                 'findings': finding_rows,
             }
 

@@ -8,7 +8,7 @@ Function-first analysis schemas for Y2038 scanner.
 from typing import List, Optional, Dict, Any, Union
 from pydantic import BaseModel, Field
 from enum import Enum
-from tacs.core.schema import TimeIssueType
+from tacs.core.schema import TimeIssueType, AssessmentExecutionStatus
 
 
 class Y2038Summary(str, Enum):
@@ -39,6 +39,14 @@ class FunctionAnalysis(BaseModel):
     # Y2106 detection fields (optional, populated when Y2106 detection enabled)
     y2106_summary: Optional[Y2038Summary] = Field(default=None, description="Overall Y2106 assessment (when Y2106 detection enabled)")
     issue_type: Optional[TimeIssueType] = Field(default=None, description="Type of time overflow issue (Y2038, Y2106, both, none, abstain)")
+    execution_status: AssessmentExecutionStatus = Field(
+        default=AssessmentExecutionStatus.COMPLETED,
+        description=(
+            "completed for a usable model conclusion; analysis_error for parse, "
+            "alignment, malformed-response, or provider stubs (findings may still "
+            "project abstain for compatibility)"
+        ),
+    )
 
 
 class FunctionBody(BaseModel):

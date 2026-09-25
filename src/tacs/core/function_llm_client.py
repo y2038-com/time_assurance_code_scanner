@@ -833,6 +833,7 @@ IMPORTANT:
     ) -> List[FunctionAnalysis]:
         """Ensure one FunctionAnalysis per input function (pipeline zips by position)."""
         from tacs.core.candidate_utils import summary_value
+        from tacs.core.schema import AssessmentExecutionStatus
 
         by_id: Dict[str, FunctionAnalysis] = {}
         conflict_ids: set[str] = set()
@@ -874,6 +875,7 @@ IMPORTANT:
                 ],
                 needs_more_context=True,
                 needs=[],
+                execution_status=AssessmentExecutionStatus.ANALYSIS_ERROR,
             )
         if conflict_ids:
             StatusLogger.timestamped_warning(
@@ -908,6 +910,7 @@ IMPORTANT:
                     ],
                     needs_more_context=True,
                     needs=[],
+                    execution_status=AssessmentExecutionStatus.ANALYSIS_ERROR,
                 )
             )
         if missing:
@@ -1220,16 +1223,26 @@ IMPORTANT:
         return normalized
 
     def _fallback_function_responses(self, functions: List[FunctionBody], error_msg: str) -> List[FunctionAnalysis]:
-        """Create fallback responses for function analysis."""
+        """Create operational stubs for function analysis (not genuine model abstentions)."""
+        from tacs.core.schema import AssessmentExecutionStatus
+
         analyses = []
         for func in functions:
+            line0 = func.start_line if getattr(func, "start_line", None) else 1
             analysis = FunctionAnalysis(
                 function_id=func.function_id,
                 y2038_summary=Y2038Summary.ABSTAIN,
                 confidence=0.0,
-                issues=[],
+                issues=[
+                    {
+                        "type": "analysis_error",
+                        "description": error_msg,
+                        "line": line0,
+                    }
+                ],
                 needs_more_context=True,
-                needs=[]
+                needs=[],
+                execution_status=AssessmentExecutionStatus.ANALYSIS_ERROR,
             )
             analyses.append(analysis)
         return analyses
