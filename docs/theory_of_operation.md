@@ -966,6 +966,39 @@ assumptions, and which potential risks were identified.
 
 The principal user-facing result is typically `findings.json`.
 
+Starting with public result **schema_version `1.0`**, that document has the shape:
+
+```json
+{
+  "schema_version": "1.0",
+  "meta": { "...": "...", "candidate_summary": {} },
+  "candidates": [],
+  "findings": []
+}
+```
+
+* `candidates` is the canonical **deterministic discovery evidence** collection.
+  Every prepared deterministic candidate appears here once, including candidates
+  outside recognized functions and candidates later dropped from analysis by
+  Stage 7 (when that opt-in filter is enabled). Presence in `candidates` does
+  **not** mean the hit is a confirmed defect.
+* `findings` remains the existing **model-oriented compatibility projection**
+  (filtering such as `--include-no-findings` unchanged). A model `no`, abstain,
+  or parse failure must not erase the corresponding deterministic evidence.
+* `meta.candidate_summary` reports total / grouped / ungrouped candidate counts
+  and the retained findings count.
+* `rule_id` on candidate evidence is reserved for genuine catalog identifiers; it
+  is currently null until a catalog ID migration (planned before a future 0.2.0).
+  Detectors emit controlled `discovery_method` values at production time
+  (`catalog_symbol_match`, `time_t_cast`, `define_scanner`, `arithmetic_scanner`,
+  `io_boundary`, `migration`). Missing provenance becomes `unknown` rather than
+  a fabricated catalog match.
+* `analysis_coverage` is factual pipeline state: `grouped` when function
+  association found an enclosing unit, `ungrouped` when association was attempted
+  and none was found. Stage 7 filtering does not relabel an in-function candidate
+  as ungrouped; linkage is derived from the full canonical set before Stage 7.
+* Globally aborted scans still do not emit structured partial public reports.
+
 A retained finding can contain information such as:
 
 * source file,

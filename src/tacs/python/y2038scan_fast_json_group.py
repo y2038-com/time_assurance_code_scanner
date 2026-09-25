@@ -220,7 +220,8 @@ def detect_time_t_casts(cleaned: str, original: str, time_t_aliases: List[str],
                     'symbol': f'cast_from_{func}',
                     'risk': 'high',
                     'lineText': original,
-                    'description': f'Cast from time_t function {func}() to {target_type}'
+                    'description': f'Cast from time_t function {func}() to {target_type}',
+                    'discovery_method': 'time_t_cast',
                 }
     
     # Pattern 2: Explicit cast to narrower type from time_t variable
@@ -257,7 +258,8 @@ def detect_time_t_casts(cleaned: str, original: str, time_t_aliases: List[str],
                 'symbol': f'cast_from_time_var',
                 'risk': 'high',
                 'lineText': original,
-                'description': f'Cast from time_t variable {var_name} to {target_type}'
+                'description': f'Cast from time_t variable {var_name} to {target_type}',
+                'discovery_method': 'time_t_cast',
             }
         
         # Medium confidence: check if variable was declared as time_t type
@@ -274,7 +276,8 @@ def detect_time_t_casts(cleaned: str, original: str, time_t_aliases: List[str],
                     'symbol': f'cast_from_time_var',
                     'risk': 'high',
                     'lineText': original,
-                    'description': f'Cast from time_t variable {var_name} to {target_type}'
+                    'description': f'Cast from time_t variable {var_name} to {target_type}',
+                    'discovery_method': 'time_t_cast',
                 }
     
     # Pattern 3: Implicit cast via assignment (lower confidence)
@@ -309,7 +312,8 @@ def detect_time_t_casts(cleaned: str, original: str, time_t_aliases: List[str],
                 'symbol': f'implicit_cast_from_time',
                 'risk': 'high',  # High confidence if we found time_t declaration
                 'lineText': original,
-                'description': f'Implicit narrowing assignment from time_t variable {source_var} to {target_type}'
+                'description': f'Implicit narrowing assignment from time_t variable {source_var} to {target_type}',
+                'discovery_method': 'time_t_cast',
             }
         
         # Fallback: Check variable name heuristics (lower confidence)
@@ -329,7 +333,8 @@ def detect_time_t_casts(cleaned: str, original: str, time_t_aliases: List[str],
                 'symbol': f'implicit_cast_from_time',
                 'risk': 'medium',
                 'lineText': original,
-                'description': f'Possible implicit cast from time_t variable {source_var} to {target_type}'
+                'description': f'Possible implicit cast from time_t variable {source_var} to {target_type}',
+                'discovery_method': 'time_t_cast',
             }
     
     return None
@@ -477,7 +482,8 @@ def scan_file(path: str,
                             'symbol': sym,
                             'risk': rule['risk'],
                             'lineText': original,
-                            'description': rule.get('description','') or ''
+                            'description': rule.get('description','') or '',
+                            'discovery_method': 'catalog_symbol_match',
                         })
                         per_symbol[sym] += 1
                 
@@ -487,6 +493,7 @@ def scan_file(path: str,
                     if cast_match:
                         cast_match['file'] = path
                         cast_match['line'] = ln
+                        cast_match['discovery_method'] = 'time_t_cast'
                         # Apply risk filter
                         if RANK[cast_match['risk']] >= min_rank:
                             results.append(cast_match)
@@ -501,17 +508,20 @@ def scan_file(path: str,
 def group_by_line(results: List[Dict[str,Any]]) -> List[Dict[str,Any]]:
     """
     Merge results with the same (file,line) into one record.
-    symbols → list; risk → max risk among merged; lineText preserved from first.
+    symbols → list; discovery_methods → parallel list; risk → max risk among
+    merged; lineText preserved from first.
     """
     grouped_map: Dict[Tuple[str,int], Dict[str,Any]] = {}
     for r in results:
         key = (r['file'], r['line'])
+        method = r.get('discovery_method')
         g = grouped_map.get(key)
         if not g:
             grouped_map[key] = {
                 'file': r['file'],
                 'line': r['line'],
                 'symbols': [r['symbol']],
+                'discovery_methods': [method],
                 'risk': r['risk'],
                 'lineText': r['lineText'],
                 'description': r.get('description','') or ''
@@ -519,6 +529,7 @@ def group_by_line(results: List[Dict[str,Any]]) -> List[Dict[str,Any]]:
         else:
             if r['symbol'] not in g['symbols']:
                 g['symbols'].append(r['symbol'])
+                g['discovery_methods'].append(method)
             if RANK[r['risk']] > RANK[g['risk']]:
                 g['risk'] = r['risk']
     return sorted(grouped_map.values(), key=lambda x: (x['file'], x['line']))
