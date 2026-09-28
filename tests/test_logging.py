@@ -194,8 +194,8 @@ def test_scan_default_info_shows_stages(tmp_path: Path) -> None:
     assert "Extracted" in err and "containing candidates" in err
     assert "Scan complete:" in err
     assert "confirmed Y2038 issues" in err
-    # "remains"/"remain" agrees with the count, so match the invariant tail.
-    assert "unclassified (LLM disabled)" in err
+    assert "no model classification because LLM analysis was disabled" in err
+    assert "compatibility finding record" in err
     # Singular candidate wording for count==1
     assert "Found 1 candidate" in err
     assert "After filtering: 1 candidate" in err
@@ -271,7 +271,7 @@ def test_scan_zero_candidates_uses_clean_wording(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.stderr
     err = result.stderr or ""
     assert "No Y2038 candidate findings detected" in err
-    assert "unclassified (LLM disabled)" not in err
+    assert "no model classification because LLM analysis was disabled" not in err
 
 
 def test_scan_y2106_breakdown_is_debug_only(tmp_path: Path) -> None:
@@ -325,8 +325,8 @@ def test_scan_y2106_breakdown_is_debug_only(tmp_path: Path) -> None:
     )
     assert debug.exit_code == 0, debug.stderr
     debug_err = debug.stderr or ""
-    # Discovery-only (--llm none): candidate wording, not function classifications.
-    assert "unclassified (LLM disabled)" in debug_err
+    # Discovery-only (--llm none): compatibility-finding wording, not function classifications.
+    assert "no model classification because LLM analysis was disabled" in debug_err
     assert "Final function classifications:" not in debug_err
     assert "Y2106 (LLM disabled):" in debug_err
 
@@ -343,15 +343,23 @@ def test_format_no_llm_repo_summary_wording() -> None:
             "repo_b",
             {"total_findings": 44, "yes_findings": 0, "abstain_findings": 44},
         )
-        == "repo_b: 0 confirmed Y2038 issues; 44 candidate findings remain unclassified (LLM disabled)"
+        == (
+            "repo_b: 0 confirmed Y2038 issues; "
+            "44 compatibility finding records have no model classification "
+            "because LLM analysis was disabled"
+        )
     )
-    # One candidate takes the singular noun and the verb that agrees with it.
+    # One record takes the singular noun and the verb that agrees with it.
     assert (
         _format_no_llm_repo_summary(
             "repo_c",
             {"total_findings": 1, "yes_findings": 0, "abstain_findings": 1},
         )
-        == "repo_c: 0 confirmed Y2038 issues; 1 candidate finding remains unclassified (LLM disabled)"
+        == (
+            "repo_c: 0 confirmed Y2038 issues; "
+            "1 compatibility finding record has no model classification "
+            "because LLM analysis was disabled"
+        )
     )
 
 

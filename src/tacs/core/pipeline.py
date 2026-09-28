@@ -1866,9 +1866,9 @@ class ScanningPipeline:
                 )
                 StatusLogger.timestamped_print(
                     f"{yes_count} confirmed Y2038 issues; "
-                    f"{_format_count(abstain_count, 'candidate finding')} "
-                    f"{'remains' if abstain_count == 1 else 'remain'} "
-                    f"unclassified (LLM disabled)"
+                    f"{_format_count(abstain_count, 'compatibility finding record')} "
+                    f"{'has' if abstain_count == 1 else 'have'} no model classification "
+                    f"because LLM analysis was disabled"
                 )
             if self.detect_y2106:
                 y2106_yes = sum(
@@ -1935,7 +1935,9 @@ class ScanningPipeline:
                 StatusLogger.timestamped_debug(f"  - {count} from {pass_name}")
         elif abstain_count > 0 and self.llm_type == "none":
             StatusLogger.timestamped_debug(
-                f"Abstain breakdown (LLM disabled): {_format_count(abstain_count, 'unclassified candidate')}"
+                f"Abstain breakdown (LLM disabled): "
+                f"{_format_count(abstain_count, 'compatibility finding record')} "
+                f"without model classification"
             )
         
         # Public findings JSON is written only by save_results(..., --out). A

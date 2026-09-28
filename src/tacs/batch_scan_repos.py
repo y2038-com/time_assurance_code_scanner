@@ -327,8 +327,9 @@ def _format_no_llm_repo_summary(repo_key: str, finding_summary: dict[str, int]) 
     abstain = int(finding_summary.get("abstain_findings", 0) or 0)
     return (
         f"{repo_key}: {yes} confirmed Y2038 issues; "
-        f"{format_count(abstain, 'candidate finding')} "
-        f"{'remains' if abstain == 1 else 'remain'} unclassified (LLM disabled)"
+        f"{format_count(abstain, 'compatibility finding record')} "
+        f"{'has' if abstain == 1 else 'have'} no model classification "
+        f"because LLM analysis was disabled"
     )
 
 
