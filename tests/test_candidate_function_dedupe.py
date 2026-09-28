@@ -233,19 +233,53 @@ def test_scan_persists_skipped_external_symlinks(tmp_path: Path) -> None:
 
 
 def test_candidate_id_ignores_description_wording() -> None:
-    """Same site + risk stays one candidate even when rule prose differs."""
+    """Identity ignores description text; material description conflicts fail closed."""
+    from tacs.core.candidate_utils import CandidateProvenanceConflictError
+
     a = Candidate(
         file="/r/a.c", line=10, symbol="sleep", one_line_snippet="sleep(1);",
         risk="high", description="Sleep until the absolute time given in an xtime struct",
         col_start=0, col_end=5,
+        discovery_method="catalog_symbol_match",
     )
     b = Candidate(
         file="/r/a.c", line=10, symbol="sleep", one_line_snippet="sleep(1);",
         risk="high", description="Sleep for given # of seconds in unsigned int",
         col_start=0, col_end=5,
+        discovery_method="catalog_symbol_match",
     )
     assert candidate_id_for(a, "a.c") == candidate_id_for(b, "a.c")
-    assert len(prepare_candidates([a, b])) == 1
+    with pytest.raises(CandidateProvenanceConflictError, match="Conflicting description"):
+        prepare_candidates([a, b])
+    # Order must not matter: reverse input still fails closed.
+    with pytest.raises(CandidateProvenanceConflictError, match="Conflicting description"):
+        prepare_candidates([b, a])
+
+
+def test_description_line_ending_normalization_allows_dedupe() -> None:
+    from tacs.core.candidate_utils import normalize_description_text
+
+    a = Candidate(
+        file="/r/a.c", line=10, symbol="sleep", one_line_snippet="sleep(1);",
+        risk="high", description="same prose\r\n",
+        col_start=0, col_end=5,
+        discovery_method="catalog_symbol_match",
+    )
+    b = Candidate(
+        file="/r/a.c", line=10, symbol="sleep", one_line_snippet="sleep(1);",
+        risk="high", description="same prose\n",
+        col_start=0, col_end=5,
+        discovery_method="catalog_symbol_match",
+    )
+    assert normalize_description_text(a.description) == normalize_description_text(
+        b.description
+    )
+    prepared = prepare_candidates([a, b])
+    assert len(prepared) == 1
+    assert prepared[0].description == "same prose\n"
+    # Reverse order yields the same normalized description.
+    prepared_rev = prepare_candidates([b, a])
+    assert prepared_rev[0].description == prepared[0].description
 
 
 def test_ir_discovery_ignores_external_and_dedupes_aliases(tmp_path: Path) -> None:

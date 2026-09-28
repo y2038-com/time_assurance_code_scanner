@@ -1013,6 +1013,16 @@ Starting with public result **schema_version `1.1`**, that document has the shap
   (`catalog_symbol_match`, `time_t_cast`, `define_scanner`, `arithmetic_scanner`,
   `io_boundary`, `migration`). Missing provenance becomes `unknown` rather than
   a fabricated catalog match.
+* Intermediate IR line records use an authoritative `matches[]` array. Each
+  match carries its own symbol, risk, description, discovery method, rule ID,
+  line, and optional columns. Optional `line_max_risk` / `match_count` fields
+  are summaries only and never feed `Candidate` construction, identity,
+  deduplication, or public evidence. Ambiguous legacy multi-symbol parallel-array
+  IR (one scalar risk/description for many symbols) is rejected.
+* `candidate_id` remains a **weak in-report foreign key**
+  (`relpath:line:cols:risk:symbol`) for linking assessments and findings within
+  an equivalent scan. It is not a suppression or long-term baseline key. Catalog
+  `rule_id` is attribution only and is not part of the identity tuple.
 * `analysis_coverage` is factual pipeline state: `grouped` when function
   association found an enclosing unit, `ungrouped` when association was attempted
   and none was found. Stage 7 filtering does not relabel an in-function candidate
