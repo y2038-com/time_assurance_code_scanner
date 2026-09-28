@@ -2,7 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Function analyzer using tree-sitter for function extraction.
+Function analyzer for associating candidates with enclosing function definitions.
+
+Candidate discovery remains separate (catalog / IR path). Functionization uses a
+dependency-free bounded lexical scanner; optional tree-sitter is not required
+and is not used for C/C++ grammar bindings in this path today.
 """
 
 import os
@@ -10,6 +14,7 @@ import hashlib
 from pathlib import Path
 from typing import List, Dict, Set, Optional, Tuple, Any
 from tacs.core.function_schemas import FunctionBody, FunctionAnalysis, ContextNeed
+from tacs.core.function_scanner import scan_functions
 from tacs.core.path_utils import repo_relative_path, canonical_source_path
 from tacs.core.schema import Candidate
 from tacs.core.status_logger import StatusLogger
@@ -129,60 +134,51 @@ class FunctionAnalyzer:
             return self._fallback_extract_functions(file_path, candidates)
     
     def _fallback_extract_functions(self, file_path: str, candidates: List[Candidate]) -> List[FunctionBody]:
-        """Fallback function extraction using simple parsing."""
+        """Extract functions via the bounded lexical function scanner."""
         try:
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                lines = f.readlines()
+                source = f.read()
         except Exception as e:
             StatusLogger.timestamped_warning(f"Failed to read file {file_path}: {e}")
             return []
-        
-        functions = []
-        candidate_lines = {c.line for c in candidates}
-        
-        # Find function boundaries
-        i = 0
-        while i < len(lines):
-            line = lines[i].strip()
-            
-            # Look for function signature
-            if self._is_function_signature(line):
-                function_start = i
-                function_name = self._extract_function_name(line)
-                
-                # Find function end
-                function_end = self._find_function_end(lines, i)
-                
-                # Check if this function contains any candidates
-                function_candidate_lines = []
-                for line_num in range(function_start + 1, function_end + 1):
-                    if line_num in candidate_lines:
-                        function_candidate_lines.append(line_num)
-                
-                if function_candidate_lines:
-                    # Extract function body
-                    function_body_lines = lines[function_start:function_end + 1]
-                    function_body = ''.join(function_body_lines)
-                    
-                    # Create function ID
-                    rel_path = self._identifier_path(file_path)
-                    function_id = f"{rel_path}@{function_name}:{function_start + 1}-{function_end + 1}"
-                    
-                    function_body_obj = FunctionBody(
-                        function_id=function_id,
-                        file_path=file_path,
-                        symbol=function_name,
-                        start_line=function_start + 1,
-                        end_line=function_end + 1,
-                        body=function_body,
-                        candidate_lines=function_candidate_lines
-                    )
-                    functions.append(function_body_obj)
-                
-                i = function_end + 1
-            else:
-                i += 1
-        
+
+        lines = source.splitlines(keepends=True)
+        # Candidate.line is 1-based; associate any candidate on the signature or body.
+        candidate_lines = {int(c.line) for c in candidates if c.line}
+        functions: List[FunctionBody] = []
+
+        for scanned in scan_functions(source):
+            start_line = scanned.start_line
+            end_line = scanned.end_line
+            function_name = scanned.symbol
+            # Inclusive 1-based range: signature line through closing brace line.
+            function_candidate_lines = [
+                line_num
+                for line_num in range(start_line, end_line + 1)
+                if line_num in candidate_lines
+            ]
+            if not function_candidate_lines:
+                continue
+
+            start_idx = start_line - 1
+            end_idx = end_line - 1
+            if start_idx < 0 or end_idx >= len(lines) or start_idx > end_idx:
+                continue
+            function_body = "".join(lines[start_idx : end_idx + 1])
+            rel_path = self._identifier_path(file_path)
+            function_id = f"{rel_path}@{function_name}:{start_line}-{end_line}"
+            functions.append(
+                FunctionBody(
+                    function_id=function_id,
+                    file_path=file_path,
+                    symbol=function_name,
+                    start_line=start_line,
+                    end_line=end_line,
+                    body=function_body,
+                    candidate_lines=function_candidate_lines,
+                )
+            )
+
         return functions
     
     def _split_large_function_if_needed(self, func: FunctionBody) -> List[FunctionBody]:
@@ -308,91 +304,6 @@ class FunctionAnalyzer:
         
         StatusLogger.timestamped_print(f"Split function {func.symbol} into {len(parts)} parts")
         return parts
-    
-    def _is_function_signature(self, line: str) -> bool:
-        """Check if a line is a function signature."""
-        # Skip comment lines
-        stripped = line.strip()
-        if stripped.startswith('//') or stripped.startswith('/*') or stripped.startswith('*'):
-            return False
-        
-        # Look for common function patterns
-        function_patterns = [
-            'static ',
-            'extern ',
-            'int ',
-            'void ',
-            'char ',
-            'struct ',
-            'enum ',
-            'float ',
-            'double ',
-            'long ',
-            'short ',
-            'unsigned ',
-            'signed '
-        ]
-        
-        # Check if line contains function-like patterns and parentheses
-        has_pattern = any(pattern in line for pattern in function_patterns)
-        has_parens = '(' in line and ')' in line
-        
-        # Also check for lines that end with ')' (function signature with brace on next line)
-        ends_with_paren = line.strip().endswith(')')
-        
-        return has_pattern and has_parens and (line.endswith('{') or ends_with_paren)
-    
-    def _extract_function_name(self, line: str) -> str:
-        """Extract function name from signature."""
-        import re
-        
-        # Remove leading/trailing whitespace
-        line = line.strip()
-        
-        # Pattern: optional modifiers (static, extern, inline) + return type + function name + (
-        # Matches: "void function_name(", "static int func(", "unsigned long test_narrowing_cast_long(", etc.
-        pattern = r'(?:static\s+|extern\s+|inline\s+)?'  # Optional modifiers
-        pattern += r'(?:\w+(?:\s+\w+)*\s+)*'  # Return type (may have multiple words like "unsigned long")
-        pattern += r'(\w+(?:_\w+)*)\s*\('  # Function name before opening paren (handles underscores)
-        
-        match = re.search(pattern, line)
-        if match:
-            return match.group(1)
-        
-        # Fallback: original logic
-        parts = line.split('(')
-        if len(parts) > 1:
-            before_paren = parts[0].strip()
-            words = before_paren.split()
-            if words:
-                return words[-1]
-        
-        return "unknown_function"
-    
-    def _find_function_end(self, lines: List[str], start_idx: int) -> int:
-        """Find the end of a function using brace matching."""
-        # Start brace counting from the opening brace
-        brace_count = 0
-        i = start_idx
-        
-        # If the current line doesn't end with '{', look for the opening brace on the next line
-        if not lines[start_idx].strip().endswith('{'):
-            i = start_idx + 1
-            while i < len(lines) and not lines[i].strip().endswith('{'):
-                i += 1
-            if i >= len(lines):
-                return start_idx  # No opening brace found
-        
-        # Now count braces starting from the opening brace
-        brace_count = 1  # We found the opening brace
-        i += 1
-        
-        while i < len(lines) and brace_count > 0:
-            line = lines[i]
-            brace_count += line.count('{') - line.count('}')
-            i += 1
-        
-        return i - 1
     
     def compute_function_hash(self, function_body: FunctionBody, scenario_hint: str, rules_version: str) -> str:
         """Compute hash for function caching."""
