@@ -427,11 +427,27 @@ def test_ir_propagates_explicit_discovery_method_not_symbol_prefix():
     catalog_item = {
         "file": "a.c",
         "line": 1,
-        "symbols": ["cast_from_time", "time_t"],
-        "discovery_methods": ["catalog_symbol_match", "catalog_symbol_match"],
-        "risk": "high",
         "lineText": "x",
-        "description": "Cast from time_t function time() to int",
+        "matches": [
+            {
+                "symbol": "cast_from_time",
+                "risk": "high",
+                "description": "Cast from time_t function time() to int",
+                "discovery_method": "catalog_symbol_match",
+                "rule_id": None,
+                "line": 1,
+            },
+            {
+                "symbol": "time_t",
+                "risk": "high",
+                "description": "type",
+                "discovery_method": "catalog_symbol_match",
+                "rule_id": "TACS-RULE-0192",
+                "line": 1,
+            },
+        ],
+        "match_count": 2,
+        "line_max_risk": "high",
     }
     pairs = _ir_symbols_and_methods(catalog_item)
     assert pairs[0] == ("cast_from_time", "catalog_symbol_match")
@@ -530,7 +546,14 @@ def test_scanner_emits_explicit_catalog_and_cast_methods(tmp_path: Path):
     assert payload, "expected IR hits"
     methods = set()
     for item in payload:
-        if "discovery_methods" in item:
+        if "matches" in item:
+            for m in item["matches"]:
+                methods.add(m.get("discovery_method"))
+            assert "risk" not in item
+            assert "description" not in item
+            assert "line_max_risk" in item
+            assert "match_count" in item
+        elif "discovery_methods" in item:
             methods.update(item["discovery_methods"])
         elif "discovery_method" in item:
             methods.add(item["discovery_method"])
@@ -541,8 +564,8 @@ def test_scanner_emits_explicit_catalog_and_cast_methods(tmp_path: Path):
     forged = {
         "file": "x.c",
         "line": 1,
-        "symbols": ["cast_from_time"],
-        "discovery_methods": ["catalog_symbol_match"],
+        "symbol": "cast_from_time",
+        "discovery_method": "catalog_symbol_match",
         "risk": "high",
         "lineText": "x",
     }

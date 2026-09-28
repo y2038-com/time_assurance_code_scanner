@@ -538,36 +538,81 @@ def scan_file(path: str,
 
 
 def group_by_line(results: List[Dict[str,Any]]) -> List[Dict[str,Any]]:
+    """Group per-hit results into line records with authoritative ``matches[]``.
+
+    Line aggregates ``line_max_risk`` / ``match_count`` are summaries only.
+    See :mod:`tacs.core.ir_match`.
     """
-    Merge results with the same (file,line) into one record.
-    symbols → list; discovery_methods / rule_ids → parallel lists; risk → max
-    risk among merged; lineText preserved from first.
-    """
-    grouped_map: Dict[Tuple[str,int], Dict[str,Any]] = {}
+    try:
+        from tacs.core.ir_match import group_by_line as _group_by_line
+    except ImportError:
+        # Standalone script fallback: build matches[] without the package.
+        return _group_by_line_standalone(results)
+    return _group_by_line(results)
+
+
+def _group_by_line_standalone(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Minimal matches[] grouping when ``tacs.core`` is not importable."""
+    grouped_map: Dict[Tuple[str, int], Dict[str, Any]] = {}
+    order: List[Tuple[str, int]] = []
     for r in results:
-        key = (r['file'], r['line'])
-        method = r.get('discovery_method')
-        rule_id = r.get('rule_id')
+        key = (r["file"], int(r["line"]))
+        match = {
+            "symbol": str(r.get("symbol") or ""),
+            "risk": str(r.get("risk") or ""),
+            "description": str(r.get("description") or ""),
+            "discovery_method": r.get("discovery_method"),
+            "rule_id": r.get("rule_id") if isinstance(r.get("rule_id"), str) and str(r.get("rule_id")).strip() else None,
+            "line": int(r.get("line") or 0),
+            "col_start": r.get("col_start"),
+            "col_end": r.get("col_end"),
+        }
+        eq = (
+            match["symbol"],
+            match["risk"],
+            match["description"],
+            match["discovery_method"],
+            match["rule_id"],
+            match["col_start"],
+            match["col_end"],
+            match["line"],
+        )
         g = grouped_map.get(key)
         if not g:
             grouped_map[key] = {
-                'file': r['file'],
-                'line': r['line'],
-                'symbols': [r['symbol']],
-                'discovery_methods': [method],
-                'rule_ids': [rule_id],
-                'risk': r['risk'],
-                'lineText': r['lineText'],
-                'description': r.get('description','') or ''
+                "file": r["file"],
+                "line": int(r["line"]),
+                "lineText": r.get("lineText", ""),
+                "matches": [match],
+                "_keys": {eq},
             }
-        else:
-            if r['symbol'] not in g['symbols']:
-                g['symbols'].append(r['symbol'])
-                g['discovery_methods'].append(method)
-                g['rule_ids'].append(rule_id)
-            if RANK[r['risk']] > RANK[g['risk']]:
-                g['risk'] = r['risk']
-    return sorted(grouped_map.values(), key=lambda x: (x['file'], x['line']))
+            order.append(key)
+            continue
+        if eq not in g["_keys"]:
+            g["matches"].append(match)
+            g["_keys"].add(eq)
+    out: List[Dict[str, Any]] = []
+    for key in sorted(order, key=lambda k: (k[0], k[1])):
+        g = grouped_map[key]
+        matches = g["matches"]
+        best = ""
+        best_rank = -1
+        for m in matches:
+            rk = RANK.get(m.get("risk") or "", -1)
+            if rk > best_rank:
+                best_rank = rk
+                best = m.get("risk") or ""
+        out.append(
+            {
+                "file": g["file"],
+                "line": g["line"],
+                "lineText": g.get("lineText", ""),
+                "matches": matches,
+                "match_count": len(matches),
+                "line_max_risk": best,
+            }
+        )
+    return out
 
 
 def main():
@@ -663,49 +708,38 @@ def main():
             print(f"Error writing JSON: {e}", file=sys.stderr)
 
     # ---- per-match printing (single source of truth) ----
-    '''
     if args.verbosity >= 2:
         src = grouped if grouped is not None else all_results
         for r in src:
-            color = RISK_COLORS.get(r['risk'], '')
-            sym_disp = r.get('symbols', r.get('symbol', ''))
-            if isinstance(sym_disp, list):
-                sym_disp = ', '.join(sym_disp)
-            header = f"{r['file']}:{r['line']}: {sym_disp}"
-
-            if args.verbosity in (2,3):
-                print(f"{color}{header}{RESET}")
+            matches = r.get("matches")
+            if isinstance(matches, list) and matches:
+                risk_for_color = r.get("line_max_risk") or matches[0].get("risk", "")
+                sym_disp = ", ".join(
+                    str(m.get("symbol") or "") for m in matches
+                )
             else:
-                print(f"{color}{header}{RESET}")
-                print(f"    Line: {r['lineText']}")
-                if args.verbosity >= 5 and r.get('description'):
-                    print(f"    Desc: {r['description']}")
-                print()  # blank line between entries
-    '''
-
-    # ---- per-match printing (single source of truth) ----
-    if args.verbosity >= 2:
-        src = grouped if grouped is not None else all_results
-        for r in src:
-            color = RISK_COLORS.get(r['risk'], '')
-            sym_disp = r.get('symbols', r.get('symbol', ''))
-            if isinstance(sym_disp, list):
-                sym_disp = ', '.join(sym_disp)
+                risk_for_color = r.get("risk", "")
+                sym_disp = r.get("symbols", r.get("symbol", ""))
+                if isinstance(sym_disp, list):
+                    sym_disp = ", ".join(sym_disp)
+            color = RISK_COLORS.get(risk_for_color, "")
             header = f"{r['file']}:{r['line']}: {sym_disp}"
 
             if args.verbosity == 2:
-                # 2: header only
                 print(f"{color}{header}{RESET}")
             elif args.verbosity == 3:
-                # 3: header + source line
                 print(f"{color}{header}{RESET}")
-                print(f"    Line: {r['lineText']}")
+                print(f"    Line: {r.get('lineText', '')}")
                 print()
             elif args.verbosity == 4:
-                # 4: header + source line + description (if any)
                 print(f"{color}{header}{RESET}")
-                print(f"    Line: {r['lineText']}")
-                if r.get('description'):
+                print(f"    Line: {r.get('lineText', '')}")
+                if isinstance(matches, list):
+                    for m in matches:
+                        desc = m.get("description") or ""
+                        if desc:
+                            print(f"    Desc[{m.get('symbol')}]: {desc}")
+                elif r.get("description"):
                     print(f"    Desc: {r['description']}")
                 print()
 

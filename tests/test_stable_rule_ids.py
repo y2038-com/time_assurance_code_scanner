@@ -282,7 +282,7 @@ def test_ir_producer_emits_exact_catalog_id(tmp_path: Path):
         assert r["rule_id"] == expected[r["symbol"]]
 
 
-def test_group_by_line_preserves_parallel_rule_ids():
+def test_group_by_line_preserves_per_match_attribution():
     results = [
         {
             "file": "/x.c",
@@ -317,35 +317,52 @@ def test_group_by_line_preserves_parallel_rule_ids():
     ]
     grouped = group_by_line(results)
     line1 = next(g for g in grouped if g["line"] == 1)
-    assert line1["symbols"] == ["time_t", "time"]
-    assert line1["discovery_methods"] == [
-        "catalog_symbol_match",
-        "catalog_symbol_match",
+    assert "risk" not in line1 and "description" not in line1
+    assert line1["match_count"] == 2
+    assert line1["line_max_risk"] == "high"
+    assert [(m["symbol"], m["discovery_method"], m["rule_id"], m["description"]) for m in line1["matches"]] == [
+        ("time", "catalog_symbol_match", "TACS-RULE-0040", "fn"),
+        ("time_t", "catalog_symbol_match", "TACS-RULE-0192", "type"),
     ]
-    assert line1["rule_ids"] == ["TACS-RULE-0192", "TACS-RULE-0040"]
 
 
 def test_ir_adapter_propagates_without_inference():
     item = {
         "file": "/x.c",
         "line": 3,
-        "symbols": ["time_t", "time"],
-        "discovery_methods": ["catalog_symbol_match", "catalog_symbol_match"],
-        "rule_ids": ["TACS-RULE-0192", "TACS-RULE-0040"],
-        "risk": "high",
         "lineText": "x",
+        "matches": [
+            {
+                "symbol": "time_t",
+                "risk": "high",
+                "description": "type",
+                "discovery_method": "catalog_symbol_match",
+                "rule_id": "TACS-RULE-0192",
+                "line": 3,
+            },
+            {
+                "symbol": "time",
+                "risk": "medium",
+                "description": "fn",
+                "discovery_method": "catalog_symbol_match",
+                "rule_id": "TACS-RULE-0040",
+                "line": 3,
+            },
+        ],
+        "match_count": 2,
+        "line_max_risk": "high",
     }
     pairs = _ir_symbols_methods_and_rule_ids(item)
     assert pairs == [
-        ("time_t", "catalog_symbol_match", "TACS-RULE-0192"),
         ("time", "catalog_symbol_match", "TACS-RULE-0040"),
+        ("time_t", "catalog_symbol_match", "TACS-RULE-0192"),
     ]
-    # Missing rule_ids stay None — not inferred from symbol.
+    # Legacy single-symbol still readable; missing rule_id stays None.
     bare = {
         "file": "/x.c",
         "line": 1,
-        "symbols": ["time_t"],
-        "discovery_methods": ["catalog_symbol_match"],
+        "symbol": "time_t",
+        "discovery_method": "catalog_symbol_match",
         "risk": "high",
         "lineText": "x",
     }
@@ -601,7 +618,7 @@ def test_format_helpers():
     assert not is_valid_rule_id("tacs-rule-0001")
 
 
-def test_parallel_arrays_aligned_for_multiple_symbols_on_one_line():
+def test_matches_aligned_for_multiple_symbols_on_one_line():
     results = [
         {
             "file": "/x.c",
@@ -637,14 +654,16 @@ def test_parallel_arrays_aligned_for_multiple_symbols_on_one_line():
     grouped = group_by_line(results)
     assert len(grouped) == 1
     g = grouped[0]
-    assert len(g["symbols"]) == len(g["discovery_methods"]) == len(g["rule_ids"]) == 3
-    triples = list(zip(g["symbols"], g["discovery_methods"], g["rule_ids"]))
-    assert triples == [
-        ("time_t", "catalog_symbol_match", "TACS-RULE-0192"),
-        ("time", "catalog_symbol_match", "TACS-RULE-0040"),
-        ("cast_from_time", "time_t_cast", None),
+    assert g["match_count"] == 3
+    assert g["line_max_risk"] == "high"
+    triples = [
+        (m["symbol"], m["discovery_method"], m["rule_id"]) for m in g["matches"]
     ]
-    # Adapter zip must preserve the same triples.
+    assert triples == [
+        ("cast_from_time", "time_t_cast", None),
+        ("time", "catalog_symbol_match", "TACS-RULE-0040"),
+        ("time_t", "catalog_symbol_match", "TACS-RULE-0192"),
+    ]
     assert _ir_symbols_methods_and_rule_ids(g) == triples
 
 

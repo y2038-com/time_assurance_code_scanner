@@ -18,36 +18,26 @@ from tacs.core.arithmetic_scanner import ArithmeticScanner, ArithmeticMatch
 from tacs.core.path_utils import canonical_source_path
 from tacs.core.candidate_utils import prepare_candidates
 from tacs.core.candidate_evidence import normalize_discovery_method
+from tacs.core.ir_match import IRMatchError, iter_match_field_sets
 
 
 def _ir_symbols_methods_and_rule_ids(
     item: Dict[str, Any],
 ) -> List[tuple[str, Optional[str], Optional[str]]]:
-    """Pair each IR symbol with discovery_method and rule_id.
+    """Pair each IR match with discovery_method and rule_id.
 
-    Propagates producer-emitted values only. Does not classify from symbol,
-    risk, or description text. Missing methods become ``unknown`` via
-    :func:`normalize_discovery_method`. Missing rule_ids stay None.
+    Prefers authoritative ``matches[]``. Legacy parallel arrays remain readable
+    only when unambiguous (see :mod:`tacs.core.ir_match`).
     """
-    if "symbols" in item:
-        symbols = item.get("symbols") or []
-        if isinstance(symbols, str):
-            symbols = [symbols]
-        methods = item.get("discovery_methods")
-        if not isinstance(methods, list):
-            methods = []
-        rule_ids = item.get("rule_ids")
-        if not isinstance(rule_ids, list):
-            rule_ids = []
-        paired: List[tuple[str, Optional[str], Optional[str]]] = []
-        for i, symbol in enumerate(symbols):
-            method = methods[i] if i < len(methods) else None
-            rule_id = rule_ids[i] if i < len(rule_ids) else None
-            paired.append((str(symbol or ""), method, rule_id))
-        return paired
-
-    symbol = str(item.get("symbol") or "")
-    return [(symbol, item.get("discovery_method"), item.get("rule_id"))]
+    fields = list(iter_match_field_sets(item))
+    return [
+        (
+            str(f.get("symbol") or ""),
+            f.get("discovery_method"),
+            f.get("rule_id") if isinstance(f.get("rule_id"), str) else None,
+        )
+        for f in fields
+    ]
 
 
 # Backward-compatible alias used by older tests.
@@ -195,20 +185,39 @@ class IRAdapter:
             with open(tmp_path, 'r', encoding='utf-8') as f:
                 raw_results = json.load(f)
             
-            # Convert to Candidate objects
+            # Convert to Candidate objects from authoritative match fields only.
             candidates = []
             for item in raw_results:
-                file_path = canonical_source_path(item['file'])
-                for symbol, method, rule_id in _ir_symbols_methods_and_rule_ids(item):
+                try:
+                    field_sets = list(iter_match_field_sets(item))
+                except IRMatchError as exc:
+                    StatusLogger.timestamped_error(
+                        f"IR match attribution rejected for "
+                        f"{item.get('file', '<unknown>')}:{item.get('line', '?')}: {exc}"
+                    )
+                    raise RuntimeError(
+                        f"Scanner IR attribution error: {exc}"
+                    ) from exc
+                for fields in field_sets:
+                    file_path = canonical_source_path(fields["file"]) or fields["file"]
+                    rule_id = fields.get("rule_id")
                     candidate = Candidate(
                         file=file_path,
-                        line=item['line'],
-                        symbol=symbol,
-                        one_line_snippet=item['lineText'],
-                        risk=item['risk'],
-                        description=item.get('description', ''),
-                        discovery_method=normalize_discovery_method(method),
-                        rule_id=rule_id if isinstance(rule_id, str) and rule_id.strip() else None,
+                        line=int(fields.get("line") or 0),
+                        symbol=str(fields.get("symbol") or ""),
+                        one_line_snippet=str(fields.get("one_line_snippet") or ""),
+                        risk=str(fields.get("risk") or ""),
+                        description=str(fields.get("description") or ""),
+                        col_start=fields.get("col_start"),
+                        col_end=fields.get("col_end"),
+                        discovery_method=normalize_discovery_method(
+                            fields.get("discovery_method")
+                        ),
+                        rule_id=(
+                            rule_id
+                            if isinstance(rule_id, str) and rule_id.strip()
+                            else None
+                        ),
                     )
                     candidates.append(candidate)
             

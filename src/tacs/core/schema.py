@@ -285,9 +285,11 @@ class CandidateEvidence(BaseModel):
     candidate_id: str = Field(
         ...,
         description=(
-            "Deterministic in-report foreign key from make_candidate_id "
-            "(relpath:line:cols:risk:symbol). Stable within equivalent scans; "
-            "not stable across arbitrary source edits that shift lines."
+            "Weak in-report foreign key from make_candidate_id "
+            "(relpath:line:cols:risk:symbol). Stable within equivalent scans "
+            "with correct per-match risk; not a suppression or long-term "
+            "baseline key across catalog severity edits or unrelated source "
+            "changes. rule_id is attribution only and is not part of the id."
         ),
     )
     file: str = Field(..., description="Repository-relative source path")
