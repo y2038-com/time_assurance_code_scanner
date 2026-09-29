@@ -15,13 +15,15 @@ This repository is the open-source scanner engine and CLI. It is the code-scanni
 
 ## Status
 
-**v0.1.0** — CLI-first release of the core scanning pipeline:
+**v0.2.0rc1** — release candidate on the CLI-first scanning pipeline. Public
+result documents use **schema_version `1.1`** (`candidates[]`, `assessments[]`,
+`findings[]`). See [CHANGELOG.md](CHANGELOG.md) for changes since v0.1.0.
 
 | Command | Purpose |
 |---------|---------|
 | `tacs scan` | Scan one local source tree |
 | `tacs repos` | Batch-scan git repos from a JSONL list |
-| `tacs render` | Render `findings.json` (or a batch run) to text/HTML |
+| `tacs render` | Render public scan JSON (or a batch run) to text/HTML |
 | `tacs detect` | **Experimental** guess among the 8 ABI/`time_t` configs |
 
 **Default LLM mode for a first run:** `--llm none` (deterministic candidate discovery on the bundled `tests/patterns` tree; no API key). External LLMs are **opt-in** via `--llm` or `TACS_LLM_PROVIDER`.
@@ -72,7 +74,7 @@ the selected LLM.
 - Wrong or missing environment config can mis-rank risk (prefer an explicit ABI/`time_t` config).
 - `tacs detect` is experimental and often low-confidence — not ground truth.
 - Preprocessor-agnostic scanning means guarded/dead code may still appear as candidates.
-- Structural filtering is heuristic today; tree-sitter AST analysis is **not** implemented in v0.1.0. The `.[full]` extra installs tree-sitter for that future work, but installing it changes nothing yet — the filter stays a no-op either way.
+- Structural filtering is heuristic today; tree-sitter AST analysis is **not** implemented in the current release. The `.[full]` extra installs tree-sitter for that future work, but installing it changes nothing yet — the filter stays a no-op either way.
 - No findings ≠ “no time-assurance risk.”
 - Human review remains authoritative for severity and remediation before changing production code or ABI choices.
 

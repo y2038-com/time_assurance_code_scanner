@@ -4,6 +4,7 @@ Public entry points:
 
 | Doc | Purpose |
 |-----|---------|
+| [../CHANGELOG.md](../CHANGELOG.md) | Release notes |
 | [../QUICK_START.md](../QUICK_START.md) | Install → first scan → optional LLM |
 | [../README.md](../README.md) | Overview, limitations, privacy summary |
 | [privacy.md](privacy.md) | Privacy and retention |
