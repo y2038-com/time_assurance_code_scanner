@@ -24,7 +24,8 @@ class HybridConfigDetector:
         llm_timeout: int = 60,
         confidence_threshold: float = 0.7,
         use_cache: bool = True,
-        debug: bool = False
+        debug: bool = False,
+        debug_llm_raw: bool = False,
     ):
         """
         Initialize the hybrid detector.
@@ -36,12 +37,14 @@ class HybridConfigDetector:
             llm_timeout: LLM request timeout in seconds
             confidence_threshold: Confidence threshold for triggering LLM analysis
             use_cache: Whether to use caching for LLM results
-            debug: Enable debug output
+            debug: Enable safe diagnostic output
+            debug_llm_raw: Explicitly dump raw LLM prompts/responses
         """
         self.root_path = root_path
         self.confidence_threshold = confidence_threshold
         self.use_cache = use_cache
         self.debug = debug
+        self.debug_llm_raw = debug_llm_raw
         
         # Initialize components
         self.keyword_detector = ConfigDetector(root_path)
@@ -49,7 +52,8 @@ class HybridConfigDetector:
             llm_type=llm_type,
             model=llm_model,
             timeout_sec=llm_timeout,
-            debug=debug
+            debug=debug,
+            debug_llm_raw=debug_llm_raw,
         )
         self.cache = ConfigCache() if use_cache else None
         self.validator = ConfigValidator()

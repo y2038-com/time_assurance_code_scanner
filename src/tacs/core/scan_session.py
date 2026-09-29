@@ -20,6 +20,11 @@ from tacs.core.path_utils import (
     repo_relative_path,
     update_latest_symlink,
 )
+from tacs.core.llm_errors import (
+    RAW_DIAGNOSTIC_MAX_BYTES,
+    RAW_TRUNCATION_MARKER,
+    truncate_utf8_bytes,
+)
 from tacs.core.llm_prompt import LLMPromptParts
 from tacs.core.run_ids import new_run_id
 
@@ -127,6 +132,22 @@ class ScanSession:
         """Create an artifact subdirectory on first use."""
         dir_path.mkdir(parents=True, exist_ok=True)
         return dir_path
+
+    @staticmethod
+    def _write_json_file(path: Path, payload: Any, *, private: bool = False) -> None:
+        """Write JSON; when ``private``, prefer mode ``0o600`` for sensitive artifacts."""
+        text = json.dumps(payload, indent=2, default=str)
+        if not private:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
+            return
+        fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
     
     def _create_readme(self):
         """Create README.txt for the scan folder."""
@@ -492,7 +513,8 @@ This scan session contains all data needed for debugging, review, and fine-tunin
 
     def save_function_batch(self, pass_name: str, batch_num: int, function_batch: Any,
                            prompt: Optional[LLMPromptParts],
-                           response: Optional[List[Dict[str, Any]]] = None):
+                           response: Optional[List[Dict[str, Any]]] = None,
+                           error_diagnostic: Optional[Dict[str, Any]] = None):
         """
         Save a function-batch artifact for audit and debugging.
 
@@ -505,8 +527,14 @@ This scan session contains all data needed for debugging, review, and fine-tunin
         - enable_llm_logging=True and allow_raw_code_logging=True: verbatim prompt
           channels and function bodies are persisted
 
+        Model-output persistence:
+
+        - default: safe summary only (counts, statuses, hashes) — never full analyses
+        - enable_llm_logging and allow_raw_code_logging: bounded full model output
+          under the session directory (may contain source-derived material)
+
         allow_raw_code_logging is authoritative for verbatim source retention, so
-        redact_prompts=False alone does not permit raw prompt/body persistence.
+        redact_prompts=False alone does not permit raw prompt/body/output persistence.
 
         The trusted and untrusted channels are sized, hashed and persisted
         separately. Concatenating them for the artifact would record a prompt that
@@ -525,6 +553,7 @@ This scan session contains all data needed for debugging, review, and fine-tunin
         functions = list(function_batch.functions) if hasattr(function_batch, 'functions') else []
         persist_prompt = bool(self.enable_llm_logging)
         persist_raw_code = bool(self.enable_llm_logging and self.allow_raw_code_logging)
+        persist_raw_output = persist_raw_code
 
         function_entries: List[Dict[str, Any]] = []
         for func in functions:
@@ -558,6 +587,7 @@ This scan session contains all data needed for debugging, review, and fine-tunin
                 "redact_prompts": bool(self.redact_prompts),
                 "allow_raw_code_logging": bool(self.allow_raw_code_logging),
                 "raw_function_bodies_persisted": persist_raw_code,
+                "raw_model_output_persisted": persist_raw_output,
                 "prompt_persisted": (
                     "verbatim" if persist_raw_code else "redacted" if persist_prompt else "none"
                 ),
@@ -579,21 +609,122 @@ This scan session contains all data needed for debugging, review, and fine-tunin
                         self._redact_function_batch_prompt(text, functions)
                     )
 
-        with open(batches_dir / f"{batch_num:04d}_input.json", 'w', encoding='utf-8') as f:
-            json.dump(batch_input, f, indent=2)
-        
-        # Save batch output (LLM response) if provided
-        if response:
-            batch_output = {
-                "batch_id": f"{pass_name}_batch_{batch_num:04d}",
-                "pass": pass_name,
-                "batch_num": batch_num,
-                "response": response,
-                "timestamp": datetime.utcnow().isoformat() + "Z"
+        self._write_json_file(
+            batches_dir / f"{batch_num:04d}_input.json",
+            batch_input,
+            private=persist_raw_code,
+        )
+
+        if response is not None:
+            batch_output = self._build_function_batch_output(
+                pass_name=pass_name,
+                batch_num=batch_num,
+                response=response,
+                persist_raw_output=persist_raw_output,
+            )
+            self._write_json_file(
+                batches_dir / f"{batch_num:04d}_output.json",
+                batch_output,
+                private=persist_raw_output,
+            )
+
+        if error_diagnostic:
+            safe_error = {
+                key: error_diagnostic.get(key)
+                for key in (
+                    "provider",
+                    "category",
+                    "status_code",
+                    "retryable",
+                    "attempt",
+                    "response_body_len",
+                    "detail",
+                )
+                if key in error_diagnostic
             }
-            
-            with open(batches_dir / f"{batch_num:04d}_output.json", 'w', encoding='utf-8') as f:
-                json.dump(batch_output, f, indent=2)
+            safe_error.update(
+                {
+                    "batch_id": f"{pass_name}_batch_{batch_num:04d}",
+                    "pass": pass_name,
+                    "batch_num": batch_num,
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                }
+            )
+            self._write_json_file(
+                batches_dir / f"{batch_num:04d}_error.json",
+                safe_error,
+                private=True,
+            )
+
+    def _build_function_batch_output(
+        self,
+        *,
+        pass_name: str,
+        batch_num: int,
+        response: List[Dict[str, Any]],
+        persist_raw_output: bool,
+    ) -> Dict[str, Any]:
+        """Build either a safe summary or a bounded raw model-output artifact."""
+        encoded = json.dumps(response, sort_keys=True, default=str).encode("utf-8")
+        digest = hashlib.sha256(encoded).hexdigest()
+        status_counts: Dict[str, int] = defaultdict(int)
+        verdict_counts: Dict[str, int] = defaultdict(int)
+        item_summaries: List[Dict[str, Any]] = []
+        for item in response:
+            if not isinstance(item, dict):
+                status_counts["invalid_item"] += 1
+                continue
+            status = str(item.get("execution_status") or "unknown")
+            status_counts[status] += 1
+            verdict = item.get("y2038_summary")
+            if hasattr(verdict, "value"):
+                verdict = verdict.value
+            verdict_counts[str(verdict or "unknown")] += 1
+            issues = item.get("issues") or []
+            item_summaries.append(
+                {
+                    "function_id": item.get("function_id"),
+                    "execution_status": status,
+                    "y2038_summary": str(verdict or "unknown"),
+                    "confidence": item.get("confidence"),
+                    "issue_count": len(issues) if isinstance(issues, list) else 0,
+                }
+            )
+
+        batch_output: Dict[str, Any] = {
+            "batch_id": f"{pass_name}_batch_{batch_num:04d}",
+            "pass": pass_name,
+            "batch_num": batch_num,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "response_item_count": len(response),
+            "response_bytes": len(encoded),
+            "response_sha256": digest,
+            "status_counts": dict(status_counts),
+            "verdict_counts": dict(verdict_counts),
+            "items": item_summaries,
+            "privacy": {
+                "raw_model_output_persisted": bool(persist_raw_output),
+            },
+        }
+        if persist_raw_output:
+            if len(encoded) <= RAW_DIAGNOSTIC_MAX_BYTES:
+                batch_output["response"] = response
+                batch_output["response_raw_note"] = (
+                    "Full model output retained under --log-llm --allow-raw-code-logging; "
+                    "may contain source-derived sensitive material"
+                )
+            else:
+                truncated = truncate_utf8_bytes(
+                    encoded.decode("utf-8"),
+                    RAW_DIAGNOSTIC_MAX_BYTES,
+                    marker=RAW_TRUNCATION_MARKER,
+                )
+                batch_output["response_raw_truncated"] = truncated
+                batch_output["response_raw_truncated_note"] = (
+                    f"truncated to {RAW_DIAGNOSTIC_MAX_BYTES} UTF-8 bytes including "
+                    f"marker; may contain source-derived sensitive material"
+                )
+        return batch_output
     
     def update_index(self):
         """Update the scans index."""

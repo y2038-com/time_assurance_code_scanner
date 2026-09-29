@@ -134,7 +134,16 @@ Examples:
     parser.add_argument(
         '--debug',
         action='store_true',
-        help='Enable debug output (show LLM prompts/responses)'
+        help='Enable safe diagnostic output (sizes/hashes; no raw prompts/responses)'
+    )
+
+    parser.add_argument(
+        '--debug-llm-raw',
+        action='store_true',
+        help=(
+            'Dump raw LLM prompts/responses (privacy-sensitive; may include '
+            'source-derived material). Compatibility: --debug no longer dumps raw content.'
+        )
     )
     
     args = parser.parse_args()
@@ -162,7 +171,8 @@ Examples:
                 llm_timeout=args.llm_timeout,
                 confidence_threshold=args.confidence_threshold,
                 use_cache=not args.no_cache,
-                debug=args.debug or args.verbose
+                debug=args.debug or args.verbose,
+                debug_llm_raw=args.debug_llm_raw,
             )
             
             # Run hybrid detection

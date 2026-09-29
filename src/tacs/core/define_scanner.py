@@ -314,9 +314,12 @@ class DefineScanner:
             # Sort by count (descending) then by macro name
             sorted_matches = sorted(unique_matches.items(), key=lambda x: (-x[1], x[0][0]))
             for (macro_name, macro_value), count in sorted_matches:
+                value_chars = len(macro_value) if macro_value is not None else 0
                 if count > 1:
                     StatusLogger.timestamped_debug(
-                        f"    {macro_name} -> {macro_value} ({count} occurrences)"
+                        f"    {macro_name}: {count} occurrences ({value_chars} value chars)"
                     )
                 else:
-                    StatusLogger.timestamped_debug(f"    {macro_name} -> {macro_value}")
+                    StatusLogger.timestamped_debug(
+                        f"    {macro_name}: 1 occurrence ({value_chars} value chars)"
+                    )

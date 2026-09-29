@@ -182,8 +182,10 @@ def test_pass_2b_debug_keeps_extracted_context_detail(
 
     assert "Stage 8, Pass 2b: enriching 1 abstained function" in err
     assert "Stage 8, Pass 2b: Extracted" in err
-    assert '#include "benchmark.h"' in err
-    assert "#define STEP_WIDTH 100" in err
+    # Ordinary DEBUG reports counts/lengths only — not source excerpts.
+    assert '#include "benchmark.h"' not in err
+    assert "#define STEP_WIDTH 100" not in err
+    assert "39 chars" in err or "headers" in err
     assert "Stage 8, Pass 2b: Processing batch 1 of 1" in err
     assert "abstain(s) remaining after enrichment" in err
 

@@ -6,6 +6,7 @@
 ``_post_json`` must preserve ``LLMNonRetryableError`` (so function-LLM retries
 stop) and must catch ``ConnectTimeout`` before its ``ConnectionError``
 superclass so the specialized connect-timeout message remains reachable.
+Provider response bodies must not appear in exception text.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ import requests
 from tacs.core.function_llm_client import FunctionLLMClient
 from tacs.core.function_schemas import FunctionBatch, FunctionBody
 from tacs.core.llm_client import LLMClient, LLMNonRetryableError
+from tacs.core.llm_errors import LLMErrorCategory, LLMProviderError
 from tacs.core.llm_prompt import LLMPromptParts
 
 
@@ -34,6 +36,7 @@ def _response(
     response = MagicMock()
     response.status_code = status
     response.text = text
+    response.content = text.encode("utf-8")
     if json_data is None:
         response.json.side_effect = ValueError("no json")
     else:
@@ -44,7 +47,7 @@ def _response(
 def test_post_json_preserves_nonretryable_for_401(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client()
     monkeypatch.setattr(
-        requests, "post", lambda *a, **k: _response(401, "unauthorized")
+        requests, "post", lambda *a, **k: _response(401, "CANARY_BODY_unauthorized_secret")
     )
 
     with pytest.raises(LLMNonRetryableError) as excinfo:
@@ -55,8 +58,13 @@ def test_post_json_preserves_nonretryable_for_401(monkeypatch: pytest.MonkeyPatc
         )
 
     assert type(excinfo.value) is LLMNonRetryableError
-    assert "401" in str(excinfo.value)
-    assert "unauthorized" in str(excinfo.value)
+    assert excinfo.value.status_code == 401
+    assert excinfo.value.category == LLMErrorCategory.AUTH
+    assert excinfo.value.retryable is False
+    message = str(excinfo.value)
+    assert "401" in message
+    assert "CANARY_BODY_unauthorized_secret" not in message
+    assert excinfo.value.__cause__ is None
 
 
 def test_post_json_preserves_nonretryable_for_insufficient_quota(
@@ -68,7 +76,7 @@ def test_post_json_preserves_nonretryable_for_insufficient_quota(
         "post",
         lambda *a, **k: _response(
             429,
-            "billing",
+            "CANARY_BODY_billing_secret",
             {"error": {"type": "insufficient_quota"}},
         ),
     )
@@ -81,7 +89,9 @@ def test_post_json_preserves_nonretryable_for_insufficient_quota(
         )
 
     assert type(excinfo.value) is LLMNonRetryableError
+    assert excinfo.value.category == LLMErrorCategory.INSUFFICIENT_QUOTA
     assert "insufficient_quota" in str(excinfo.value)
+    assert "CANARY_BODY_billing_secret" not in str(excinfo.value)
 
 
 @pytest.mark.parametrize("status", [400, 403, 404, 413])
@@ -90,7 +100,7 @@ def test_post_json_preserves_nonretryable_for_client_errors(
 ) -> None:
     client = _client()
     monkeypatch.setattr(
-        requests, "post", lambda *a, **k: _response(status, f"status-{status}")
+        requests, "post", lambda *a, **k: _response(status, f"CANARY_status-{status}")
     )
 
     with pytest.raises(LLMNonRetryableError) as excinfo:
@@ -102,6 +112,7 @@ def test_post_json_preserves_nonretryable_for_client_errors(
 
     assert type(excinfo.value) is LLMNonRetryableError
     assert str(status) in str(excinfo.value)
+    assert f"CANARY_status-{status}" not in str(excinfo.value)
 
 
 def test_post_json_connect_timeout_uses_specialized_diagnostic(
@@ -112,7 +123,7 @@ def test_post_json_connect_timeout_uses_specialized_diagnostic(
         requests, "post", MagicMock(side_effect=requests.exceptions.ConnectTimeout())
     )
 
-    with pytest.raises(RuntimeError) as excinfo:
+    with pytest.raises(LLMProviderError) as excinfo:
         client._post_json(
             "https://example.invalid/v1/chat",
             {},
@@ -120,10 +131,12 @@ def test_post_json_connect_timeout_uses_specialized_diagnostic(
         )
 
     message = str(excinfo.value)
-    assert type(excinfo.value) is RuntimeError
-    assert "connect timeout" in message.lower()
+    assert type(excinfo.value) is LLMProviderError
+    assert excinfo.value.category == LLMErrorCategory.CONNECT_TIMEOUT
+    assert excinfo.value.retryable is True
+    assert "connect_timeout" in message
     assert "Cannot connect to OpenAI endpoint" not in message
-    assert "LLM_CONNECT_TIMEOUT_SEC" in message
+    assert excinfo.value.__cause__ is None
 
 
 def test_post_json_connection_error_uses_generic_diagnostic(
@@ -134,16 +147,16 @@ def test_post_json_connection_error_uses_generic_diagnostic(
         requests, "post", MagicMock(side_effect=requests.exceptions.ConnectionError())
     )
 
-    with pytest.raises(RuntimeError) as excinfo:
+    with pytest.raises(LLMProviderError) as excinfo:
         client._post_json(
             "https://example.invalid/v1/chat",
             {},
             provider_name="OpenAI",
         )
 
-    message = str(excinfo.value)
-    assert message == "Cannot connect to OpenAI endpoint"
-    assert "connect timeout" not in message.lower()
+    assert excinfo.value.category == LLMErrorCategory.CONNECTION
+    assert "connection" in str(excinfo.value).lower() or excinfo.value.category.value == "connection"
+    assert excinfo.value.__cause__ is None
 
 
 def _tiny_batch() -> FunctionBatch:
@@ -178,7 +191,11 @@ def test_function_llm_does_not_retry_nonretryable_errors(
 
     def boom(_prompt: LLMPromptParts) -> Dict[str, Any]:
         calls["n"] += 1
-        raise LLMNonRetryableError("OpenAI request failed: 401 - unauthorized")
+        raise LLMNonRetryableError(
+            provider="OpenAI",
+            category=LLMErrorCategory.AUTH,
+            status_code=401,
+        )
 
     monkeypatch.setattr(
         client,
@@ -210,7 +227,11 @@ def test_function_llm_still_retries_retryable_errors(
     def flaky(_prompt: LLMPromptParts) -> Dict[str, Any]:
         calls["n"] += 1
         if calls["n"] < 2:
-            raise RuntimeError("temporary connection reset")
+            raise LLMProviderError(
+                provider="OpenAI",
+                category=LLMErrorCategory.CONNECTION,
+                retryable=True,
+            )
         return {
             "choices": [{"message": {"content": "[]"}}],
             "usage": {"prompt_tokens": 1, "completion_tokens": 1},

@@ -10,6 +10,15 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 import requests
 
+from tacs.core.llm_errors import (
+    LLMErrorCategory,
+    LLMNonRetryableError,
+    LLMProviderError,
+    RAW_DIAGNOSTIC_MAX_BYTES,
+    format_exception_for_log,
+    provider_error_from_requests_exc,
+    truncate_utf8_bytes,
+)
 from tacs.core.llm_prompt import LLMPromptParts, format_untrusted_user_payload
 from tacs.core.llm_response import strip_optional_code_fence
 
@@ -22,7 +31,8 @@ class LLMAnalyzer:
         llm_type: str = "ollama",
         model: str = "gpt-oss:120b-cloud",
         timeout_sec: int = 60,
-        debug: bool = False
+        debug: bool = False,
+        debug_llm_raw: bool = False,
     ):
         """
         Initialize the LLM analyzer.
@@ -31,12 +41,14 @@ class LLMAnalyzer:
             llm_type: Type of LLM to use (ollama, none)
             model: Model name to use
             timeout_sec: Request timeout in seconds
-            debug: Enable debug output
+            debug: Enable safe diagnostic output (no raw prompts/responses)
+            debug_llm_raw: Explicitly dump raw prompts/responses (privacy-sensitive)
         """
         self.llm_type = llm_type
         self.model = model
         self.timeout_sec = timeout_sec
         self.debug = debug
+        self.debug_llm_raw = debug_llm_raw
         self.cloud_token = None
         if llm_type == "ollama":
             from tacs.llm.env import ollama_api_key
@@ -66,31 +78,71 @@ class LLMAnalyzer:
         prompt = self._build_prompt(build_files, keyword_hints, low_confidence_fields)
         
         if self.debug:
-            print(f"\n=== LLM SYSTEM PROMPT (first 2000 chars) ===")
-            print(prompt.system[:2000])
-            print(f"=== LLM UNTRUSTED USER PROMPT (first 2000 chars) ===")
-            print(prompt.user[:2000])
+            print(
+                f"\n=== LLM prompt diagnostics ===\n"
+                f"system_chars={len(prompt.system)} "
+                f"system_sha256={hashlib.sha256(prompt.system.encode('utf-8')).hexdigest()[:16]}…\n"
+                f"user_chars={len(prompt.user)} "
+                f"user_sha256={hashlib.sha256(prompt.user.encode('utf-8')).hexdigest()[:16]}…\n"
+                f"build_files={len(build_files)} "
+                f"low_confidence_fields={len(low_confidence_fields)}\n"
+                f"(use --debug-llm-raw for raw prompt/response content)\n"
+                f"=== END diagnostics ===\n"
+            )
+        if self.debug_llm_raw:
+            print("\n=== LLM SYSTEM PROMPT (raw, bounded) ===")
+            print(truncate_utf8_bytes(prompt.system, RAW_DIAGNOSTIC_MAX_BYTES))
+            print("=== LLM UNTRUSTED USER PROMPT (raw, bounded) ===")
+            print(truncate_utf8_bytes(prompt.user, RAW_DIAGNOSTIC_MAX_BYTES))
             print("=== END PROMPT ===\n")
         
         # Make API request with retry logic
         max_retries = 3
         retry_delay = 2
-        
+        pending: Optional[LLMProviderError] = None
+
         for attempt in range(1, max_retries + 1):
+            pending = None
             try:
                 response_data = self._make_api_request(prompt)
+                if self.debug_llm_raw:
+                    raw = str(response_data.get("response", response_data))
+                    print("\n=== LLM RESPONSE (raw, bounded) ===")
+                    print(truncate_utf8_bytes(raw, RAW_DIAGNOSTIC_MAX_BYTES))
+                    print("=== END RESPONSE ===\n")
+                elif self.debug:
+                    raw = str(response_data.get("response", ""))
+                    print(
+                        f"LLM response received: {len(raw.encode('utf-8'))} bytes "
+                        f"(raw dump requires --debug-llm-raw)"
+                    )
                 return self._parse_response(response_data)
+            except LLMNonRetryableError:
+                raise
             except Exception as e:
+                safe = format_exception_for_log(e)
                 if attempt < max_retries:
-                    if self.debug:
-                        print(f"Attempt {attempt} failed, retrying in {retry_delay}s: {e}")
+                    if self.debug or self.debug_llm_raw:
+                        print(f"Attempt {attempt} failed ({safe}), retrying in {retry_delay}s")
                     time.sleep(retry_delay)
                     retry_delay *= 2
-                else:
-                    raise RuntimeError(f"LLM analysis failed after {max_retries} attempts: {e}")
-        
-        # Should not reach here
-        raise RuntimeError("LLM analysis failed")
+                    continue
+                pending = LLMProviderError(
+                    provider=self.llm_type,
+                    category=LLMErrorCategory.UNEXPECTED,
+                    retryable=False,
+                    attempt=attempt,
+                    detail="analysis_failed_after_retries",
+                )
+            if pending is not None:
+                raise pending
+
+        raise LLMProviderError(
+            provider=self.llm_type,
+            category=LLMErrorCategory.UNEXPECTED,
+            retryable=False,
+            detail="analysis_failed",
+        )
     
     def _build_prompt(
         self,
@@ -187,6 +239,7 @@ CRITICAL RULES:
     def _make_api_request(self, prompt: LLMPromptParts) -> Dict[str, Any]:
         """Make API request to Ollama (local or cloud)."""
         from tacs.llm.env import resolve_ollama_request_target
+        from tacs.core.llm_errors import provider_error_for_http_status
 
         if self.llm_type != "ollama":
             raise ValueError(f"Unsupported LLM type: {self.llm_type}")
@@ -213,34 +266,60 @@ CRITICAL RULES:
 
         # For cloud models, use longer timeout
         timeout = self.timeout_sec * 2 if is_cloud else self.timeout_sec
+        where = "Ollama Cloud" if is_cloud else "Local Ollama"
+        pending: Optional[LLMProviderError] = None
+        result: Optional[Dict[str, Any]] = None
 
         try:
             response = requests.post(url, json=data, headers=headers, timeout=timeout)
 
             if response.status_code != 200:
-                error_text = response.text
-                if "ollama.com" in error_text or "TLS handshake" in error_text:
-                    raise RuntimeError(
-                        f"Cloud model connection failed: TLS handshake timeout. "
-                        f"This may be a temporary network issue. Error: {error_text[:200]}"
-                    )
-                where = "Ollama Cloud" if is_cloud else "Local Ollama"
-                raise RuntimeError(f"{where} request failed: {response.status_code} - {error_text[:200]}")
-
-            result = response.json()
-
-            # Extract response text
-            if "response" in result:
-                response_text = result["response"]
+                pending = provider_error_for_http_status(
+                    provider=where,
+                    status_code=response.status_code,
+                    response=response,
+                )
             else:
-                raise ValueError("No 'response' field in Ollama response")
+                try:
+                    parsed = response.json()
+                except ValueError:
+                    pending = LLMProviderError(
+                        provider=where,
+                        category=LLMErrorCategory.DECODE,
+                        retryable=False,
+                        detail="invalid_json",
+                    )
+                else:
+                    if "response" in parsed:
+                        result = {
+                            "response": parsed["response"],
+                            "usage": parsed.get("eval_count", {}),
+                        }
+                    else:
+                        pending = LLMProviderError(
+                            provider=where,
+                            category=LLMErrorCategory.DECODE,
+                            retryable=False,
+                            detail="missing_response_field",
+                        )
+        except requests.exceptions.RequestException as e:
+            pending = provider_error_from_requests_exc(
+                provider=where,
+                exc=e,
+                connect_timeout_s=float(timeout),
+                read_timeout_s=float(timeout),
+            )
 
-            return {"response": response_text, "usage": result.get("eval_count", {})}
-
-        except requests.exceptions.Timeout:
-            raise RuntimeError(f"Request timeout after {timeout} seconds")
-        except requests.exceptions.ConnectionError as e:
-            raise RuntimeError(f"Failed to connect to Ollama: {e}")
+        if pending is not None:
+            raise pending
+        if result is None:
+            raise LLMProviderError(
+                provider=where,
+                category=LLMErrorCategory.UNEXPECTED,
+                retryable=False,
+                detail="empty_result",
+            )
+        return result
     
     def _parse_response(self, response_data: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, float], Dict[str, str]]:
         """Parse LLM response and extract configuration, confidence, and reasoning.
@@ -250,23 +329,19 @@ CRITICAL RULES:
         file that contains braces decide the environment the scan runs against.
         """
         response_text = response_data.get("response", "")
-        
-        if self.debug:
-            print(f"\n=== LLM RESPONSE ===")
-            print(response_text)
-            print("=== END RESPONSE ===\n")
-        
         json_text = strip_optional_code_fence(response_text)
-        
+
+        parse_failed = False
+        parsed: Any = None
         try:
             parsed = json.loads(json_text)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Failed to parse JSON from LLM response: {e}\nResponse: {response_text[:500]}")
+        except json.JSONDecodeError:
+            parse_failed = True
+        if parse_failed:
+            raise ValueError("Failed to parse JSON from LLM response")
         if not isinstance(parsed, dict):
-            raise ValueError(
-                f"LLM response is not a JSON object\nResponse: {response_text[:500]}"
-            )
-        
+            raise ValueError("LLM response is not a JSON object")
+
         # Extract configuration
         config = {
             "hardware_model": parsed.get("hardware_model"),
@@ -279,15 +354,15 @@ CRITICAL RULES:
             "os_or_rtos": parsed.get("os_or_rtos"),
             "toolchain_flags": parsed.get("toolchain_flags", [])
         }
-        
+
         # Extract confidence scores
         confidence = parsed.get("confidence", {})
-        
+
         # Extract reasoning
         reasoning = parsed.get("reasoning", {})
-        
+
         return config, confidence, reasoning
-    
+
     def _analyze_none(self) -> Tuple[Dict[str, Any], Dict[str, float], Dict[str, str]]:
         """Return empty results when LLM is disabled."""
         return {}, {}, {}

@@ -1366,6 +1366,12 @@ class ScanningPipeline:
             
             # Create finding for each issue
             if analysis.issues:
+                from tacs.core.model_assessment import (
+                    controlled_reason_for_issue_type,
+                    is_operational_issue_type,
+                )
+                from tacs.core.schema import AssessmentExecutionStatus
+
                 for issue in analysis.issues:
                     # LLM may provide either absolute file line numbers, or indexes
                     # relative to the provided function body. Resolve to an absolute
@@ -1390,7 +1396,28 @@ class ScanningPipeline:
                         focus_line = function.start_line if function.start_line else None
                     if focus_line is None:
                         focus_line = 1
-                    
+
+                    issue_type_name = issue.get("type")
+                    exec_status = getattr(analysis, "execution_status", None)
+                    if (
+                        exec_status == AssessmentExecutionStatus.ANALYSIS_ERROR
+                        or (
+                            hasattr(exec_status, "value")
+                            and exec_status.value == "analysis_error"
+                        )
+                        or is_operational_issue_type(
+                            issue_type_name if isinstance(issue_type_name, str) else None
+                        )
+                    ):
+                        reason = controlled_reason_for_issue_type(
+                            issue_type_name if isinstance(issue_type_name, str) else None
+                        )
+                    else:
+                        reason = issue.get(
+                            "description",
+                            f"Function analysis: {analysis.y2038_summary.value}",
+                        )
+
                     finding = Finding(
                         file=function.file_path,
                         region={"start_line": focus_line, "end_line": focus_line},
@@ -1402,7 +1429,7 @@ class ScanningPipeline:
                         issues=analysis.issues,
                         severity=issue.get('severity', 'medium'),
                         confidence=analysis.confidence,
-                        reason=issue.get('description', f"Function analysis: {analysis.y2038_summary.value}"),
+                        reason=reason,
                         needs_more_context=analysis.needs_more_context,
                         source_snippet=function.body,
                         function_id=function.function_id,
@@ -1579,13 +1606,15 @@ class ScanningPipeline:
                 for key, value in context_additions.items():
                     if value:
                         count = len(value) if isinstance(value, list) else 1
-                        StatusLogger.timestamped_debug(f"Stage 8, Pass 2b: Extracted {count} {key} for {function_id}")
-                        # Show first few items
+                        total_chars = 0
                         if isinstance(value, list):
-                            for item in value[:3]:
-                                StatusLogger.timestamped_debug(f"  - {item[:80]}")
-                            if len(value) > 3:
-                                StatusLogger.timestamped_debug(f"  ... and {len(value) - 3} more")
+                            total_chars = sum(len(str(item)) for item in value)
+                        elif isinstance(value, str):
+                            total_chars = len(value)
+                        StatusLogger.timestamped_debug(
+                            f"Stage 8, Pass 2b: Extracted {count} {key} for "
+                            f"{function_id} ({total_chars} chars)"
+                        )
             else:
                 StatusLogger.timestamped_warning(f"Stage 8, Pass 2b: No context extracted for {function_id} (needs: {[n.value for n in unique_needs]})")
             
@@ -1688,10 +1717,14 @@ class ScanningPipeline:
                     
                     new_findings.extend(batch_findings)
                 except Exception as e:
-                    StatusLogger.timestamped_error(f"Error converting analysis to findings for {function.function_id}: {e}")
-                    StatusLogger.timestamped_error(f"Function body (first 200 chars): {function.body[:200] if function.body else 'N/A'}")
+                    StatusLogger.timestamped_error(
+                        f"Error converting analysis to findings for {function.function_id}: "
+                        f"{type(e).__name__}"
+                    )
                     # Create a fallback abstain finding
                     # Note: Finding and Y2038Issue are already imported at the top of the file
+                    from tacs.core.model_assessment import controlled_reason_for_issue_type
+
                     fallback_finding = Finding(
                         file=function.file_path,
                         line=function.start_line if function.start_line else 1,
@@ -1699,7 +1732,7 @@ class ScanningPipeline:
                         symbol=function.symbol if function.symbol else "unknown",
                         y2038_issue=Y2038Issue.ABSTAIN,
                         confidence=0.0,
-                        reason=f"Error during analysis conversion: {str(e)[:200]}",
+                        reason=controlled_reason_for_issue_type("analysis_error"),
                         one_line_snippet=function.body.split('\n')[0] if function.body else "",
                         iteration_count=iteration,
                         final_pass="F2"

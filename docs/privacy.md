@@ -84,22 +84,45 @@ What it contains depends on the flags above:
 
 | Flags | Persisted |
 |-------|-----------|
-| default (no `--log-llm`) | Manifest only: batch/function ids, relative paths, line ranges, symbols, candidate line numbers, and the size and SHA-256 of each prompt channel. No prompt text, no function bodies. |
-| `--log-llm` | Manifest plus both prompt channels redacted: function bodies are replaced by placeholders, source lines are removed, paths are hashed. |
-| `--log-llm --allow-raw-code-logging` | Manifest plus both verbatim prompt channels and verbatim function bodies. |
+| default (no `--log-llm`) | Manifest only for input: batch/function ids, relative paths, line ranges, symbols, candidate line numbers, and the size and SHA-256 of each prompt channel. No prompt text, no function bodies. Output is a **safe summary** only: item counts, execution-status / verdict counts, per-item ids/status/confidence/issue counts, and a SHA-256 of the model payload. No issue descriptions, no full analyses. |
+| `--log-llm` | Manifest plus both prompt channels redacted: function bodies are replaced by placeholders, source lines are removed, paths are hashed. Output remains the safe summary (not full model JSON). |
+| `--log-llm --allow-raw-code-logging` | Manifest plus both verbatim prompt channels and verbatim function bodies, **and** bounded full model-output JSON under the session directory. Raw model output may contain source-derived sensitive material. Artifacts use restrictive file permissions when raw content is present. |
 
 A prompt has two channels, and they are sized, hashed and persisted separately
 (`system_prompt_*` and `user_prompt_*`). A single digest over a concatenation
 would describe a prompt that was never sent and would hide which channel a given
 line travelled in.
 
-`--allow-raw-code-logging` is the authoritative switch for verbatim source retention.
+`--allow-raw-code-logging` is the authoritative switch for verbatim source retention
+and for full model-output persistence.
 `--no-redact-prompts` on its own does not grant it, and `--allow-raw-code-logging`
 without `--log-llm` persists nothing extra. Each artifact records the flags that
 applied under a `privacy` key, so you can tell what a directory contains.
 
 `tacs repos` runs with the private posture (no LLM logging, no raw code logging) and
-does not expose flags to change it, so batch runs keep manifests only.
+does not expose flags to change it, so batch runs keep manifests and safe output
+summaries only.
+
+### Ordinary logs vs `--debug-llm-raw`
+
+| Surface | What it may contain |
+|---------|---------------------|
+| Ordinary INFO / WARNING / ERROR | Safe operational facts: provider name, HTTP status, error category, retryability, attempt count, response byte length. Never provider response bodies, prompts, full source bodies, or raw model items. |
+| Ordinary DEBUG (`-v` / `TACS_LOG_LEVEL=DEBUG`) | Counts, locations, lengths, and hashes. **Not** consent for raw prompts, source excerpts, provider bodies, or model items. |
+| `--debug-llm-raw` (`tacs scan`) | Explicit opt-in console dump of bounded raw prompts and model responses. May include source-derived material. Credentials and transport headers are never logged. |
+| Config detector `--debug` | Safe diagnostics only (sizes/hashes). Compatibility change: it no longer prints raw prompts/responses. |
+| Config detector `--debug-llm-raw` | Explicit raw dump, consistent with `tacs scan`. |
+
+Session error artifacts (when written) retain only allowlisted structured fields:
+provider, safe category, HTTP status, retryable status, attempt count, and response
+byte length.
+
+### Third-party HTTP / SDK logging
+
+TACS sanitizes TACS-owned logs and exception messages. Independently enabling
+`urllib3`, `requests`, or provider-SDK DEBUG logging can still expose headers,
+URLs, or bodies outside that guarantee. Do not treat those channels as covered by
+TACS redaction.
 
 ## What leaves the machine
 
@@ -131,7 +154,9 @@ to treat as data.
   ignored if present)
 - Remember that `tacs repos` leaves cloned repositories in `--cache-dir`
   (default `.repo_cache`, gitignored); delete it when you no longer need the clones
-- Debug flags that dump raw prompts (`--debug-llm-raw`, etc.) may expose secrets in the scanned tree — use carefully
+- `--debug-llm-raw` (and config-detector `--debug-llm-raw`) may expose secrets in
+  the scanned tree — use carefully. Ordinary `-v` / `--debug` is not consent for
+  that content
 
 ## Paths in published artifacts
 
