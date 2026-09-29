@@ -25,7 +25,12 @@ from tacs.core.schema import (
 # richer internal description as a legacy projection.
 _OPERATIONAL_REASON_BY_ISSUE_TYPE = {
     "parse_gap": "No usable model output for this function",
+    "missing_expected_result": "No usable model output for this function",
+    "missing_function_id": "Model item missing function_id",
     "duplicate_conflict": "Conflicting model outputs for this function",
+    "duplicate_function_id": "Duplicate function_id in model response",
+    "invalid_result_schema": "Model item failed canonical schema validation",
+    "unknown_function_id": "Model item referenced an unknown function_id",
     "analysis_error": "Model analysis failed for this function",
 }
 _DEFAULT_OPERATIONAL_REASON = "Model analysis could not be completed for this function"

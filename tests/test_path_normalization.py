@@ -356,6 +356,8 @@ def _abstain_finding(function):
 
 def _run_stage_9(tmp_path: Path, level: str):
     from tacs.core.function_schemas import FunctionAnalysis, Y2038Summary
+    from tacs.core.model_assessment import record_assessments
+    from tacs.core.schema import AssessmentExecutionStatus
 
     class _StubLLMClient:
         llm_type = "stub"
@@ -380,6 +382,21 @@ def _run_stage_9(tmp_path: Path, level: str):
     configure_logging(level)
     pipeline = _pass_pipeline(root)
     pipeline.function_llm_client = _StubLLMClient()
+    pipeline._llm_analysis_requested = True
+    record_assessments(
+        pipeline._assessment_store,
+        [
+            FunctionAnalysis(
+                function_id=function.function_id,
+                y2038_summary=Y2038Summary.ABSTAIN,
+                confidence=0.4,
+                issues=[{"type": "need", "line": function.start_line, "description": "need file"}],
+                needs_more_context=True,
+                execution_status=AssessmentExecutionStatus.COMPLETED,
+            )
+        ],
+        [function],
+    )
     session = ScanSession(root_path=str(root), output_base=str(tmp_path / "out"))
 
     pipeline._run_pass_f3(

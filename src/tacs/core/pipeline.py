@@ -1039,6 +1039,23 @@ class ScanningPipeline:
         if not self._llm_analysis_requested:
             return
         record_assessments(self._assessment_store, analyses, functions)
+
+    def _completed_abstain_function_ids(self) -> set:
+        """Function IDs eligible for F2/F3 enrichment.
+
+        Only a *completed* assessment with a genuine canonical ``abstain`` verdict
+        qualifies. Protocol ``analysis_error`` stubs are excluded even when
+        compatibility findings remain abstain-shaped.
+        """
+        from tacs.core.schema import AssessmentExecutionStatus, ModelVerdict
+
+        eligible: set = set()
+        for function_id, assessment in (self._assessment_store or {}).items():
+            status = getattr(assessment, "execution_status", None)
+            verdict = getattr(assessment, "verdict", None)
+            if status == AssessmentExecutionStatus.COMPLETED and verdict == ModelVerdict.ABSTAIN:
+                eligible.add(function_id)
+        return eligible
     
     def _run_pass_f1(
         self,
@@ -1467,51 +1484,55 @@ class ScanningPipeline:
         return findings
     
     def _run_pass_f2(self, findings: List[Finding], function_map: Dict[str, FunctionBody], session: ScanSession) -> List[Finding]:
-        """Run Pass F2 (iterative enrichment) for functions that need more context."""
-        from tacs.core.function_schemas import FunctionBatch, ContextNeed
+        """Run Pass F2 (iterative enrichment) for genuine completed abstain assessments."""
+        from tacs.core.function_schemas import FunctionBatch, ContextNeed, FunctionBody
         
-        # Filter to abstain findings that need more context
-        abstain_findings = [
+        # Selection uses truthful assessments, not abstain-shaped compatibility findings.
+        eligible_ids = self._completed_abstain_function_ids()
+        related_findings = [
             f for f in findings
-            if f.y2038_issue == Y2038Issue.ABSTAIN and (f.needs_more_context or f.function_id)
+            if f.function_id and f.function_id in eligible_ids
         ]
         
-        if not abstain_findings:
-            StatusLogger.timestamped_debug("Stage 8, Pass 2b: Skipped (no abstain findings need iterative enrichment)")
+        if not eligible_ids:
+            StatusLogger.timestamped_debug(
+                "Stage 8, Pass 2b: Skipped (no completed abstain assessments need enrichment)"
+            )
             return findings
         
-        StatusLogger.timestamped_debug(f"Stage 8, Pass 2b: Processing {len(abstain_findings)} abstain findings with iterative enrichment")
+        StatusLogger.timestamped_debug(
+            f"Stage 8, Pass 2b: Processing {len(eligible_ids)} completed abstain "
+            "assessment(s) with iterative enrichment"
+        )
         
-        # Log abstain details for debugging
-        StatusLogger.timestamped_debug(f"Stage 8, Pass 2b: Abstain findings breakdown:")
-        for finding in abstain_findings[:5]:  # Log first 5 for debugging
-            StatusLogger.timestamped_debug(f"  - {finding.function_id}: {finding.reason[:80]}")
-        if len(abstain_findings) > 5:
-            StatusLogger.timestamped_debug(f"  ... and {len(abstain_findings) - 5} more")
+        StatusLogger.timestamped_debug("Stage 8, Pass 2b: Abstain assessment breakdown:")
+        for function_id in list(sorted(eligible_ids))[:5]:
+            assessment = (self._assessment_store or {}).get(function_id)
+            reason = getattr(assessment, "reason", None) or ""
+            StatusLogger.timestamped_debug(f"  - {function_id}: {str(reason)[:80]}")
+        if len(eligible_ids) > 5:
+            StatusLogger.timestamped_debug(f"  ... and {len(eligible_ids) - 5} more")
         
-        # Group findings by function_id to avoid duplicate processing
-        function_findings_map = {}
-        for finding in abstain_findings:
-            if finding.function_id:
-                if finding.function_id not in function_findings_map:
-                    function_findings_map[finding.function_id] = []
-                function_findings_map[finding.function_id].append(finding)
+        function_findings_map: Dict[str, List[Finding]] = {}
+        for finding in related_findings:
+            function_findings_map.setdefault(finding.function_id, []).append(finding)
         
-        # Process each function that needs more context
+        # Process each eligible function
         enriched_functions = []
         function_to_findings = {}
         
-        for function_id, func_findings in function_findings_map.items():
+        for function_id in sorted(eligible_ids):
             original_function = function_map.get(function_id)
             if not original_function:
                 continue
+            func_findings = function_findings_map.get(function_id, [])
             
             # Collect all context needs from findings for this function
             all_needs = []
             for finding in func_findings:
                 # Try to extract needs from the reason string
                 # Format: "Function analysis: abstain (needs more context: typedef, struct)"
-                if "needs more context:" in finding.reason:
+                if finding.reason and "needs more context:" in finding.reason:
                     needs_str = finding.reason.split("needs more context:")[-1].strip()
                     # Parse comma-separated needs
                     for need_str in needs_str.split(','):
@@ -1530,6 +1551,17 @@ class ScanningPipeline:
                 # Fallback: if needs_more_context is True but no specific needs found, request all
                 if finding.needs_more_context and not all_needs:
                     all_needs.extend([ContextNeed.TYPEDEF, ContextNeed.STRUCT, ContextNeed.MACRO, ContextNeed.CALLEE, ContextNeed.HEADER])
+
+            if not all_needs:
+                all_needs.extend(
+                    [
+                        ContextNeed.TYPEDEF,
+                        ContextNeed.STRUCT,
+                        ContextNeed.MACRO,
+                        ContextNeed.CALLEE,
+                        ContextNeed.HEADER,
+                    ]
+                )
             
             # Remove duplicates
             unique_needs = list(set(all_needs))
@@ -1557,7 +1589,7 @@ class ScanningPipeline:
             else:
                 StatusLogger.timestamped_warning(f"Stage 8, Pass 2b: No context extracted for {function_id} (needs: {[n.value for n in unique_needs]})")
             
-            # Create enriched function body
+            # Create enriched function body (preserve trusted candidate_ids)
             enriched_function = FunctionBody(
                 function_id=original_function.function_id,
                 file_path=original_function.file_path,
@@ -1566,7 +1598,11 @@ class ScanningPipeline:
                 end_line=original_function.end_line,
                 body=original_function.body,
                 candidate_lines=original_function.candidate_lines,
-                context_additions=context_additions if context_additions else None
+                candidate_ids=list(original_function.candidate_ids or []),
+                context_additions=context_additions if context_additions else None,
+                is_partial=original_function.is_partial,
+                original_function_id=original_function.original_function_id,
+                part_number=original_function.part_number,
             )
             enriched_functions.append(enriched_function)
             function_to_findings[function_id] = func_findings
@@ -1670,8 +1706,11 @@ class ScanningPipeline:
                     )
                     new_findings.append(fallback_finding)
         
-        # Remove old abstain findings and add new findings
-        final_findings = [f for f in findings if f not in abstain_findings]
+        # Remove findings for enriched functions and add replacements
+        final_findings = [
+            f for f in findings
+            if not (f.function_id and f.function_id in eligible_ids)
+        ]
         final_findings.extend(new_findings)
         
         # Log Pass F2 results (function-level: one verdict per function_id among
@@ -1694,20 +1733,26 @@ class ScanningPipeline:
         return final_findings
     
     def _run_pass_f3(self, findings: List[Finding], function_map: Dict[str, FunctionBody], session: ScanSession) -> List[Finding]:
-        """Run Pass F3 (file-leading context) for functions that still need more context."""
+        """Run Pass F3 (file-leading context) for remaining completed abstain assessments."""
         from tacs.core.function_schemas import FunctionBatch
         
-        # Filter to remaining abstain findings
+        # Selection uses truthful assessments, not abstain-shaped compatibility findings.
+        eligible_ids = self._completed_abstain_function_ids()
         abstain_findings = [
             f for f in findings
-            if f.y2038_issue == Y2038Issue.ABSTAIN and f.function_id
+            if f.function_id and f.function_id in eligible_ids
         ]
         
-        if not abstain_findings:
-            StatusLogger.timestamped_debug("Stage 9: Skipped (no abstain findings need file context)")
+        if not eligible_ids:
+            StatusLogger.timestamped_debug(
+                "Stage 9: Skipped (no completed abstain assessments need file context)"
+            )
             return findings
         
-        StatusLogger.timestamped_debug(f"Stage 9: Processing {len(abstain_findings)} abstain findings with file context")
+        StatusLogger.timestamped_debug(
+            f"Stage 9: Processing {len(eligible_ids)} completed abstain "
+            "assessment(s) with file context"
+        )
         
         # Group findings by file to avoid reading the same file multiple times
         file_groups = {}
@@ -1716,6 +1761,33 @@ class ScanningPipeline:
             if file_path not in file_groups:
                 file_groups[file_path] = []
             file_groups[file_path].append(finding)
+
+        # Also include eligible functions that lack compatibility findings.
+        for function_id in eligible_ids:
+            function = function_map.get(function_id)
+            if not function:
+                continue
+            already = any(
+                f.function_id == function_id
+                for group in file_groups.values()
+                for f in group
+            )
+            if already:
+                continue
+            file_groups.setdefault(function.file_path, []).append(
+                Finding(
+                    file=function.file_path,
+                    region={"start_line": function.start_line, "end_line": function.end_line},
+                    lines=list(function.candidate_lines or [function.start_line]),
+                    symbol=function.symbol,
+                    confidence=0.0,
+                    reason="completed abstain assessment",
+                    source_snippet="",
+                    y2038_issue=Y2038Issue.ABSTAIN,
+                    needs_more_context=True,
+                    function_id=function.function_id,
+                )
+            )
         
         StatusLogger.timestamped_debug(f"Stage 9: Grouped into {len(file_groups)} unique files")
         
@@ -1813,8 +1885,11 @@ class ScanningPipeline:
                     
                     new_findings.extend(batch_findings)
         
-        # Remove old abstain findings and add new findings
-        final_findings = [f for f in findings if f not in abstain_findings]
+        # Remove findings for enriched functions and add replacements
+        final_findings = [
+            f for f in findings
+            if not (f.function_id and f.function_id in eligible_ids)
+        ]
         final_findings.extend(new_findings)
         
         # Log Pass F3 results (function-level among this pass's outputs)

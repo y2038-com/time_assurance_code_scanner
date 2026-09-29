@@ -505,7 +505,7 @@ Function: static int process_timestamp(time_t ts) { return ts > 0 ? 1 : 0; }
 Response: {"function_id": "test.c@process_timestamp:15-17", "y2038_summary": "no", "y2106_summary": "yes", "issue_type": "y2106", "confidence": 0.9, "issues": [{"type": "y2106", "line": 16, "description": "32-bit unsigned time_t comparison overflows in 2106"}], "needs_more_context": false, "needs": []}
 
 Function: static void print_message() { printf("Hello world\\n"); }
-Response: {"function_id": "test.c@print_message:20-22", "y2038_summary": "no", "y2106_summary": "no", "issue_type": "none", "confidence": 0.95, "issues": [{"type": "safe", "line": 21, "description": "no time_t usage, only printf operation"}], "needs_more_context": false, "needs": []}
+Response: {"function_id": "test.c@print_message:20-22", "y2038_summary": "no", "y2106_summary": "no", "issue_type": "none", "confidence": 0.95, "issues": [], "needs_more_context": false, "needs": []}
 
 Function: static int nanosleep_wrapper(struct timespec *ts) { return nanosleep(ts, NULL); }
 Response: {"function_id": "test.c@nanosleep_wrapper:30-32", "y2038_summary": "no", "y2106_summary": "yes", "issue_type": "y2106", "confidence": 0.95, "issues": [{"type": "y2106", "line": 31, "description": "struct timespec.tv_sec is 32-bit unsigned time_t, overflows in 2106"}], "needs_more_context": false, "needs": []}
@@ -562,7 +562,10 @@ Function: static int process_timestamp(time_t ts) { return ts > 0 ? 1 : 0; }
 Response: {"function_id": "test.c@process_timestamp:15-17", "y2038_summary": "no", "confidence": 0.9, "issues": [{"type": "y2106_not_y2038", "line": 16, "description": "32-bit unsigned time_t comparison overflows in 2106, not 2038"}], "needs_more_context": false, "needs": []}
 
 Function: static void print_message() { printf("Hello world\\n"); }
-Response: {"function_id": "test.c@print_message:20-22", "y2038_summary": "no", "confidence": 0.95, "issues": [{"type": "safe", "line": 21, "description": "no time_t usage, only printf operation"}], "needs_more_context": false, "needs": []}
+Response: {"function_id": "test.c@print_message:20-22", "y2038_summary": "no", "confidence": 0.95, "issues": [], "needs_more_context": false, "needs": []}
+
+Function: static void uses_custom_time_type() { MY_TIME t = read_clock(); }
+Response: {"function_id": "test.c@uses_custom_time_type:40-42", "y2038_summary": "abstain", "confidence": 0.4, "issues": [], "needs_more_context": true, "needs": ["typedef"]}
 
 Function: static int nanosleep_wrapper(struct timespec *ts) { return nanosleep(ts, NULL); }
 Response: {"function_id": "test.c@nanosleep_wrapper:30-32", "y2038_summary": "no", "confidence": 0.95, "issues": [{"type": "y2106_not_y2038", "line": 31, "description": "struct timespec.tv_sec is 32-bit unsigned time_t, overflows in 2106 not 2038"}], "needs_more_context": false, "needs": []}
@@ -588,21 +591,23 @@ Respond with a JSON array of analysis objects. Each object must have exactly the
 }
 
 LINE NUMBER REQUIREMENTS (VERY IMPORTANT):
-- `issues[].line` must be the 1-based ABSOLUTE line number in the original file.
+- When `issues` is non-empty, each `issues[].line` must be the 1-based ABSOLUTE line number in the original file.
 - The first line of a function's `body` corresponds to the `<start_line>` embedded in `function_id` (format: `<relpath>@<symbol>:<start>-<end>`).
 - If the issue spans a range, choose the most relevant line within that range from the function body.
-- When a function's `candidate_lines` array is non-empty, `issues[].line` MUST be one of those candidate line numbers.
+- When a function's `candidate_lines` array is non-empty, each `issues[].line` MUST be one of those candidate line numbers.
 
 CRITICAL REQUIREMENTS:
-- Use the exact function_id format provided
+- Copy each `function_id` exactly from the analysis data (case-sensitive; no trimming, prefixes, suffixes, or aliases)
+- Include exactly one result object per requested function_id; never omit an ID or invent another
 - Classify Y2038 and Y2106 independently (both can be YES if applicable)
-- issue_type should be: "y2038" (only Y2038), "y2106" (only Y2106), "both" (both issues), "none" (safe), "abstain" (unclear)
-- Provide specific issue descriptions explaining WHY for each decision
-- For Y2038 YES: Explain specific Y2038 risks found (signed time_t overflow before 2038)
-- For Y2106 YES: Explain specific Y2106 risks found (unsigned time_t overflow in 2106)
-- For NO: Explain specific reasons (e.g., "no time_t usage", "64-bit time_t", "only struct tm", "hardware operations")
-- For ABSTAIN: Explain what context is missing (typedef, struct, macro, callee, header)
-- ALWAYS provide at least one issue description for every function analyzed
+- issue_type must be exactly: "y2038" | "y2106" | "both" | "none" | "abstain"
+- y2038_summary / y2106_summary must be exactly lowercase "yes" | "no" | "abstain" (no synonyms)
+- confidence must be a JSON number in [0.0, 1.0] (not a string, boolean, NaN, or Infinity)
+- needs_more_context must be a JSON boolean
+- `issues` must be a JSON array of objects with exactly the fields type, line, and description; `[]` is valid (especially for no/abstain)
+- For YES: include concrete issue objects explaining the Y2038/Y2106 risks found
+- For NO / ABSTAIN: `issues` may be `[]`, or may include explanatory issue objects
+- For ABSTAIN: set needs_more_context and needs to name missing context (typedef, struct, macro, callee, header)
 - Return valid JSON array - no extra text or formatting"""
         else:
             system_prompt += """
@@ -617,19 +622,22 @@ Respond with a JSON array of analysis objects. Each object must have exactly the
 }
 
 LINE NUMBER REQUIREMENTS (VERY IMPORTANT):
-- `issues[].line` must be the 1-based ABSOLUTE line number in the original file.
+- When `issues` is non-empty, each `issues[].line` must be the 1-based ABSOLUTE line number in the original file.
 - The first line of a function's `body` corresponds to the `<start_line>` embedded in `function_id` (`...:<start>-<end>`).
 - If unsure, choose the closest line in the provided function body that matches the described issue.
-- When a function's `candidate_lines` array is non-empty, `issues[].line` MUST be one of those candidate line numbers.
+- When a function's `candidate_lines` array is non-empty, each `issues[].line` MUST be one of those candidate line numbers.
 
 CRITICAL REQUIREMENTS:
-- Use the exact function_id format provided
+- Copy each `function_id` exactly from the analysis data (case-sensitive; no trimming, prefixes, suffixes, or aliases)
+- Include exactly one result object per requested function_id; never omit an ID or invent another
+- y2038_summary must be exactly lowercase "yes" | "no" | "abstain" (no synonyms such as safe/risky/true)
+- confidence must be a JSON number in [0.0, 1.0] (not a string, boolean, NaN, or Infinity)
+- needs_more_context must be a JSON boolean
+- `issues` must be a JSON array of objects with exactly the fields type, line, and description; `[]` is valid (especially for no/abstain)
 - Be decisive: classify as YES ONLY for genuine Y2038 risks (overflow before 2038), NO for everything else
-- Provide specific issue descriptions explaining WHY for each decision
-- For YES: Explain specific Y2038 risks found (extremely rare for unsigned time_t)
-- For NO: Explain specific reasons (e.g., "no time_t usage", "32-bit unsigned time_t overflows in 2106 not 2038", "only struct tm", "hardware operations")
-- For ABSTAIN: Explain what context is missing (typedef, struct, macro, callee, header)
-- ALWAYS provide at least one issue description for every function analyzed
+- For YES: include concrete issue objects explaining the Y2038 risks found
+- For NO / ABSTAIN: `issues` may be `[]`, or may include explanatory issue objects
+- For ABSTAIN: set needs_more_context and needs to name missing context (typedef, struct, macro, callee, header)
 - Return valid JSON array - no extra text or formatting"""
 
         system_prompt += self._function_response_format_rules()
@@ -664,7 +672,7 @@ With this additional context, provide your final analysis. Respond with a JSON a
 Be decisive - this is your final chance to classify these functions.
 
 LINE NUMBER REQUIREMENT:
-- For each issue, set `issues[].line` to one of the function's `candidate_lines` (pick the most relevant match).
+- When `issues` is non-empty, set each `issues[].line` to one of the function's `candidate_lines` (pick the most relevant match).
 """
         system_prompt += self._function_response_format_rules()
 
@@ -719,14 +727,15 @@ Respond with a JSON array matching the same schema as Pass F1:
 }
 
 LINE NUMBER REQUIREMENTS (VERY IMPORTANT):
-- `issues[].line` must be the 1-based ABSOLUTE line number in the original file.
+- When `issues` is non-empty, each `issues[].line` must be the 1-based ABSOLUTE line number in the original file.
 - The first line of a function's `body` corresponds to the `<start_line>` embedded in `function_id` (`...:<start>-<end>`).
 - Prefer a line that best pinpoints the described issue in the provided function body.
-- When a function's `candidate_lines` array is non-empty, `issues[].line` MUST be one of those candidate line numbers.
+- When a function's `candidate_lines` array is non-empty, each `issues[].line` MUST be one of those candidate line numbers.
 
 IMPORTANT:
 - Use "needs_more_context": false (this is the final pass)
 - Use "needs": [] (no more context needed)
+- `issues` may be `[]` when no concrete issue objects are needed
 - Be DECISIVE - classify as YES or NO unless truly impossible
 - Only use ABSTAIN if genuinely impossible to determine even with full file context"""
         system_prompt += self._function_response_format_rules()
@@ -750,7 +759,13 @@ IMPORTANT:
             "- Respond with one complete JSON array and nothing else. A single markdown "
             "fence around the whole response is tolerated; nothing else is.\n"
             "- A truncated or partial array is rejected whole and every function in the "
-            "batch abstains, so answer within the batch you were given.\n"
+            "batch receives analysis_error, so answer within the batch you were given.\n"
+            "- Use only the documented field names and lowercase enum values. Do not use "
+            "aliases (for example classification, functionID, safe-as-verdict).\n"
+            "- Match each object to a function by exact function_id only; array order is "
+            "not used for binding.\n"
+            "- `issues` must be present as a JSON array; `[]` is valid. Each issue object "
+            "may contain only type, line, and description.\n"
         )
 
     def _function_payload(
@@ -831,396 +846,143 @@ IMPORTANT:
         pass_name: str,
         note: str,
     ) -> List[FunctionAnalysis]:
-        """Ensure one FunctionAnalysis per input function (pipeline zips by position)."""
-        from tacs.core.candidate_utils import summary_value
-        from tacs.core.schema import AssessmentExecutionStatus
+        """Legacy helper retained for tests: re-align pre-built analyses by exact ID.
 
-        by_id: Dict[str, FunctionAnalysis] = {}
-        conflict_ids: set[str] = set()
-        for a in analyses:
-            fid = (a.function_id or "").strip()
-            if not fid:
+        Prefer :meth:`_parse_function_response`, which validates the wire contract
+        before constructing internal analyses. Duplicate IDs fail closed.
+        """
+        from tacs.core.function_analysis_response import (
+            ISSUE_DUPLICATE_ID,
+            ISSUE_MISSING_EXPECTED,
+            _error_stub,
+        )
+
+        by_id: Dict[str, List[FunctionAnalysis]] = {}
+        for analysis in analyses:
+            fid = analysis.function_id
+            if type(fid) is not str:
                 continue
-            existing = by_id.get(fid)
-            if existing is None:
-                by_id[fid] = a
-                continue
-            if summary_value(existing.y2038_summary) == summary_value(a.y2038_summary):
-                # Identical duplicate verdict: keep the higher-confidence copy.
-                if float(a.confidence or 0) > float(existing.confidence or 0):
-                    by_id[fid] = a
-                continue
-            # Conflicting duplicate outputs for one function are ambiguous model
-            # behavior — collapse to a single abstain rather than picking a side.
-            conflict_ids.add(fid)
-            line0 = 1
-            for func in functions:
-                if func.function_id == fid:
-                    line0 = func.start_line or 1
-                    break
-            by_id[fid] = FunctionAnalysis(
-                function_id=fid,
-                y2038_summary=Y2038Summary.ABSTAIN,
-                confidence=0.0,
-                issues=[
-                    {
-                        "type": "duplicate_conflict",
-                        "description": (
-                            f"Model returned conflicting {pass_name} outputs for this "
-                            f"function ({summary_value(existing.y2038_summary)} vs "
-                            f"{summary_value(a.y2038_summary)}); treating as abstain."
-                        ),
-                        "line": line0,
-                    }
-                ],
-                needs_more_context=True,
-                needs=[],
-                execution_status=AssessmentExecutionStatus.ANALYSIS_ERROR,
-            )
-        if conflict_ids:
-            StatusLogger.timestamped_warning(
-                f"{pass_name}: model returned conflicting duplicate outputs for "
-                f"{len(conflict_ids)} function(s); collapsed each to abstain"
-            )
+            by_id.setdefault(fid, []).append(analysis)
+
         out: List[FunctionAnalysis] = []
-        missing = 0
         for func in functions:
-            hit = by_id.get(func.function_id)
-            if hit is not None:
+            hits = by_id.get(func.function_id) or []
+            if len(hits) == 1:
+                hit = hits[0]
                 if hit.function_id != func.function_id:
-                    hit = hit.model_copy(update={"function_id": func.function_id})
-                out.append(hit)
-                continue
-            missing += 1
-            line0 = func.start_line if getattr(func, "start_line", None) else 1
-            out.append(
-                FunctionAnalysis(
-                    function_id=func.function_id,
-                    y2038_summary=Y2038Summary.ABSTAIN,
-                    confidence=0.0,
-                    issues=[
-                        {
-                            "type": "parse_gap",
-                            "description": (
-                                f"No usable {pass_name} model output for this function ({note}). "
-                                "Try a smaller --batch-size-func or raise GEMINI_MAX_OUTPUT_TOKENS."
+                    out.append(
+                        _error_stub(
+                            func,
+                            issue_type=ISSUE_MISSING_EXPECTED,
+                            description=(
+                                f"{pass_name}: function_id mismatch after alignment ({note})"
                             ),
-                            "line": line0,
-                        }
-                    ],
-                    needs_more_context=True,
-                    needs=[],
-                    execution_status=AssessmentExecutionStatus.ANALYSIS_ERROR,
+                            pass_name=pass_name,
+                        )
+                    )
+                else:
+                    out.append(hit)
+                continue
+            if len(hits) > 1:
+                out.append(
+                    _error_stub(
+                        func,
+                        issue_type=ISSUE_DUPLICATE_ID,
+                        description=(
+                            f"{pass_name}: duplicate function_id in model response"
+                        ),
+                        pass_name=pass_name,
+                    )
                 )
-            )
-        if missing:
-            StatusLogger.timestamped_warning(
-                f"{pass_name}: model returned output for {len(functions) - missing}/{len(functions)} "
-                f"functions in this batch; {missing} filled as abstain ({note})"
+                continue
+            out.append(
+                _error_stub(
+                    func,
+                    issue_type=ISSUE_MISSING_EXPECTED,
+                    description=(
+                        f"{pass_name}: no usable model item with exact function_id ({note})"
+                    ),
+                    pass_name=pass_name,
+                )
             )
         return out
 
     def _parse_function_response(self, response_data: Dict[str, Any], functions: List[FunctionBody], pass_name: str) -> List[FunctionAnalysis]:
-        """Parse function analysis response.
+        """Parse function analysis response with exact-ID wire validation.
 
         The whole response must be the requested JSON array, optionally inside one
-        markdown fence. Nothing is read out of a malformed reply: a truncation or
-        an injected span would otherwise answer for functions the model never
-        judged, and a partial batch is indistinguishable from a complete one once
-        the leftovers are padded with abstains.
+        markdown fence. Items complete only with an exact requested ``function_id``
+        and canonical fields; positional binding and aliases are rejected.
         """
+        from tacs.core.function_analysis_response import align_model_items_to_functions
+
         try:
-            # Extract content from response
             content = self.base_client._extract_content(response_data)
             if not content:
-                return self._fallback_function_responses(functions, f"Empty response from {pass_name}")
-
-            # Unwrap one whole-response markdown fence if present
-            content = strip_optional_code_fence(content)
-
-            # Parse JSON
-            parsed = json.loads(content)
-            if not isinstance(parsed, list):
-                return self._fallback_function_responses(functions, f"{pass_name} response is not a JSON array")
-
-            # Convert to FunctionAnalysis objects
-            analyses = []
-            for i, item in enumerate(parsed):
-                try:
-                    # Normalize field names and convert types
-                    normalized_item = self._normalize_function_analysis_item(item, functions[i] if i < len(functions) else None)
-                    analysis = FunctionAnalysis(**normalized_item)
-                    analyses.append(analysis)
-
-                    # Debug: Show parsed analysis details
-                    if self.debug_llm_raw:
-                        StatusLogger.timestamped_print(f"Parsed analysis {i+1}: {analysis.function_id} -> {analysis.y2038_summary.value} (confidence: {analysis.confidence:.2f})")
-                        if analysis.issues:
-                            StatusLogger.timestamped_print(f"  Issues: {len(analysis.issues)} found")
-                            for issue in analysis.issues:
-                                StatusLogger.timestamped_print(f"    - {issue}")
-                        else:
-                            StatusLogger.timestamped_print(f"  No specific issues found")
-                        if analysis.needs:
-                            StatusLogger.timestamped_print(f"  Needs: {analysis.needs}")
-                        if analysis.needs_more_context:
-                            StatusLogger.timestamped_print(f"  Needs more context: {analysis.needs_more_context}")
-
-                except Exception as e:
-                    StatusLogger.timestamped_warning(f"Failed to parse {pass_name} analysis item: {e}")
-                    StatusLogger.timestamped_warning(f"Raw item: {item}")
-                    continue
-
-            return self._align_analyses_to_functions(
-                analyses, functions, pass_name, "fewer valid array entries than functions"
-            )
-
-        except json.JSONDecodeError as e:
-            # A response that is not one complete JSON array is not read at all.
-            StatusLogger.timestamped_warning(
-                f"{pass_name} response was not a complete JSON array "
-                f"(truncated or malformed): {e}; the batch abstains"
-            )
-            return self._fallback_function_responses(functions, f"{pass_name} JSON parsing error (truncated response): {e}")
-        except Exception as e:
-            StatusLogger.timestamped_error(f"{pass_name} parsing error: {e}")
-            return self._fallback_function_responses(functions, f"{pass_name} parsing error: {e}")
-
-    def _normalize_function_analysis_item(self, item: Dict[str, Any], function: Optional[FunctionBody] = None) -> Dict[str, Any]:
-        """Normalize LLM response item to match FunctionAnalysis schema."""
-
-        normalized = {}
-
-        # Map function_id from various field names
-        function_id = (
-            item.get('function_id') or
-            item.get('functionID') or
-            item.get('function') or
-            (function.function_id if function else None)
-        )
-        if not function_id and function:
-            function_id = function.function_id
-        if not function_id:
-            # Try to construct from file/function/line fields
-            file_path = item.get('file', '')
-            func_name = item.get('function', '')
-            line_start = item.get('line_start') or item.get('line', '')
-            line_end = item.get('line_end', '')
-            if file_path and func_name and line_start:
-                function_id = f"{file_path}@{func_name}:{line_start}-{line_end}" if line_end else f"{file_path}@{func_name}:{line_start}"
-        # Ensure function_id is always a non-empty string (required by FunctionAnalysis; LLM may return null/number)
-        raw = function_id or 'unknown'
-        normalized['function_id'] = str(raw).strip() or 'unknown'
-
-        # Map y2038_summary from various field names and values
-        y2038_summary = None
-        summary_value = (
-            item.get('y2038_summary') or
-            item.get('y2038_status') or
-            item.get('Y2038Affected') or
-            item.get('y2038') or
-            item.get('y2038_problem') or
-            item.get('classification')
-        )
-
-        if summary_value:
-            summary_str = str(summary_value).lower()
-            if summary_str in ['yes', 'true', 'risky', 'risky_narrowing']:
-                y2038_summary = Y2038Summary.YES
-            elif summary_str in ['no', 'false', 'safe', 'y2038_safe']:
-                # Check if it's actually safe or Y2106
-                y2038_safe = item.get('y2038_safe', True)
-                if isinstance(y2038_safe, bool) and not y2038_safe:
-                    y2038_summary = Y2038Summary.YES
-                else:
-                    y2038_summary = Y2038Summary.NO
-            elif summary_str in ['abstain', 'unknown', 'ambiguous']:
-                y2038_summary = Y2038Summary.ABSTAIN
-
-        # If still not determined, check y2038_safe field
-        if y2038_summary is None:
-            y2038_safe = item.get('y2038_safe')
-            if isinstance(y2038_safe, bool):
-                y2038_summary = Y2038Summary.NO if y2038_safe else Y2038Summary.YES
-            else:
-                y2038_summary = Y2038Summary.ABSTAIN
-
-        normalized['y2038_summary'] = y2038_summary
-
-        # Map y2106_summary (when Y2106 detection enabled)
-        if self.detect_y2106:
-            y2106_summary = None
-            y2106_value = (
-                item.get('y2106_summary') or
-                item.get('y2106_status') or
-                item.get('Y2106Affected') or
-                item.get('y2106')
-            )
-
-            if y2106_value:
-                y2106_str = str(y2106_value).lower()
-                if y2106_str in ['yes', 'true', 'risky']:
-                    y2106_summary = Y2038Summary.YES
-                elif y2106_str in ['no', 'false', 'safe']:
-                    y2106_summary = Y2038Summary.NO
-                elif y2106_str in ['abstain', 'unknown', 'ambiguous']:
-                    y2106_summary = Y2038Summary.ABSTAIN
-
-            # If not explicitly provided, infer from issue_type or issues
-            if y2106_summary is None:
-                issue_type = item.get('issue_type', '').lower()
-                issues = item.get('issues', [])
-
-                # Check if any issues are Y2106
-                has_y2106_issue = any(
-                    issue.get('type', '').lower() in ['y2106', 'both']
-                    for issue in issues if isinstance(issue, dict)
+                return self._fallback_function_responses(
+                    functions, f"Empty response from {pass_name}"
                 )
 
-                if issue_type in ['y2106', 'both'] or has_y2106_issue:
-                    y2106_summary = Y2038Summary.YES
-                elif issue_type == 'none':
-                    y2106_summary = Y2038Summary.NO
-                else:
-                    # Default: infer from y2038_summary (if Y2038 is NO and we have Y2106 patterns, it's likely Y2106)
-                    if y2038_summary == Y2038Summary.NO:
-                        # Check if issues indicate Y2106
-                        has_y2106_pattern = any(
-                            'y2106' in str(issue.get('type', '')).lower() or
-                            '2106' in str(issue.get('description', '')).lower()
-                            for issue in issues if isinstance(issue, dict)
-                        )
-                        y2106_summary = Y2038Summary.YES if has_y2106_pattern else Y2038Summary.NO
-                    else:
-                        y2106_summary = Y2038Summary.NO
+            content = strip_optional_code_fence(content)
 
-            normalized['y2106_summary'] = y2106_summary
+            parsed = json.loads(content)
+            if not isinstance(parsed, list):
+                return self._fallback_function_responses(
+                    functions, f"{pass_name} response is not a JSON array"
+                )
 
-            # Map issue_type
-            issue_type = item.get('issue_type', '').lower()
-            if issue_type:
-                from tacs.core.schema import TimeIssueType
-                if issue_type == 'y2038':
-                    normalized['issue_type'] = TimeIssueType.Y2038
-                elif issue_type == 'y2106':
-                    normalized['issue_type'] = TimeIssueType.Y2106
-                elif issue_type == 'both':
-                    normalized['issue_type'] = TimeIssueType.BOTH
-                elif issue_type == 'none':
-                    normalized['issue_type'] = TimeIssueType.NONE
-                elif issue_type == 'abstain':
-                    normalized['issue_type'] = TimeIssueType.ABSTAIN
-            else:
-                # Infer issue_type from y2038_summary and y2106_summary
-                from tacs.core.schema import TimeIssueType
-                has_y2038 = y2038_summary == Y2038Summary.YES
-                has_y2106 = normalized.get('y2106_summary') == Y2038Summary.YES
+            analyses, diagnostics = align_model_items_to_functions(
+                parsed,
+                functions,
+                pass_name=pass_name,
+                detect_y2106=self.detect_y2106,
+            )
 
-                if has_y2038 and has_y2106:
-                    normalized['issue_type'] = TimeIssueType.BOTH
-                elif has_y2038:
-                    normalized['issue_type'] = TimeIssueType.Y2038
-                elif has_y2106:
-                    normalized['issue_type'] = TimeIssueType.Y2106
-                elif y2038_summary == Y2038Summary.ABSTAIN:
-                    normalized['issue_type'] = TimeIssueType.ABSTAIN
-                else:
-                    normalized['issue_type'] = TimeIssueType.NONE
+            unknown = int(diagnostics.get("unknown_function_id") or 0)
+            if unknown:
+                StatusLogger.timestamped_warning(
+                    f"{pass_name}: ignored {unknown} unknown_function_id item(s) "
+                    "outside the requested batch"
+                )
+            duplicates = int(diagnostics.get("duplicate_function_id") or 0)
+            if duplicates:
+                StatusLogger.timestamped_warning(
+                    f"{pass_name}: {duplicates} duplicate_function_id value(s); "
+                    "affected functions marked analysis_error"
+                )
+            missing_ids = int(diagnostics.get("missing_function_id") or 0)
+            invalid_items = int(diagnostics.get("invalid_item") or 0)
+            if missing_ids or invalid_items:
+                StatusLogger.timestamped_warning(
+                    f"{pass_name}: skipped {missing_ids} missing_function_id and "
+                    f"{invalid_items} invalid_item entr(ies) without binding"
+                )
 
-        # Map confidence from various field names and convert string to float
-        confidence = item.get('confidence', 0.5)
-        if isinstance(confidence, str):
-            confidence_str = confidence.lower()
-            if confidence_str in ['high', 'h']:
-                confidence = 0.9
-            elif confidence_str in ['medium', 'med', 'm']:
-                confidence = 0.7
-            elif confidence_str in ['low', 'l']:
-                confidence = 0.5
-            else:
-                try:
-                    confidence = float(confidence)
-                except (ValueError, TypeError):
-                    confidence = 0.5
-        else:
-            try:
-                confidence = float(confidence)
-            except (TypeError, ValueError):
-                confidence = 0.5
+            if self.debug_llm_raw:
+                for i, analysis in enumerate(analyses):
+                    StatusLogger.timestamped_print(
+                        f"Aligned analysis {i + 1}: {analysis.function_id} -> "
+                        f"{analysis.y2038_summary.value} "
+                        f"(status={analysis.execution_status.value}, "
+                        f"confidence={analysis.confidence:.2f})"
+                    )
 
-        normalized['confidence'] = max(0.0, min(1.0, confidence))
+            return analyses
 
-        # Map issues - normalize to list of dicts
-        issues = item.get('issues', [])
-        if not isinstance(issues, list):
-            issues = []
-
-        # Normalize issues: convert strings to dicts, ensure all are dicts
-        normalized_issues = []
-        for issue in issues:
-            if isinstance(issue, str):
-                # Convert string to dict format
-                normalized_issues.append({
-                    'type': issue,
-                    'description': f"Issue: {issue}",
-                    'line': item.get('line', item.get('line_start', function.start_line if function else 0))
-                })
-            elif isinstance(issue, dict):
-                # Already a dict, use as-is (but ensure required fields)
-                normalized_issue = {
-                    'type': issue.get('type', 'unknown'),
-                    'description': issue.get('description', issue.get('notes', '')),
-                    'line': issue.get('line', item.get('line', item.get('line_start', function.start_line if function else 0)))
-                }
-                # Copy any additional fields
-                for key, value in issue.items():
-                    if key not in normalized_issue:
-                        normalized_issue[key] = value
-                normalized_issues.append(normalized_issue)
-            # Skip non-string, non-dict items
-
-        # If no issues found, try to create from other fields
-        if not normalized_issues:
-            if 'explanation' in item:
-                normalized_issues = [{
-                    'type': 'y2038_risk',
-                    'description': item['explanation'],
-                    'line': item.get('line', item.get('line_start', function.start_line if function else 0))
-                }]
-            elif 'reason' in item:
-                normalized_issues = [{
-                    'type': 'y2038_risk',
-                    'description': item['reason'],
-                    'line': item.get('line', item.get('line_start', function.start_line if function else 0))
-                }]
-            elif 'comment' in item:
-                normalized_issues = [{
-                    'type': 'y2038_risk',
-                    'description': item['comment'],
-                    'line': item.get('line', item.get('line_start', function.start_line if function else 0))
-                }]
-            elif 'notes' in item:
-                normalized_issues = [{
-                    'type': 'y2038_risk',
-                    'description': item['notes'],
-                    'line': item.get('line', item.get('line_start', function.start_line if function else 0))
-                }]
-
-        normalized['issues'] = normalized_issues
-
-        # Map needs_more_context
-        needs_more_context = item.get('needs_more_context', False)
-        if not isinstance(needs_more_context, bool):
-            needs_more_context = False
-        normalized['needs_more_context'] = needs_more_context
-
-        # Map needs
-        needs = item.get('needs', [])
-        if not isinstance(needs, list):
-            needs = []
-        normalized['needs'] = [ContextNeed(n) if isinstance(n, str) else n for n in needs]
-
-        return normalized
+        except json.JSONDecodeError:
+            StatusLogger.timestamped_warning(
+                f"{pass_name} response was not a complete JSON array "
+                f"(truncated or malformed); the batch is analysis_error"
+            )
+            return self._fallback_function_responses(
+                functions,
+                f"{pass_name} JSON parsing error (truncated response)",
+            )
+        except Exception:
+            StatusLogger.timestamped_error(f"{pass_name} parsing error")
+            return self._fallback_function_responses(
+                functions, f"{pass_name} parsing error"
+            )
 
     def _fallback_function_responses(self, functions: List[FunctionBody], error_msg: str) -> List[FunctionAnalysis]:
         """Create operational stubs for function analysis (not genuine model abstentions)."""
@@ -1240,7 +1002,7 @@ IMPORTANT:
                         "line": line0,
                     }
                 ],
-                needs_more_context=True,
+                needs_more_context=False,
                 needs=[],
                 execution_status=AssessmentExecutionStatus.ANALYSIS_ERROR,
             )
