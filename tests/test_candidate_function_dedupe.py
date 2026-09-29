@@ -389,21 +389,24 @@ def _align(summaries: list[str]) -> FunctionAnalysis:
 
 
 @pytest.mark.parametrize(
-    "summaries,expected",
+    "summaries",
     [
-        (["yes", "yes"], "yes"),
-        (["no", "no"], "no"),
-        (["abstain", "abstain"], "abstain"),
-        (["yes", "no"], "abstain"),
-        (["yes", "abstain"], "abstain"),
-        (["no", "abstain"], "abstain"),
+        (["yes", "yes"]),
+        (["no", "no"]),
+        (["abstain", "abstain"]),
+        (["yes", "no"]),
+        (["yes", "abstain"]),
+        (["no", "abstain"]),
     ],
 )
-def test_align_duplicate_outputs(summaries: list[str], expected: str) -> None:
+def test_align_duplicate_outputs(summaries: list[str]) -> None:
+    """Duplicate IDs fail closed regardless of identical or conflicting verdicts."""
+    from tacs.core.schema import AssessmentExecutionStatus
+
     result = _align(summaries)
-    assert result.y2038_summary.value == expected
-    if expected == "abstain" and len(set(summaries)) > 1:
-        assert any(i.get("type") == "duplicate_conflict" for i in result.issues)
+    assert result.execution_status == AssessmentExecutionStatus.ANALYSIS_ERROR
+    assert result.y2038_summary.value == "abstain"
+    assert any(i.get("type") == "duplicate_function_id" for i in result.issues)
 
 
 def test_batch_accounting_invariant_helper() -> None:

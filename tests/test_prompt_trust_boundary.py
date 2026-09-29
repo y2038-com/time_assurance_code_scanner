@@ -538,18 +538,23 @@ def test_one_fence_around_the_whole_response_still_parses() -> None:
 )
 def test_a_response_that_is_not_one_complete_array_abstains(content: str) -> None:
     """Salvaging objects out of these let a truncation answer for a whole batch."""
+    from tacs.core.schema import AssessmentExecutionStatus
+
     analyses = _analyses(content, _function_client())
 
     assert len(analyses) == 1
     assert analyses[0].y2038_summary == Y2038Summary.ABSTAIN
+    assert analyses[0].execution_status == AssessmentExecutionStatus.ANALYSIS_ERROR
 
 
 def test_an_invalid_response_abstains_rather_than_clearing_the_batch() -> None:
     """The failure mode must be 'no verdict', never a silent 'no risk'."""
+    from tacs.core.schema import AssessmentExecutionStatus
+
     analyses = _analyses("not json at all", _function_client())
 
     assert all(a.y2038_summary != Y2038Summary.NO for a in analyses)
-    assert all(a.needs_more_context for a in analyses)
+    assert all(a.execution_status == AssessmentExecutionStatus.ANALYSIS_ERROR for a in analyses)
 
 
 def test_the_legacy_client_also_abstains_on_a_truncated_array() -> None:

@@ -123,12 +123,30 @@ def _abstain_finding(function: FunctionBody) -> Finding:
 
 
 def _run_pass(tmp_path: Path, level: str, pass_name: str, summary: Y2038Summary):
+    from tacs.core.model_assessment import record_assessments
+    from tacs.core.schema import AssessmentExecutionStatus
+
     configure_logging(level)
     pipeline = _pipeline(tmp_path, summary)
     function = _function(tmp_path)
     session = ScanSession(root_path=str(tmp_path), output_base=str(tmp_path))
     findings = [_abstain_finding(function)]
     function_map = {function.function_id: function}
+    pipeline._llm_analysis_requested = True
+    record_assessments(
+        pipeline._assessment_store,
+        [
+            FunctionAnalysis(
+                function_id=function.function_id,
+                y2038_summary=Y2038Summary.ABSTAIN,
+                confidence=0.4,
+                issues=[{"type": "need", "line": function.start_line, "description": "needs more context: header"}],
+                needs_more_context=True,
+                execution_status=AssessmentExecutionStatus.COMPLETED,
+            )
+        ],
+        [function],
+    )
     if pass_name == "f2":
         return pipeline._run_pass_f2(findings, function_map, session)
     return pipeline._run_pass_f3(findings, function_map, session)
@@ -173,6 +191,9 @@ def test_pass_2b_debug_keeps_extracted_context_detail(
 def test_pass_2b_enriching_line_is_plural_for_many(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    from tacs.core.model_assessment import record_assessments
+    from tacs.core.schema import AssessmentExecutionStatus
+
     configure_logging("INFO")
     pipeline = _pipeline(tmp_path)
     first = _function(tmp_path)
@@ -181,6 +202,22 @@ def test_pass_2b_enriching_line_is_plural_for_many(
     findings = [_abstain_finding(first), _abstain_finding(second)]
     findings[1].function_id = second.function_id
     function_map = {first.function_id: first, second.function_id: second}
+    pipeline._llm_analysis_requested = True
+    for func in (first, second):
+        record_assessments(
+            pipeline._assessment_store,
+            [
+                FunctionAnalysis(
+                    function_id=func.function_id,
+                    y2038_summary=Y2038Summary.ABSTAIN,
+                    confidence=0.4,
+                    issues=[{"type": "need", "line": func.start_line, "description": "needs more context: header"}],
+                    needs_more_context=True,
+                    execution_status=AssessmentExecutionStatus.COMPLETED,
+                )
+            ],
+            [func],
+        )
 
     pipeline._run_pass_f2(findings, function_map, session)
     err = capsys.readouterr().err

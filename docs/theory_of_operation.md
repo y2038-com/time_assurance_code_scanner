@@ -992,9 +992,13 @@ Starting with public result **schema_version `1.1`**, that document has the shap
   (schema 1.1+). Each assessment links `candidate_ids` and separates
   `execution_status` (`completed` / `analysis_error`) from `verdict`
   (`yes` / `no` / `abstain` only when completed). A model conclusion does not
-  validate or erase candidates. Parse/alignment/provider stubs are
+  validate or erase candidates.   Parse/alignment/provider stubs are
   `analysis_error` with null verdict; compatibility `findings` may still use
-  abstain-shaped rows for those stubs as a legacy exception. Public assessment
+  abstain-shaped rows for those stubs as a legacy exception. Function-level model
+  items must carry an exact requested `function_id` and the documented canonical
+  fields/values; positional binding and undocumented aliases are rejected.
+  F2/F3 enrichment selects only `completed` assessments whose verdict is genuine
+  `abstain`, not protocol-error stubs. Public assessment
   `reason` text for operational stubs is a controlled message (not raw
   exception dumps, prompts, or function bodies).
 * `findings` remains the existing **model-oriented compatibility projection**
