@@ -30,7 +30,7 @@ def validate_max_file_size(value: Any) -> Optional[int]:
     """
     Normalize a ``max_file_size`` setting to bytes, or ``None`` for no limit.
 
-    Absent or null means unlimited, which is the default for v0.1.0. Anything
+    Absent or null means unlimited, which is the default for the current release. Anything
     else must be a positive integer count of bytes. Raises ``ValueError`` with a
     message naming the offending value so a caller can fail one repository
     cleanly instead of scanning under a limit nobody specified.

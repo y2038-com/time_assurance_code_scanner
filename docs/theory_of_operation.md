@@ -496,7 +496,7 @@ ordering are handled by the shared candidate-identity helpers. Those steps run
 around discovery and again after later stages merge additional candidates; they
 are not exclusive to Stage 4.
 
-## Current v0.1.0 behavior
+## Current release behavior
 
 Stage 4 itself depends on whether tree-sitter is importable:
 
@@ -507,7 +507,7 @@ Stage 4 itself depends on whether tree-sitter is importable:
   some declarations, and similar). It is not full AST analysis.
 
 Full tree-sitter AST-based structural filtering is **not implemented** in
-v0.1.0. Installing the optional tree-sitter dependency does not turn this phase
+the current release. Installing the optional tree-sitter dependency does not turn this phase
 into a complete structural analysis pass. The default install therefore should
 not be assumed to apply meaningful structural pruning here.
 
@@ -1153,7 +1153,7 @@ targeted file-local typedef / macro / type context
 file-leading lines + extracted definitions
 ```
 
-TACS is designed to increase context progressively. In v0.1.0, the
+TACS is designed to increase context progressively. In the current release, the
 function-first path starts with the complete function, then extracts requested
 definitions and context from that function’s source file, and finally escalates
 unresolved cases to file-leading context plus extracted definitions. That is
@@ -1227,7 +1227,7 @@ rules are likewise emitted without IDs.
 
 ---
 
-# Current v0.1.0 boundaries
+# Current release boundaries
 
 The current release should be understood within these limitations:
 
