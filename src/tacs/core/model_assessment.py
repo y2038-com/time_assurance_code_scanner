@@ -21,8 +21,7 @@ from tacs.core.schema import (
 )
 
 # Controlled public reasons for operational stubs. Full exception text and host
-# paths stay out of assessments[]; compatibility findings may still carry the
-# richer internal description as a legacy projection.
+# paths stay out of assessments[] and compatibility findings.
 _OPERATIONAL_REASON_BY_ISSUE_TYPE = {
     "parse_gap": "No usable model output for this function",
     "missing_expected_result": "No usable model output for this function",
@@ -34,6 +33,7 @@ _OPERATIONAL_REASON_BY_ISSUE_TYPE = {
     "analysis_error": "Model analysis failed for this function",
 }
 _DEFAULT_OPERATIONAL_REASON = "Model analysis could not be completed for this function"
+_OPERATIONAL_ISSUE_TYPES = frozenset(_OPERATIONAL_REASON_BY_ISSUE_TYPE)
 
 # Absolute / home-style path fragments that must not appear in public reasons.
 _ABS_PATH_RE = re.compile(
@@ -63,6 +63,18 @@ def _redact_absolute_paths(text: str) -> str:
     return _ABS_PATH_RE.sub("<path>", text)
 
 
+def is_operational_issue_type(issue_type: Optional[str]) -> bool:
+    """True when ``issue_type`` is an operational stub, not validated model content."""
+    return bool(issue_type) and issue_type in _OPERATIONAL_ISSUE_TYPES
+
+
+def controlled_reason_for_issue_type(issue_type: Optional[str]) -> str:
+    """Stable public/compatibility reason for an operational issue type."""
+    return _OPERATIONAL_REASON_BY_ISSUE_TYPE.get(
+        issue_type or "", _DEFAULT_OPERATIONAL_REASON
+    )
+
+
 def _first_issue_type(analysis: FunctionAnalysis) -> Optional[str]:
     for issue in analysis.issues or []:
         if isinstance(issue, dict):
@@ -88,10 +100,7 @@ def _reason_from_analysis(
     """Public reason only — never prompts, bodies, or raw exception dumps."""
     if status == AssessmentExecutionStatus.ANALYSIS_ERROR:
         itype = _first_issue_type(analysis)
-        controlled = _OPERATIONAL_REASON_BY_ISSUE_TYPE.get(
-            itype or "", _DEFAULT_OPERATIONAL_REASON
-        )
-        return _bound_reason(controlled)
+        return _bound_reason(controlled_reason_for_issue_type(itype))
 
     desc = _first_issue_description(analysis)
     if not desc:

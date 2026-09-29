@@ -64,19 +64,38 @@ def _prompt() -> LLMPromptParts:
 
 
 def _save_batch(session: ScanSession, tmp_path: Path) -> dict:
+    response = [
+        {
+            "function_id": "deadline.c@check_deadline:1-4",
+            "y2038_summary": "yes",
+            "execution_status": "completed",
+            "confidence": 0.9,
+            "issues": [
+                {
+                    "type": "narrowing",
+                    "description": "CANARY_VALIDATED_FINDING_DESC proprietary_deadline",
+                    "line": 2,
+                }
+            ],
+        }
+    ]
     session.save_function_batch(
         pass_name="stage_8_pass_2a",
         batch_num=1,
         function_batch=_make_batch(tmp_path),
         prompt=_prompt(),
-        response=[{"function_id": "deadline.c@check_deadline:1-4", "y2038_summary": "yes"}],
+        response=response,
     )
     batch_file = session.llm_dir / "stage_8_pass_2a" / "batches" / "0001_input.json"
+    output_file = session.llm_dir / "stage_8_pass_2a" / "batches" / "0001_output.json"
     assert batch_file.is_file(), "batch manifest should always be written"
+    assert output_file.is_file(), "batch output summary should always be written"
     return {
         "payload": json.loads(batch_file.read_text(encoding="utf-8")),
         "raw_text": batch_file.read_text(encoding="utf-8"),
         "path": batch_file,
+        "output": json.loads(output_file.read_text(encoding="utf-8")),
+        "output_text": output_file.read_text(encoding="utf-8"),
     }
 
 
@@ -123,6 +142,11 @@ def test_llm_enabled_default_persists_manifest_without_source(tmp_path: Path) ->
     assert "internal_secret_clock" not in saved["raw_text"]
     assert saved["payload"]["privacy"]["prompt_persisted"] == "none"
     assert saved["payload"]["privacy"]["raw_function_bodies_persisted"] is False
+    assert "response" not in saved["output"]
+    assert "CANARY_VALIDATED_FINDING_DESC" not in saved["output_text"]
+    assert saved["output"]["privacy"]["raw_model_output_persisted"] is False
+    assert saved["output"]["response_sha256"]
+    assert saved["output"]["items"][0]["function_id"] == "deadline.c@check_deadline:1-4"
 
 
 def test_llm_logging_persists_redacted_prompt_only(tmp_path: Path) -> None:
@@ -233,6 +257,9 @@ def test_allow_raw_code_logging_persists_verbatim_content(tmp_path: Path) -> Non
     assert saved["payload"]["functions"][0]["body"] == BODY
     assert saved["payload"]["privacy"]["prompt_persisted"] == "verbatim"
     assert saved["payload"]["privacy"]["raw_function_bodies_persisted"] is True
+    assert saved["output"]["privacy"]["raw_model_output_persisted"] is True
+    assert "response" in saved["output"]
+    assert "CANARY_VALIDATED_FINDING_DESC" in saved["output_text"]
 
 
 def test_raw_code_logging_requires_llm_logging(tmp_path: Path) -> None:
@@ -252,20 +279,23 @@ def test_raw_code_logging_requires_llm_logging(tmp_path: Path) -> None:
 
 
 def test_batch_output_artifact_holds_result_metadata(tmp_path: Path) -> None:
-    """Classification results stay available for audit and contain no source."""
+    """Default output is a safe summary: statuses/hashes, no full model text."""
     session = _make_session(
         tmp_path,
         enable_llm_logging=False,
         redact_prompts=True,
         allow_raw_code_logging=False,
     )
-    _save_batch(session, tmp_path)
+    saved = _save_batch(session, tmp_path)
 
     output_file = session.llm_dir / "stage_8_pass_2a" / "batches" / "0001_output.json"
     assert output_file.is_file()
-    text = output_file.read_text(encoding="utf-8")
-    payload = json.loads(text)
-    assert payload["response"][0]["y2038_summary"] == "yes"
+    text = saved["output_text"]
+    payload = saved["output"]
+    assert "response" not in payload
+    assert payload["items"][0]["y2038_summary"] == "yes"
+    assert payload["response_sha256"]
+    assert "CANARY_VALIDATED_FINDING_DESC" not in text
     assert "internal_secret_clock" not in text
 
 

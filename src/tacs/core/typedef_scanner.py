@@ -235,6 +235,6 @@ class TypedefScanner:
         
         StatusLogger.timestamped_debug(f"Discovered {len(aliases)} time_t aliases:")
         for alias_name, definitions in aliases.items():
-            StatusLogger.timestamped_debug(f"  {alias_name}:")
-            for definition in definitions:
-                StatusLogger.timestamped_debug(f"    {definition}")
+            StatusLogger.timestamped_debug(
+                f"  {alias_name}: {len(definitions)} definition(s)"
+            )

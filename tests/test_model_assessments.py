@@ -721,9 +721,8 @@ def test_findings_projection_unchanged_for_outcomes():
         assert findings, f"expected findings for {summary}/{status}"
         assert findings[0].y2038_issue == expected_issue
         if status == AssessmentExecutionStatus.ANALYSIS_ERROR:
-            # Legacy findings still carry the operational description text.
-            assert "No usable S2_P1 model output" in findings[0].reason
-            # Public assessment does not.
+            # Compatibility findings and public assessments share controlled reasons.
+            assert findings[0].reason == "No usable model output for this function"
             a = build_model_assessment(analysis, fn)
             assert a.verdict is None
             assert a.reason == "No usable model output for this function"

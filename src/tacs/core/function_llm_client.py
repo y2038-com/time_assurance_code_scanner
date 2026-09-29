@@ -14,6 +14,14 @@ from tacs.core.function_schemas import (
     Y2038Summary, ContextNeed, FunctionFinding, IssueSpan
 )
 from tacs.core.llm_client import LLMNonRetryableError, _migration_endpoint_facts
+from tacs.core.llm_errors import (
+    LLMProviderError,
+    controlled_transport_failure_reason,
+    format_exception_for_log,
+    truncate_utf8_bytes,
+    RAW_DIAGNOSTIC_MAX_BYTES,
+    RAW_TRUNCATION_MARKER,
+)
 from tacs.core.llm_prompt import LLMPromptParts, format_untrusted_user_payload
 from tacs.core.llm_response import strip_optional_code_fence
 from tacs.core.status_logger import StatusLogger
@@ -90,10 +98,11 @@ class FunctionLLMClient:
         # Build Stage 8, Pass 2a prompt
         try:
             prompt = self._build_pass_f1_prompt(function_batch)
-        except Exception as e:
-            error_msg = f"Failed to build prompt: {e}"
-            StatusLogger.timestamped_error(error_msg)
-            return self._fallback_pass_f1_responses(function_batch.functions, error_msg)
+        except Exception:
+            StatusLogger.timestamped_error("Failed to build Stage 8, Pass 2a prompt")
+            return self._fallback_pass_f1_responses(
+                function_batch.functions, controlled_transport_failure_reason()
+            )
 
         # Debug: Show prompt if requested
         if self.debug_llm_raw:
@@ -101,9 +110,9 @@ class FunctionLLMClient:
 
         # Retry logic: up to 3 attempts per batch
         max_retries = 3
-        last_exception = None
 
         for attempt in range(1, max_retries + 1):
+            pending: BaseException | None = None
             try:
                 # Make API request
                 response_data = self.base_client._make_api_request(prompt)
@@ -118,9 +127,7 @@ class FunctionLLMClient:
 
                 # Debug: Show response if requested
                 if self.debug_llm_raw:
-                    StatusLogger.timestamped_print("=== PASS F1 RESPONSE ===")
-                    StatusLogger.timestamped_print(str(response_data))
-                    StatusLogger.timestamped_print("=== END PASS F1 RESPONSE ===")
+                    self._debug_print_raw_payload("PASS F1 RESPONSE", response_data)
 
                 # Parse responses
                 analyses = self._parse_pass_f1_response(response_data, function_batch.functions)
@@ -142,30 +149,20 @@ class FunctionLLMClient:
             except LLMNonRetryableError:
                 raise
             except Exception as e:
-                last_exception = e
-                if attempt < max_retries:
-                    StatusLogger.timestamped_warning(f"Stage 8, Pass 2a LLM request failed (attempt {attempt}/{max_retries}): {e}")
-                    StatusLogger.timestamped_print(f"Retrying batch...")
-                    # Wait before retrying (exponential backoff)
-                    import time
-                    retry_delay = min(2 ** attempt, 10)  # 2s, 4s, 8s, max 10s
-                    time.sleep(retry_delay)
-                else:
-                    # Final attempt failed
-                    StatusLogger.timestamped_error(f"Stage 8, Pass 2a LLM request failed after {max_retries} attempts: {e}")
-                    self.total_batch_failures += 1
-                    StatusLogger.timestamped_error(f"Total batch failures: {self.total_batch_failures}/{self.max_total_failures}")
-
-                    # Check if we should abort
-                    if self.total_batch_failures >= self.max_total_failures:
-                        raise RuntimeError(
-                            f"Aborting scan: {self.total_batch_failures} batch(es) failed after {max_retries} retries each. "
-                            "Common causes: LLM context/size limits, rate limits, network/VPN blocking the provider, "
-                            "or a bad model/API configuration (check --model and provider errors above)."
-                        )
-
-                    # Fallback to abstain on error
-                    return self._fallback_pass_f1_responses(function_batch.functions, str(e))
+                action, pending = self._on_batch_attempt_failure(
+                    e,
+                    attempt=attempt,
+                    max_retries=max_retries,
+                    pass_label="Stage 8, Pass 2a",
+                )
+                if action == "retry":
+                    continue
+                if action == "fallback":
+                    return self._fallback_pass_f1_responses(
+                        function_batch.functions, controlled_transport_failure_reason()
+                    )
+            if pending is not None:
+                raise pending
 
     def analyze_functions_pass_f2(self, function_batch: FunctionBatch, iteration: int) -> List[FunctionAnalysis]:
         """
@@ -195,9 +192,9 @@ class FunctionLLMClient:
 
         # Retry logic: up to 3 attempts per batch
         max_retries = 3
-        last_exception = None
 
         for attempt in range(1, max_retries + 1):
+            pending: BaseException | None = None
             try:
                 # Make API request
                 response_data = self.base_client._make_api_request(prompt)
@@ -212,9 +209,9 @@ class FunctionLLMClient:
 
                 # Debug: Show response if requested
                 if self.debug_llm_raw:
-                    StatusLogger.timestamped_print(f"=== PASS F2 ITERATION {iteration} RESPONSE ===")
-                    StatusLogger.timestamped_print(str(response_data))
-                    StatusLogger.timestamped_print(f"=== END PASS F2 ITERATION {iteration} RESPONSE ===")
+                    self._debug_print_raw_payload(
+                        f"PASS F2 ITERATION {iteration} RESPONSE", response_data
+                    )
 
                 # Parse responses
                 analyses = self._parse_pass_f2_response(response_data, function_batch.functions)
@@ -236,26 +233,21 @@ class FunctionLLMClient:
             except LLMNonRetryableError:
                 raise
             except Exception as e:
-                last_exception = e
-                if attempt < max_retries:
-                    StatusLogger.timestamped_warning(f"Stage 8, Pass 2b iteration {iteration} LLM request failed (attempt {attempt}/{max_retries}): {e}")
-                    StatusLogger.timestamped_print(f"Retrying batch...")
-                else:
-                    # Final attempt failed
-                    StatusLogger.timestamped_error(f"Stage 8, Pass 2b iteration {iteration} LLM request failed after {max_retries} attempts: {e}")
-                    self.total_batch_failures += 1
-                    StatusLogger.timestamped_error(f"Total batch failures: {self.total_batch_failures}/{self.max_total_failures}")
-
-                    # Check if we should abort
-                    if self.total_batch_failures >= self.max_total_failures:
-                        raise RuntimeError(
-                            f"Aborting scan: {self.total_batch_failures} batch(es) failed after {max_retries} retries each. "
-                            "Common causes: LLM context/size limits, rate limits, network/VPN blocking the provider, "
-                            "or a bad model/API configuration (check --model and provider errors above)."
-                        )
-
-                    # Fallback to abstain on error
-                    return self._fallback_pass_f2_responses(function_batch.functions, str(e))
+                action, pending = self._on_batch_attempt_failure(
+                    e,
+                    attempt=attempt,
+                    max_retries=max_retries,
+                    pass_label=f"Stage 8, Pass 2b iteration {iteration}",
+                    sleep_on_retry=False,
+                )
+                if action == "retry":
+                    continue
+                if action == "fallback":
+                    return self._fallback_pass_f2_responses(
+                        function_batch.functions, controlled_transport_failure_reason()
+                    )
+            if pending is not None:
+                raise pending
 
     def analyze_functions_pass_f3(self, function_batch: FunctionBatch) -> List[FunctionAnalysis]:
         """
@@ -282,9 +274,9 @@ class FunctionLLMClient:
 
         # Retry logic: up to 3 attempts per batch
         max_retries = 3
-        last_exception = None
 
         for attempt in range(1, max_retries + 1):
+            pending: BaseException | None = None
             try:
                 # Make API request
                 response_data = self.base_client._make_api_request(prompt)
@@ -299,9 +291,7 @@ class FunctionLLMClient:
 
                 # Debug: Show response if requested
                 if self.debug_llm_raw:
-                    StatusLogger.timestamped_print("=== PASS F3 RESPONSE ===")
-                    StatusLogger.timestamped_print(str(response_data))
-                    StatusLogger.timestamped_print("=== END PASS F3 RESPONSE ===")
+                    self._debug_print_raw_payload("PASS F3 RESPONSE", response_data)
 
                 # Parse responses
                 analyses = self._parse_pass_f3_response(response_data, function_batch.functions)
@@ -323,30 +313,97 @@ class FunctionLLMClient:
             except LLMNonRetryableError:
                 raise
             except Exception as e:
-                last_exception = e
-                if attempt < max_retries:
-                    StatusLogger.timestamped_warning(f"Stage 9, Pass 1 LLM request failed (attempt {attempt}/{max_retries}): {e}")
-                    StatusLogger.timestamped_print(f"Retrying batch...")
-                    # Wait before retrying (exponential backoff)
-                    import time
-                    retry_delay = min(2 ** attempt, 10)  # 2s, 4s, 8s, max 10s
-                    time.sleep(retry_delay)
-                else:
-                    # Final attempt failed
-                    StatusLogger.timestamped_error(f"Stage 9, Pass 1 LLM request failed after {max_retries} attempts: {e}")
-                    self.total_batch_failures += 1
-                    StatusLogger.timestamped_error(f"Total batch failures: {self.total_batch_failures}/{self.max_total_failures}")
+                action, pending = self._on_batch_attempt_failure(
+                    e,
+                    attempt=attempt,
+                    max_retries=max_retries,
+                    pass_label="Stage 9, Pass 1",
+                )
+                if action == "retry":
+                    continue
+                if action == "fallback":
+                    return self._fallback_pass_f3_responses(
+                        function_batch.functions, controlled_transport_failure_reason()
+                    )
+            if pending is not None:
+                raise pending
 
-                    # Check if we should abort
-                    if self.total_batch_failures >= self.max_total_failures:
-                        raise RuntimeError(
-                            f"Aborting scan: {self.total_batch_failures} batch(es) failed after {max_retries} retries each. "
-                            "Common causes: LLM context/size limits, rate limits, network/VPN blocking the provider, "
-                            "or a bad model/API configuration (check --model and provider errors above)."
-                        )
+    def _debug_print_raw_payload(self, title: str, payload: Any) -> None:
+        """Print a byte-bounded raw payload under ``--debug-llm-raw`` only."""
+        text = payload if isinstance(payload, str) else str(payload)
+        bounded = truncate_utf8_bytes(
+            text, RAW_DIAGNOSTIC_MAX_BYTES, marker=RAW_TRUNCATION_MARKER
+        )
+        StatusLogger.timestamped_print(f"=== {title} ===")
+        StatusLogger.timestamped_print(bounded)
+        if len(text.encode("utf-8", errors="replace")) > RAW_DIAGNOSTIC_MAX_BYTES:
+            StatusLogger.timestamped_print(
+                f"(truncated to {RAW_DIAGNOSTIC_MAX_BYTES} UTF-8 bytes)"
+            )
+        StatusLogger.timestamped_print(f"=== END {title} ===")
 
-                    # Fallback to abstain on error
-                    return self._fallback_pass_f3_responses(function_batch.functions, str(e))
+    def _on_batch_attempt_failure(
+        self,
+        exc: BaseException,
+        *,
+        attempt: int,
+        max_retries: int,
+        pass_label: str,
+        sleep_on_retry: bool = True,
+    ) -> tuple[str, BaseException | None]:
+        """Log a safe failure diagnostic.
+
+        Returns ``(action, pending_exc)`` where action is ``retry``, ``fallback``,
+        or ``raise``. Callers must raise ``pending_exc`` only *after* leaving their
+        ``except`` block so third-party exceptions are not retained in
+        ``__context__``.
+        """
+        safe = format_exception_for_log(exc)
+        if isinstance(exc, LLMProviderError) and not exc.retryable:
+            # Defensive: non-retryable should have been raised earlier. Return a
+            # fresh copy so the caller's deferred raise has no prior context.
+            return (
+                "raise",
+                type(exc)(
+                    provider=exc.provider,
+                    category=exc.category,
+                    status_code=exc.status_code,
+                    attempt=exc.attempt,
+                    response_body_len=exc.response_body_len,
+                    detail=exc.detail,
+                ),
+            )
+
+        if attempt < max_retries:
+            StatusLogger.timestamped_warning(
+                f"{pass_label} LLM request failed (attempt {attempt}/{max_retries}): {safe}"
+            )
+            StatusLogger.timestamped_print("Retrying batch...")
+            if sleep_on_retry:
+                import time
+
+                retry_delay = min(2 ** attempt, 10)
+                time.sleep(retry_delay)
+            return ("retry", None)
+
+        StatusLogger.timestamped_error(
+            f"{pass_label} LLM request failed after {max_retries} attempts: {safe}"
+        )
+        self.total_batch_failures += 1
+        StatusLogger.timestamped_error(
+            f"Total batch failures: {self.total_batch_failures}/{self.max_total_failures}"
+        )
+        if self.total_batch_failures >= self.max_total_failures:
+            return (
+                "raise",
+                RuntimeError(
+                    f"Aborting scan: {self.total_batch_failures} batch(es) failed after "
+                    f"{max_retries} retries each. Common causes: LLM context/size limits, "
+                    "rate limits, network/VPN blocking the provider, or a bad model/API "
+                    "configuration (check --model and provider errors above)."
+                ),
+            )
+        return ("fallback", None)
 
     def _build_pass_f1_prompt(self, function_batch: FunctionBatch) -> LLMPromptParts:
         """Build trusted instructions and untrusted payload for Stage 8, Pass 2a."""
@@ -985,9 +1042,16 @@ IMPORTANT:
             )
 
     def _fallback_function_responses(self, functions: List[FunctionBody], error_msg: str) -> List[FunctionAnalysis]:
-        """Create operational stubs for function analysis (not genuine model abstentions)."""
+        """Create operational stubs for function analysis (not genuine model abstentions).
+
+        ``error_msg`` is ignored for public/compatibility text: provider and
+        exception details must not enter finding descriptions. The controlled
+        reason is always used.
+        """
         from tacs.core.schema import AssessmentExecutionStatus
 
+        _ = error_msg  # retained for call-site clarity; never projected publicly
+        controlled = controlled_transport_failure_reason()
         analyses = []
         for func in functions:
             line0 = func.start_line if getattr(func, "start_line", None) else 1
@@ -998,7 +1062,7 @@ IMPORTANT:
                 issues=[
                     {
                         "type": "analysis_error",
-                        "description": error_msg,
+                        "description": controlled,
                         "line": line0,
                     }
                 ],

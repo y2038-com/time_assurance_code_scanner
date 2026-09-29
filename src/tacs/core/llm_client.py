@@ -8,6 +8,18 @@ import os
 import time
 from typing import List, Dict, Any, Optional, Tuple
 from tacs.core.env_capabilities import describe_capability, setting_of
+from tacs.core.llm_errors import (
+    LLMErrorCategory,
+    LLMNonRetryableError,
+    LLMProviderError,
+    RAW_DIAGNOSTIC_MAX_BYTES,
+    controlled_transport_failure_reason,
+    detect_openai_insufficient_quota,
+    format_exception_for_log,
+    provider_error_from_requests_exc,
+    response_body_byte_length,
+    truncate_utf8_bytes,
+)
 from tacs.core.schema import Candidate, LLMResponse, Y2038Issue, SeverityLevel
 from tacs.core.status_logger import StatusLogger, format_count
 from tacs.core.llm_prompt import LLMPromptParts, format_untrusted_user_payload
@@ -25,10 +37,13 @@ from tacs.llm.env import (
 #: the results are filtered by.
 DEFAULT_CONFIDENCE_FLOOR = 0.85
 
-
-class LLMNonRetryableError(RuntimeError):
-    """HTTP client errors where retries will not help (wrong model id, auth, bad request)."""
-
+# Re-export for existing importers (``from tacs.core.llm_client import LLMNonRetryableError``).
+__all__ = [
+    "DEFAULT_CONFIDENCE_FLOOR",
+    "LLMClient",
+    "LLMNonRetryableError",
+    "LLMProviderError",
+]
 
 def _migration_endpoint_facts(config: Dict[str, Any]) -> Dict[str, Any]:
     """One end of a migration as untrusted facts."""
@@ -219,26 +234,30 @@ class LLMClient:
 
                 return responses
 
-            except Exception as e:
-                error_str = str(e)
-                # Check if this is a retryable error (TLS timeout, connection issues)
-                is_retryable = (
-                    "TLS handshake" in error_str or
-                    "timeout" in error_str.lower() or
-                    "connection" in error_str.lower() or
-                    "cloud" in error_str.lower()
+            except LLMNonRetryableError as e:
+                StatusLogger.timestamped_error(
+                    f"LLM request failed (non-retryable): {format_exception_for_log(e)}"
                 )
+                return self._fallback_responses(candidates, controlled_transport_failure_reason())
+            except Exception as e:
+                # Preserve historical line-level policy: unknown exceptions do not
+                # retry; only allowlisted provider errors advertise retryability.
+                is_retryable = isinstance(e, LLMProviderError) and e.retryable
+                safe = format_exception_for_log(e)
 
                 if is_retryable and attempt < max_retries:
-                    StatusLogger.timestamped_warning(f"LLM request failed (attempt {attempt}/{max_retries}): {error_str[:100]}")
+                    StatusLogger.timestamped_warning(
+                        f"LLM request failed (attempt {attempt}/{max_retries}): {safe}"
+                    )
                     StatusLogger.timestamped_print(f"Retrying in {retry_delay} seconds...")
                     time.sleep(retry_delay)
                     retry_delay *= 2  # Exponential backoff
                     continue
                 else:
-                    StatusLogger.timestamped_error(f"LLM request failed after {format_count(attempt, 'attempt')}: {error_str[:150]}")
-                    # Fallback to abstain on error
-                    return self._fallback_responses(candidates, error_str[:150])
+                    StatusLogger.timestamped_error(
+                        f"LLM request failed after {format_count(attempt, 'attempt')}: {safe}"
+                    )
+                    return self._fallback_responses(candidates, controlled_transport_failure_reason())
 
     def classify_candidates_pass2(self, context_candidates: List[tuple]) -> List[LLMResponse]:
         """
@@ -374,25 +393,30 @@ class LLMClient:
 
                 return responses
 
-            except Exception as e:
-                error_str = str(e)
-                # Check if this is a retryable error (TLS timeout, connection issues)
-                is_retryable = (
-                    "TLS handshake" in error_str or
-                    "timeout" in error_str.lower() or
-                    ("connection" in error_str.lower() and "cloud" in error_str.lower())
+            except LLMNonRetryableError as e:
+                StatusLogger.timestamped_error(
+                    f"Pass 3 LLM request failed (non-retryable): {format_exception_for_log(e)}"
                 )
+                return self._fallback_responses_pass3(batch, controlled_transport_failure_reason())
+            except Exception as e:
+                # Preserve historical line-level policy: unknown exceptions do not
+                # retry; only allowlisted provider errors advertise retryability.
+                is_retryable = isinstance(e, LLMProviderError) and e.retryable
+                safe = format_exception_for_log(e)
 
                 if is_retryable and attempt < max_retries:
-                    StatusLogger.timestamped_warning(f"Pass 3 LLM request failed (attempt {attempt}/{max_retries}): {error_str[:100]}")
+                    StatusLogger.timestamped_warning(
+                        f"Pass 3 LLM request failed (attempt {attempt}/{max_retries}): {safe}"
+                    )
                     StatusLogger.timestamped_print(f"Retrying in {retry_delay} seconds...")
                     time.sleep(retry_delay)
                     retry_delay *= 2  # Exponential backoff
                     continue
                 else:
-                    StatusLogger.timestamped_error(f"Pass 3 LLM request failed after {format_count(attempt, 'attempt')}: {error_str[:150]}")
-                    # Fallback to abstain on error
-                    return self._fallback_responses_pass3(batch, error_str[:150])
+                    StatusLogger.timestamped_error(
+                        f"Pass 3 LLM request failed after {format_count(attempt, 'attempt')}: {safe}"
+                    )
+                    return self._fallback_responses_pass3(batch, controlled_transport_failure_reason())
 
     def _build_pass3_prompt(self, file_candidates: List[tuple]) -> LLMPromptParts:
         """Build trusted instructions and untrusted payload for Pass 3."""
@@ -574,7 +598,9 @@ int main() {
                 # Debug: Show raw response if requested
                 if self.debug_llm_raw:
                     StatusLogger.timestamped_print("=== RAW LLM RESPONSE (Pass 2) ===")
-                    StatusLogger.timestamped_print(str(response_data))
+                    StatusLogger.timestamped_print(
+                        truncate_utf8_bytes(str(response_data), RAW_DIAGNOSTIC_MAX_BYTES)
+                    )
                     StatusLogger.timestamped_print("=== END RAW RESPONSE ===")
 
                 # Parse responses
@@ -591,25 +617,30 @@ int main() {
 
                 return responses
 
-            except Exception as e:
-                error_str = str(e)
-                # Check if this is a retryable error (TLS timeout, connection issues)
-                is_retryable = (
-                    "TLS handshake" in error_str or
-                    "timeout" in error_str.lower() or
-                    ("connection" in error_str.lower() and "cloud" in error_str.lower())
+            except LLMNonRetryableError as e:
+                StatusLogger.timestamped_error(
+                    f"Pass 2 LLM request failed (non-retryable): {format_exception_for_log(e)}"
                 )
+                return self._fallback_responses_pass2(batch, controlled_transport_failure_reason())
+            except Exception as e:
+                # Preserve historical line-level policy: unknown exceptions do not
+                # retry; only allowlisted provider errors advertise retryability.
+                is_retryable = isinstance(e, LLMProviderError) and e.retryable
+                safe = format_exception_for_log(e)
 
                 if is_retryable and attempt < max_retries:
-                    StatusLogger.timestamped_warning(f"Pass 2 LLM request failed (attempt {attempt}/{max_retries}): {error_str[:100]}")
+                    StatusLogger.timestamped_warning(
+                        f"Pass 2 LLM request failed (attempt {attempt}/{max_retries}): {safe}"
+                    )
                     StatusLogger.timestamped_print(f"Retrying in {retry_delay} seconds...")
                     time.sleep(retry_delay)
                     retry_delay *= 2  # Exponential backoff
                     continue
                 else:
-                    StatusLogger.timestamped_error(f"Pass 2 LLM request failed after {format_count(attempt, 'attempt')}: {error_str[:150]}")
-                    # Fallback to abstain on error
-                    return self._fallback_responses_pass2(batch, error_str[:150])
+                    StatusLogger.timestamped_error(
+                        f"Pass 2 LLM request failed after {format_count(attempt, 'attempt')}: {safe}"
+                    )
+                    return self._fallback_responses_pass2(batch, controlled_transport_failure_reason())
 
     def _build_pass2_prompt(self, context_candidates: List[tuple]) -> LLMPromptParts:
         """Build trusted instructions and untrusted payload for Pass 2."""
@@ -863,11 +894,15 @@ Only classify as 'yes' when ALL of these are true:
         return facts
 
     def _debug_print_prompt_parts(self, title: str, prompt: LLMPromptParts) -> None:
-        """Print the two channels apart, so debug output cannot imply one prompt."""
+        """Print the two channels apart under ``--debug-llm-raw``, byte-bounded."""
         StatusLogger.timestamped_print(f"=== {title} (SYSTEM) ===")
-        StatusLogger.timestamped_print(prompt.system)
+        StatusLogger.timestamped_print(
+            truncate_utf8_bytes(prompt.system, RAW_DIAGNOSTIC_MAX_BYTES)
+        )
         StatusLogger.timestamped_print(f"=== {title} (UNTRUSTED USER) ===")
-        StatusLogger.timestamped_print(prompt.user)
+        StatusLogger.timestamped_print(
+            truncate_utf8_bytes(prompt.user, RAW_DIAGNOSTIC_MAX_BYTES)
+        )
         StatusLogger.timestamped_print(f"=== END {title} ===")
 
     def _confidence_floor_text(self) -> str:
@@ -1221,6 +1256,8 @@ Classification in migration mode:
         """Make request to local Ollama or Ollama Cloud (direct)."""
         import requests
 
+        from tacs.core.llm_errors import provider_error_for_http_status
+
         # Carry the resolved cloud flag rather than re-deriving it from the URL:
         # a substring test would call any host containing "ollama.com" cloud.
         url, headers, model, using_cloud_api = self._ollama_request_target()
@@ -1238,10 +1275,13 @@ Classification in migration mode:
             },
         }
 
-        try:
-            # Cloud / remote hops need more headroom than a local daemon.
-            timeout = self.timeout_sec * 2 if using_cloud_api or self._is_ollama_cloud_model(self.model) else self.timeout_sec
+        # Cloud / remote hops need more headroom than a local daemon.
+        timeout = self.timeout_sec * 2 if using_cloud_api or self._is_ollama_cloud_model(self.model) else self.timeout_sec
+        where = "Ollama Cloud" if using_cloud_api else "Local Ollama"
+        pending: Optional[LLMProviderError] = None
+        result: Optional[Dict[str, Any]] = None
 
+        try:
             response = requests.post(
                 url,
                 json=data,
@@ -1250,56 +1290,64 @@ Classification in migration mode:
             )
 
             if response.status_code != 200:
-                error_text = response.text
-                if response.status_code in {401, 403}:
-                    raise LLMNonRetryableError(
-                        "Ollama Cloud unauthorized. Set OLLAMA_API_KEY "
-                        "(legacy alias: OLLAMA_CLOUD_TOKEN) — create a key at "
-                        "https://ollama.com/settings/keys. "
-                        f"Detail: {error_text[:150]}"
+                pending = provider_error_for_http_status(
+                    provider=where,
+                    status_code=response.status_code,
+                    response=response,
+                )
+            else:
+                try:
+                    parsed = response.json()
+                except ValueError:
+                    pending = LLMProviderError(
+                        provider=where,
+                        category=LLMErrorCategory.DECODE,
+                        retryable=False,
+                        detail="invalid_json",
                     )
-                if "ollama.com" in error_text or "TLS handshake" in error_text or "cloud" in error_text.lower():
-                    raise RuntimeError(
-                        f"Cloud model connection failed (status {response.status_code}): "
-                        f"TLS handshake timeout. This may be a temporary network issue. "
-                        f"Error: {error_text[:100]}"
-                    )
-                where = "Ollama Cloud" if using_cloud_api else "Local Ollama"
-                raise RuntimeError(f"{where} request failed: {response.status_code} - {error_text[:150]}")
-
-
-            result = response.json()
-
-            # Convert Ollama generate format to expected chat-completions-like shape
-            if "response" in result:
-                prompt_tokens = result.get("prompt_eval_count", 0)
-                completion_tokens = result.get("eval_count", 0)
-
-                return {
-                    "choices": [{
-                        "message": {
-                            "content": result["response"]
+                else:
+                    # Convert Ollama generate format to expected chat-completions-like shape
+                    if "response" in parsed:
+                        prompt_tokens = parsed.get("prompt_eval_count", 0)
+                        completion_tokens = parsed.get("eval_count", 0)
+                        result = {
+                            "choices": [{
+                                "message": {
+                                    "content": parsed["response"]
+                                }
+                            }],
+                            "usage": {
+                                "prompt_tokens": prompt_tokens,
+                                "completion_tokens": completion_tokens,
+                                "total_tokens": prompt_tokens + completion_tokens
+                            }
                         }
-                    }],
-                    "usage": {
-                        "prompt_tokens": prompt_tokens,
-                        "completion_tokens": completion_tokens,
-                        "total_tokens": prompt_tokens + completion_tokens
-                    }
-                }
-            raise RuntimeError("Unexpected response format from Ollama")
+                    else:
+                        pending = LLMProviderError(
+                            provider=where,
+                            category=LLMErrorCategory.DECODE,
+                            retryable=False,
+                            detail="unexpected_response_format",
+                        )
+        except requests.exceptions.RequestException as e:
+            pending = provider_error_from_requests_exc(
+                provider=where,
+                exc=e,
+                connect_timeout_s=float(timeout),
+                read_timeout_s=float(timeout),
+            )
 
-        except LLMNonRetryableError:
-            raise
-        except requests.exceptions.ConnectionError:
-            if using_cloud_api:
-                raise RuntimeError("Cannot connect to Ollama Cloud (https://ollama.com). Check network/DNS.")
-            raise RuntimeError("Cannot connect to local Ollama server. Is Ollama running on localhost:11434?")
-        except requests.exceptions.Timeout:
-            raise RuntimeError(f"Request timeout after {self.timeout_sec} seconds")
-        except Exception as e:
-            where = "Ollama Cloud" if using_cloud_api else "Local Ollama"
-            raise RuntimeError(f"{where} request failed: {e}")
+        # Raise only after leaving any except handler so __context__ stays clean.
+        if pending is not None:
+            raise pending
+        if result is None:
+            raise LLMProviderError(
+                provider=where,
+                category=LLMErrorCategory.UNEXPECTED,
+                retryable=False,
+                detail="empty_result",
+            )
+        return result
 
     def _make_openai_request(self, prompt: LLMPromptParts) -> Dict[str, Any]:
         """Make request to OpenAI-compatible chat completions API."""
@@ -1444,7 +1492,12 @@ Classification in migration mode:
                     "total_tokens": prompt_tokens + completion_tokens,
                 },
             }
-        raise RuntimeError(f"{provider_name} returned unexpected response format")
+        raise LLMProviderError(
+            provider=provider_name,
+            category=LLMErrorCategory.DECODE,
+            retryable=False,
+            detail="unexpected_response_format",
+        )
 
     def _requests_timeout(
         self, read_seconds: int, *, connect_seconds: Optional[float] = None
@@ -1466,61 +1519,67 @@ Classification in migration mode:
         timeout_sec: Optional[int] = None,
         connect_timeout_sec: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """Make a JSON POST request and decode response."""
+        """Make a JSON POST request and decode response.
+
+        Failures raise :class:`LLMProviderError` / :class:`LLMNonRetryableError`
+        with allowlisted fields only. Provider bodies and third-party exception
+        strings are never interpolated into messages, ``__cause__``, or
+        ``__context__``.
+        """
         import requests
+
+        from tacs.core.llm_errors import provider_error_for_http_status
 
         effective_timeout = self.timeout_sec if timeout_sec is None else timeout_sec
         timeouts = self._requests_timeout(int(effective_timeout), connect_seconds=connect_timeout_sec)
+        pending: Optional[LLMProviderError] = None
+        decoded: Optional[Dict[str, Any]] = None
+
         try:
             response = requests.post(url, json=data, headers=headers, timeout=timeouts)
             if response.status_code != 200:
-                text = response.text[:300]
-                # Do not retry permanent client failures (unknown model, bad key scope, etc.).
-                if response.status_code in (400, 401, 403, 404, 405, 413):
-                    raise LLMNonRetryableError(
-                        f"{provider_name} request failed: {response.status_code} - {text}"
+                # Classify OpenAI billing exhaustion privately; do not retain the body.
+                insufficient = (
+                    response.status_code == 429
+                    and provider_name == "OpenAI"
+                    and detect_openai_insufficient_quota(response)
+                )
+                pending = provider_error_for_http_status(
+                    provider=provider_name,
+                    status_code=response.status_code,
+                    response=response,
+                    openai_insufficient_quota=insufficient,
+                )
+            else:
+                try:
+                    decoded = response.json()
+                except ValueError:
+                    pending = LLMProviderError(
+                        provider=provider_name,
+                        category=LLMErrorCategory.DECODE,
+                        retryable=False,
+                        response_body_len=response_body_byte_length(response),
+                        detail="invalid_json",
                     )
-                # OpenAI returns 429 for rate limits AND for exhausted billing (insufficient_quota).
-                if response.status_code == 429 and provider_name == "OpenAI":
-                    try:
-                        payload = response.json()
-                        etype = (payload.get("error") or {}).get("type")
-                        if etype == "insufficient_quota":
-                            raise LLMNonRetryableError(
-                                f"{provider_name} 429 insufficient_quota: add billing/credits or fix plan "
-                                f"(https://platform.openai.com/account/billing). {text}"
-                            )
-                    except LLMNonRetryableError:
-                        raise
-                    except Exception:
-                        pass
-                raise RuntimeError(f"{provider_name} request failed: {response.status_code} - {text}")
-            return response.json()
-        except LLMNonRetryableError:
-            # Preserve type so callers (e.g. FunctionLLMClient) can skip retries.
-            raise
-        except requests.exceptions.ConnectTimeout:
-            # ConnectTimeout subclasses ConnectionError; catch it first.
-            raise RuntimeError(
-                f"{provider_name} connect timeout after {timeouts[0]}s "
-                f"(TCP/TLS to the API host did not finish; check WSL/VPN/firewall/DNS, "
-                f"or raise LLM_CONNECT_TIMEOUT_SEC / GEMINI_CONNECT_TIMEOUT_SEC)"
+        except requests.exceptions.RequestException as e:
+            pending = provider_error_from_requests_exc(
+                provider=provider_name,
+                exc=e,
+                connect_timeout_s=timeouts[0],
+                read_timeout_s=timeouts[1],
             )
-        except requests.exceptions.ConnectionError:
-            raise RuntimeError(f"Cannot connect to {provider_name} endpoint")
-        except requests.exceptions.ReadTimeout:
-            raise RuntimeError(
-                f"{provider_name} read timeout after {timeouts[1]}s "
-                f"(no response body in time; large prompts need a higher read budget or a faster model)"
+
+        # Raise only after leaving any except handler so __context__ stays clean.
+        if pending is not None:
+            raise pending
+        if decoded is None:
+            raise LLMProviderError(
+                provider=provider_name,
+                category=LLMErrorCategory.UNEXPECTED,
+                retryable=False,
+                detail="empty_result",
             )
-        except requests.exceptions.Timeout:
-            raise RuntimeError(
-                f"{provider_name} request timeout (connect={timeouts[0]}s, read={timeouts[1]}s)"
-            )
-        except ValueError as e:
-            raise RuntimeError(f"{provider_name} returned invalid JSON: {e}")
-        except Exception as e:
-            raise RuntimeError(f"{provider_name} request failed: {e}")
+        return decoded
 
     def _validate_provider_allowed(self) -> None:
         """Validate selected provider against env allowlist."""
@@ -1563,24 +1622,30 @@ Classification in migration mode:
                     try:
                         response = self._parse_single_response(item, candidates, i)
                         responses.append(response)
-                    except Exception as e:
+                    except Exception:
                         # If individual response fails, create fallback for that candidate
                         if i < len(candidates):
-                            fallback = self._create_fallback_response(candidates[i], f"Failed to parse response {i}: {e}")
+                            fallback = self._create_fallback_response(
+                                candidates[i],
+                                "Model item failed validation",
+                            )
                             responses.append(fallback)
 
                 # Ensure we have responses for all candidates
                 while len(responses) < len(candidates):
-                    fallback = self._create_fallback_response(candidates[len(responses)], "Missing response from LLM")
+                    fallback = self._create_fallback_response(
+                        candidates[len(responses)],
+                        "Missing response from LLM",
+                    )
                     responses.append(fallback)
 
                 return responses[:len(candidates)]  # Truncate if we got too many
 
-            except json.JSONDecodeError as e:
-                return self._fallback_responses(candidates, f"Invalid JSON response: {e}")
+            except json.JSONDecodeError:
+                return self._fallback_responses(candidates, "Invalid JSON response from LLM")
 
-        except Exception as e:
-            return self._fallback_responses(candidates, f"Response parsing error: {e}")
+        except Exception:
+            return self._fallback_responses(candidates, "Response parsing error")
 
     def _extract_content(self, response_data: Dict[str, Any]) -> str:
         """Extract content from API response."""

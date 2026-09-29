@@ -71,6 +71,7 @@ python -m config_detector.cli /path/to/project --llm ollama --no-cache
 
 # Debug mode (show LLM prompts/responses)
 python -m config_detector.cli /path/to/project --llm ollama --debug
+python -m config_detector.cli /path/to/project --llm ollama --debug-llm-raw
 ```
 
 ### Example Output
