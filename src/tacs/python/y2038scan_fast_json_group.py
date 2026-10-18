@@ -107,6 +107,17 @@ def load_rules(path: str, min_risk: str) -> Tuple[Dict[str, List[Dict[str,Any]]]
                 raw_rid, context=f"rules file {path} symbol={symbol!r}"
             )
 
+        scope_files = e.get('scope_files')
+        if scope_files is not None and not isinstance(scope_files, list):
+            scope_files = None
+        if isinstance(scope_files, list):
+            # Normalize to POSIX relative strings for deterministic membership tests.
+            scope_files = [
+                str(s).replace('\\', '/')
+                for s in scope_files
+                if isinstance(s, str) and s.strip()
+            ]
+
         rule = {
             'symbol': symbol,                 # case-sensitive match
             'risk': risk,
@@ -114,12 +125,42 @@ def load_rules(path: str, min_risk: str) -> Tuple[Dict[str, List[Dict[str,Any]]]
             'description': e.get('description') or '',
             'needs_paren': bool(needs_paren),
             'rule_id': rule_id,
+            'discovered': bool(e.get('discovered')),
+            'scope_files': scope_files,
+            # When true, match only non-call uses (local typedef vs catalog function).
+            'type_use_only': bool(e.get('type_use_only')),
         }
 
         # Index the exact symbol; if it's multi-word, we store it as-is (bigram key).
         tok_idx[symbol].append(rule)
 
     return tok_idx, min_rank
+
+
+def _rule_applies_to_file(rule: Dict[str, Any], file_path: str, root_path: Optional[str]) -> bool:
+    """Catalog rules always apply; discovered rules honor ``scope_files`` when set."""
+    scope_files = rule.get('scope_files')
+    if not scope_files:
+        return True
+    candidates = {file_path.replace('\\', '/')}
+    base = file_path.replace('\\', '/').rsplit('/', 1)[-1]
+    if base:
+        candidates.add(base)
+    try:
+        from tacs.core.path_utils import canonical_source_path, repo_relative_path
+        abs_path = canonical_source_path(file_path)
+        candidates.add(abs_path.replace('\\', '/'))
+        if root_path:
+            rel = repo_relative_path(abs_path, root_path)
+            if rel:
+                candidates.add(rel.replace('\\', '/'))
+                rel_base = rel.replace('\\', '/').rsplit('/', 1)[-1]
+                if rel_base:
+                    candidates.add(rel_base)
+    except Exception:
+        pass
+    scope_set = {str(s).replace('\\', '/') for s in scope_files}
+    return bool(candidates & scope_set)
 
 
 # ============================== Scanning utils ==============================
@@ -457,7 +498,8 @@ def scan_file(path: str,
               tok_idx: Dict[str, List[Dict[str,Any]]],
               min_rank: int,
               time_t_aliases: List[str] = None,
-              time_functions: List[str] = None) -> Tuple[List[Dict[str,Any]], Counter]:
+              time_functions: List[str] = None,
+              root_path: Optional[str] = None) -> Tuple[List[Dict[str,Any]], Counter]:
     """
     Scan a single file and return (results, per_symbol_counter).
     
@@ -466,7 +508,9 @@ def scan_file(path: str,
         tok_idx: Token index dictionary
         min_rank: Minimum risk rank
         time_t_aliases: List of discovered time_t typedef aliases for cast detection
+            (already narrowed to aliases in scope for this file)
         time_functions: List of time-related function names for cast detection
+        root_path: Scan root used to honor discovered-rule ``scope_files``
     """
     results: List[Dict[str,Any]] = []
     per_symbol = Counter()
@@ -501,9 +545,17 @@ def scan_file(path: str,
                         # risk filter first
                         if RANK[rule['risk']] < min_rank:
                             continue
+                        if not _rule_applies_to_file(rule, path, root_path):
+                            continue
                         sym = rule['symbol']
+                        call_site = has_call_paren(cleaned, sym)
                         # enforce function-call guard
-                        if rule.get('needs_paren', False) and not has_call_paren(cleaned, sym):
+                        if rule.get('needs_paren', False) and not call_site:
+                            continue
+                        # Discovered typedef that collides with a catalog spelling
+                        # (e.g. local ``typedef time_t time;``): apply only to
+                        # non-call uses so ``time(NULL)`` keeps the catalog rule.
+                        if rule.get('type_use_only') and call_site:
                             continue
 
                         results.append({
@@ -535,6 +587,36 @@ def scan_file(path: str,
         print(f"Error reading {path}: {e}", file=sys.stderr)
 
     return results, per_symbol
+
+
+def _aliases_for_path(aliases_data: Any, path: str, root_path: Optional[str]) -> List[str]:
+    """Resolve cast-detection aliases for one file from list or by_file map."""
+    if aliases_data is None:
+        return []
+    if isinstance(aliases_data, list):
+        return [a for a in aliases_data if isinstance(a, str)]
+    if not isinstance(aliases_data, dict):
+        return []
+    by_file = aliases_data.get('by_file')
+    if isinstance(by_file, dict):
+        keys = [path.replace('\\', '/')]
+        try:
+            from tacs.core.path_utils import canonical_source_path, repo_relative_path
+            abs_path = canonical_source_path(path)
+            keys.append(abs_path.replace('\\', '/'))
+            if root_path:
+                rel = repo_relative_path(abs_path, root_path)
+                if rel:
+                    keys.append(rel.replace('\\', '/'))
+        except Exception:
+            pass
+        for key in keys:
+            hit = by_file.get(key)
+            if isinstance(hit, list):
+                return [a for a in hit if isinstance(a, str)]
+        return []
+    # Legacy dict of {alias: definitions} — treat keys as global alias names.
+    return [k for k in aliases_data.keys() if isinstance(k, str) and k != 'by_file']
 
 
 def group_by_line(results: List[Dict[str,Any]]) -> List[Dict[str,Any]]:
@@ -632,20 +714,18 @@ def main():
 
     tok_idx, min_rank = load_rules(args.rules, args.min_risk)
     
-    # Load time_t aliases and functions for cast detection
-    time_t_aliases = []
+    # Load time_t aliases and functions for cast detection.
+    # Supported alias payload shapes:
+    #   * list[str] — global alias names (legacy)
+    #   * {alias: [definitions]} — legacy flat discovery map
+    #   * {"by_file": {rel_or_abs_path: [alias, ...]}} — translation-unit scoped
+    aliases_data: Any = None
     time_functions = []
     
     if args.time_t_aliases:
         try:
             with open(args.time_t_aliases, 'r', encoding='utf-8') as f:
                 aliases_data = json.load(f)
-                # Handle both list format and dict format
-                if isinstance(aliases_data, list):
-                    time_t_aliases = aliases_data
-                elif isinstance(aliases_data, dict):
-                    # Extract alias names from dict of {alias: [definitions]}
-                    time_t_aliases = list(aliases_data.keys())
         except Exception as e:
             print(f"Warning: Could not load time_t aliases from {args.time_t_aliases}: {e}", file=sys.stderr)
     
@@ -663,13 +743,17 @@ def main():
     per_symbol_total = Counter()
 
     # Count total files first for progress tracking
+    root_path = args.directory
     file_list = list(iter_source_files(args.directory, args.include, args.exclude, args.max_file_size))
     total_files = len(file_list)
     files_processed = 0
     last_progress = 0
     
     for fp in file_list:
-        res, per_sym = scan_file(fp, tok_idx, min_rank, time_t_aliases, time_functions)
+        file_aliases = _aliases_for_path(aliases_data, fp, root_path)
+        res, per_sym = scan_file(
+            fp, tok_idx, min_rank, file_aliases, time_functions, root_path=root_path
+        )
         all_results.extend(res)
         per_symbol_total.update(per_sym)
         for r in res:

@@ -15,10 +15,11 @@ from tacs.core.schema import Candidate
 from tacs.core.status_logger import StatusLogger
 from tacs.core.define_scanner import DefineScanner, DefineMatch
 from tacs.core.arithmetic_scanner import ArithmeticScanner, ArithmeticMatch
-from tacs.core.path_utils import canonical_source_path
+from tacs.core.path_utils import canonical_source_path, repo_relative_path
 from tacs.core.candidate_utils import prepare_candidates
 from tacs.core.candidate_evidence import normalize_discovery_method
 from tacs.core.ir_match import IRMatchError, iter_match_field_sets
+from tacs.core.alias_scope import aliases_for_source_file
 
 
 def _ir_symbols_methods_and_rule_ids(
@@ -100,12 +101,14 @@ class IRAdapter:
         time_functions_path = None
         
         try:
-            # Write time_t aliases to temp file if provided
+            # Write time_t aliases to temp file if provided.
+            # Prefer translation-unit scoped {"by_file": {rel: [alias, ...]}}.
             if time_t_aliases:
                 with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as aliases_file:
-                    # Write as list of alias names
-                    aliases_list = list(time_t_aliases.keys())
-                    json.dump(aliases_list, aliases_file)
+                    payload = self._aliases_payload_for_scanner(
+                        time_t_aliases, root_path
+                    )
+                    json.dump(payload, aliases_file)
                     time_t_aliases_path = aliases_file.name
             
             # Write time functions to temp file if provided
@@ -328,13 +331,72 @@ class IRAdapter:
                 f"Ignoring source symlink outside repository root: {display}"
             )
         return enumeration.files    
+    @staticmethod
+    def _aliases_payload_for_scanner(
+        time_t_aliases: Dict[str, Any],
+        root_path: str,
+    ) -> Any:
+        """Serialize aliases for the fast scanner (scoped by_file when possible)."""
+        if not time_t_aliases:
+            return []
+        # Scoped: file → {alias → defs}
+        sample = next(iter(time_t_aliases.values()))
+        if isinstance(sample, dict):
+            by_file: Dict[str, List[str]] = {}
+            for file_key in sorted(time_t_aliases.keys()):
+                rel = repo_relative_path(file_key, root_path)
+                key = rel if rel else str(file_key)
+                alias_map = time_t_aliases[file_key]
+                names = sorted(
+                    a for a in alias_map.keys() if isinstance(a, str) and a
+                )
+                by_file[key] = names
+                # Also index absolute path for scanners that pass abs paths.
+                abs_key = canonical_source_path(file_key)
+                if abs_key and abs_key != key:
+                    by_file[abs_key] = names
+            return {"by_file": by_file}
+        # Legacy flat alias → defs
+        return sorted(str(k) for k in time_t_aliases.keys())
+
+    @staticmethod
+    def _normalize_scoped_aliases(
+        time_t_aliases: Optional[Dict[str, Any]],
+        root_path: str,
+    ) -> Dict[str, Dict[str, List[str]]]:
+        """Return repo-relative scoped alias map; wrap flat maps as empty scope."""
+        if not time_t_aliases:
+            return {}
+        sample = next(iter(time_t_aliases.values()))
+        if isinstance(sample, dict):
+            out: Dict[str, Dict[str, List[str]]] = {}
+            for file_key, alias_map in time_t_aliases.items():
+                rel = repo_relative_path(file_key, root_path)
+                key = rel if rel else str(file_key)
+                out[key] = {
+                    str(a): list(defs) if isinstance(defs, list) else []
+                    for a, defs in alias_map.items()
+                }
+            return out
+        # Flat: not file-scoped; callers should avoid applying globally for
+        # candidate generation. Represent as empty scoped map and let
+        # ArithmeticScanner receive the flat dict only when intentionally legacy.
+        return {}
+
     def _scan_for_arithmetic(self, root_path: str, include_patterns: List[str] = None, 
                              exclude_patterns: List[str] = None, 
-                             time_t_aliases: Dict[str, List[str]] = None) -> List[Candidate]:
+                             time_t_aliases: Dict[str, Any] = None) -> List[Candidate]:
         """Scan for arithmetic operations on time_t variables."""
-        # Initialize arithmetic scanner with time_t aliases
-        arithmetic_scanner = ArithmeticScanner(time_t_aliases or {})
-        
+        scoped = self._normalize_scoped_aliases(time_t_aliases, root_path)
+        # Legacy flat fallback when callers still pass alias→defs.
+        flat_legacy: Dict[str, List[str]] = {}
+        if time_t_aliases and not scoped:
+            sample = next(iter(time_t_aliases.values()), None)
+            if isinstance(sample, list):
+                flat_legacy = {
+                    str(k): list(v) for k, v in time_t_aliases.items()
+                }
+
         # Get files to scan
         StatusLogger.timestamped_debug("Scanning for arithmetic operations on time_t...")
         files = self._get_files(
@@ -344,10 +406,16 @@ class IRAdapter:
             self.max_file_size,
         )
         arithmetic_matches = []
+        # Printer uses the last scanner instance; keep a representative one.
+        arithmetic_scanner = ArithmeticScanner(flat_legacy)
         
         # Track declared time_t variables per file
         for file_path in files:
             declared_vars: Set[str] = set()
+            file_aliases = aliases_for_source_file(
+                scoped, str(file_path), root_path
+            ) if scoped else flat_legacy
+            arithmetic_scanner = ArithmeticScanner(file_aliases)
             try:
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                     lines = f.readlines()
