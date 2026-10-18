@@ -2,41 +2,54 @@
 
 All notable changes to the public Time Assurance Code Scanner (`tacs`) are
 documented here. Versions follow [PEP 440](https://peps.python.org/pep-0440/).
-Git tags use a dotted pre-release form (for example `v0.2.0-rc.1`) while the
-Python package version uses the PEP 440 form (`0.2.0rc1`).
+Git tags use a dotted pre-release form (for example `v0.2.0-rc.2`) while the
+Python package version uses the PEP 440 form (`0.2.0rc2`).
 
 The public JSON result shape is versioned separately as `schema_version` and is
 currently **1.2**.
 
 ## Unreleased
 
+## 0.2.0rc2 — 2026-10-18
+
+Second release candidate. Focus since RC1: translation-unit-aware typedef
+scoping, opt-in OpenAI GPT-6 Luna, public schema **1.2** provenance fields, and
+stricter staged LLM analysis / provider-response handling. Package version is
+**0.2.0rc2**; the public report schema remains **1.2**.
+
 ### Added
 
+- Translation-unit-aware **typedef alias scoping**: discovered aliases are
+  scoped to their defining source file and that file’s project include
+  closure. Catalog-colliding local aliases remain usable as type aliases while
+  call sites continue to use the catalog function rule. I/O-boundary,
+  migration, and LLM alias consumers use the scoped alias set.
 - Opt-in OpenAI **GPT-6 Luna** (`gpt-6-luna`) via `--model gpt-6-luna` with
   `--reasoning-effort none|low` on `tacs scan` and `tacs repos`. Unset Luna
   effort defaults to effective `none` (temperature retained). Explicit `low`
-  omits incompatible sampling fields. Unsupported models/providers reject an
-  explicit effort before any HTTP request.
-- Public result **schema 1.2**: optional `meta.llm_provider` and
-  `meta.reasoning_effort` provenance. Schema **1.1** reports still load and
-  render; loading does not rewrite them.
+  omits incompatible sampling fields. Unsupported models or providers reject an
+  explicit effort **before any HTTP request**. Non-Luna OpenAI models and other
+  providers keep their prior request shape.
+- Public result **schema 1.2** optional provenance: `meta.llm_provider` and
+  `meta.reasoning_effort`. Optional provider-reported `reasoning_tokens` usage
+  is recorded when present and is not double-counted into completion totals.
+  Schema **1.0** / **1.1** reports still load and render; loading does not
+  invent provider or reasoning provenance.
 - Narrow OpenAI model-policy layer (`tacs.llm.openai_models`) for reasoning
-  effort. Luna payloads omit `max_completion_tokens` (same unset completion
-  budget as pre-Luna OpenAI in TACS; Anthropic/Ollama still use their own 8000
-  caps). TACS has no USD cost estimator.
+  effort. OpenAI completion-token budgets remain unset (same as pre-Luna OpenAI
+  in TACS; Anthropic/Ollama still use their own caps). No provider-native
+  structured output was added. TACS has no USD cost estimator.
 
 ### Changed
 
 - OpenAI Chat Completions responses are fail-closed on refusal, truncation
   (`finish_reason=length`), `content_filter`, tool/function calls, non-string
-  content, and unrecognized or missing/null `finish_reason` on the official
-  API. Custom `OPENAI_BASE_URL` endpoints may omit `finish_reason` (compat
-  path only). Optional `reasoning_tokens` usage is captured when present and
-  is not double-counted into completion totals. Deterministic shape/decode
-  errors are non-retryable (one provider call); transport/HTTP retryables
-  still use the existing three-attempt batch loop. Malformed JSON and
-  `function_id` alignment failures remain local parse fallbacks (no HTTP
-  retry).
+  content, and unrecognized or missing/null `finish_reason` on the **official**
+  API. Custom `OPENAI_BASE_URL` endpoints may omit `finish_reason` (compat path
+  only). Deterministic shape/decode errors are non-retryable (one provider
+  call); transport/HTTP retryables still use the existing three-attempt batch
+  loop. Malformed JSON and `function_id` alignment failures remain local parse
+  fallbacks (no HTTP retry).
 - Pass F1/F2/F3 share one canonical model-response wire-contract prompt
   fragment (`canonical_wire_contract_prompt`) so F2/F3 no longer drift to
   incomplete “same schema as F1” instructions. Fail-closed validation and
@@ -45,18 +58,38 @@ currently **1.2**.
 - Progress and final classification counters count completed yes/no/abstain
   from assessment `execution_status`, separately from `analysis_error`
   (compatibility findings may still carry abstain-shaped `y2038_issue`).
-- Text/HTML reports label findings linked to `analysis_error` assessments as
-  analysis errors rather than genuine model abstentions; legacy reports
-  without assessments still render as before.
+- Text and HTML reports label findings linked to `analysis_error` assessments
+  as analysis errors rather than genuine model abstentions; legacy reports
+  without assessments still render as before. Empty-result reports retain LLM
+  provenance when present in meta.
 
 ### Notes
 
 - Luna is opt-in; the default provider remains `--llm none` and the default
   model id remains `gpt-oss:120b-cloud` (for Ollama when LLM is enabled).
 - `low` may increase latency and completion usage (reasoning tokens count
-  toward the provider’s completion budget when the API enforces one). No
-  claim is made that Luna improves TACS accuracy without evaluation.
-- Package version remains **0.2.0rc1** on this feature branch.
+  toward the provider’s completion budget when the API enforces one). No claim
+  is made that Luna improves TACS accuracy, that providers agree, or that a
+  scan certifies time safety.
+- Bounded offline smoke tests with Luna (`none` and `low`) completed
+  successfully with zero analysis errors after the shared wire-contract
+  correction. Live results remain model-dependent.
+
+### Compatibility / upgrade notes
+
+- Public schema remains **1.2** (introduced with the Luna / provenance work on
+  this RC lineage). Older **1.0** / **1.1** documents continue to load.
+- Canonical F1/F2/F3 wire validation remains strict; undocumented aliases and
+  extra fields are still rejected.
+
+### Known limitations
+
+- Function recognition remains a bounded lexical recognizer, not a complete
+  C++ parser.
+- Findings and assessments remain **decision-support** output, not proof that
+  code is time-safe or free of Y2038/Y2106 defects.
+- This release does not claim coverage of all C/C++ syntax, all security risks,
+  or all time-related defects.
 
 ## 0.2.0rc1 — 2026-09-29
 
