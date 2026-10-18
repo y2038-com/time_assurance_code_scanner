@@ -178,6 +178,9 @@ class IOBoundaryAnalyzer:
         self.enable_io_analysis = enable_io_analysis
         self.score_threshold = score_threshold
         self.check_literal_widths = check_literal_widths
+        # Preferred: per-file visible aliases from typedef discovery.
+        self._scoped_time_t_aliases: Dict[str, Dict[str, List[str]]] = {}
+        self._alias_root_path: Optional[str] = None
         
         # File content cache
         self._file_cache: Dict[str, List[str]] = {}
@@ -195,20 +198,41 @@ class IOBoundaryAnalyzer:
         self,
         time_t_aliases: Dict[str, List[str]],
         time_bearing_symbols: Set[str],
-        time_function_assignments: Optional[Dict[str, Set[str]]] = None
+        time_function_assignments: Optional[Dict[str, Set[str]]] = None,
+        *,
+        scoped_time_t_aliases: Optional[Dict[str, Dict[str, List[str]]]] = None,
+        root_path: Optional[str] = None,
     ):
         """
         Update time-bearing context from discovery stage and enhanced detection.
         
         Args:
-            time_t_aliases: Updated time_t aliases
-            time_bearing_symbols: Updated time-bearing symbols
+            time_t_aliases: Flat alias map (fallback when scoped map absent)
+            time_bearing_symbols: Flat time-bearing symbol set (fallback)
             time_function_assignments: Variables assigned from time functions (file -> variables)
+            scoped_time_t_aliases: Per-file visible typedef aliases (preferred)
+            root_path: Scan root used to resolve scoped file keys
         """
         self.time_t_aliases = time_t_aliases
         self.time_bearing_symbols = set(time_bearing_symbols)
         if time_function_assignments:
             self._time_assignments = time_function_assignments
+        if scoped_time_t_aliases is not None:
+            self._scoped_time_t_aliases = scoped_time_t_aliases
+        if root_path is not None:
+            self._alias_root_path = root_path
+
+    def _aliases_visible_in_file(self, file_path: str) -> Dict[str, List[str]]:
+        """Typedef aliases visible in ``file_path``'s translation unit."""
+        if self._scoped_time_t_aliases:
+            from tacs.core.alias_scope import aliases_for_source_file
+
+            return aliases_for_source_file(
+                self._scoped_time_t_aliases,
+                file_path,
+                self._alias_root_path,
+            )
+        return dict(self.time_t_aliases or {})
     
     def analyze_io_boundaries(
         self,
@@ -329,30 +353,41 @@ class IOBoundaryAnalyzer:
         
         lines = self._file_cache[file_path]
         candidates = []
-        
-        # Track time-bearing variables in this file
-        file_time_vars = self._time_assignments.get(file_path, set())
-        file_time_vars.update(self.time_bearing_symbols)
-        
-        for line_num, line in enumerate(lines, 1):
-            line_stripped = line.strip()
-            
-            # Skip comments and empty lines
-            if not line_stripped or line_stripped.startswith('//') or line_stripped.startswith('/*'):
-                continue
-            
-            # Analyze formatted I/O
-            formatted_candidates = self._analyze_formatted_io(
-                file_path, line_num, line_stripped, file_time_vars
-            )
-            candidates.extend(formatted_candidates)
-            
-            # Analyze raw I/O
-            raw_candidates = self._analyze_raw_io(
-                file_path, line_num, line_stripped, file_time_vars
-            )
-            candidates.extend(raw_candidates)
-        
+
+        # Restrict alias / type-name heuristics to this translation unit.
+        file_aliases = self._aliases_visible_in_file(file_path)
+        prev_aliases = self.time_t_aliases
+        prev_bearing = self.time_bearing_symbols
+        self.time_t_aliases = file_aliases
+        self.time_bearing_symbols = set(file_aliases.keys())
+
+        try:
+            # Track time-bearing variables in this file
+            file_time_vars = set(self._time_assignments.get(file_path, set()))
+            file_time_vars.update(self.time_bearing_symbols)
+
+            for line_num, line in enumerate(lines, 1):
+                line_stripped = line.strip()
+
+                # Skip comments and empty lines
+                if not line_stripped or line_stripped.startswith('//') or line_stripped.startswith('/*'):
+                    continue
+
+                # Analyze formatted I/O
+                formatted_candidates = self._analyze_formatted_io(
+                    file_path, line_num, line_stripped, file_time_vars
+                )
+                candidates.extend(formatted_candidates)
+
+                # Analyze raw I/O
+                raw_candidates = self._analyze_raw_io(
+                    file_path, line_num, line_stripped, file_time_vars
+                )
+                candidates.extend(raw_candidates)
+        finally:
+            self.time_t_aliases = prev_aliases
+            self.time_bearing_symbols = prev_bearing
+
         return candidates
     
     def _analyze_formatted_io(

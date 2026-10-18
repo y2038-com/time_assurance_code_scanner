@@ -43,40 +43,46 @@ class TypedefScanner:
             re.MULTILINE | re.DOTALL
         )
     
-    def scan_directory(self, root_path: str, include_patterns: List[str], exclude_patterns: List[str]) -> Dict[str, List[str]]:
+    def scan_directory(
+        self,
+        root_path: str,
+        include_patterns: List[str],
+        exclude_patterns: List[str],
+    ) -> Dict[str, Dict[str, List[str]]]:
         """
-        Scan directory for typedef statements.
-        
+        Scan directory for typedef statements, grouped by defining file.
+
         Args:
             root_path: Root directory to scan
             include_patterns: List of glob patterns to include
             exclude_patterns: List of glob patterns to exclude
-            
+
         Returns:
-            Dictionary mapping typedef names to their definitions
+            Mapping of absolute file path → typedef name → definition strings.
+            Definitions are not merged across translation units.
         """
-        typedef_map = defaultdict(list)
-        
-        # Get all files matching include patterns
+        from tacs.core.path_utils import canonical_source_path
+
+        by_file: Dict[str, Dict[str, List[str]]] = {}
+
         files = self._get_files(root_path, include_patterns, exclude_patterns)
-        
+
         for file_path in files:
             try:
-                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
-                
-                # Find typedefs in this file
-                file_typedefs = self._find_typedefs(content, str(file_path))
-                typedef_map.update(file_typedefs)
-                
+
+                abs_path = canonical_source_path(file_path)
+                file_typedefs = self._find_typedefs(content, abs_path)
+                by_file[abs_path] = file_typedefs
+
             except Exception as e:
                 from tacs.core.status_logger import StatusLogger
 
                 StatusLogger.timestamped_warning(f"Could not read {file_path}: {e}")
-
                 continue
-        
-        return dict(typedef_map)
+
+        return by_file
     
     def _get_files(self, root_path: str, include_patterns: List[str], exclude_patterns: List[str]) -> List[Path]:
         """Get unique in-repo source files matching include/exclude patterns."""

@@ -29,7 +29,10 @@ class MigrationAnalyzer:
         from_config: Dict[str, Any],
         to_config: Dict[str, Any],
         time_t_aliases: Dict[str, List[str]],
-        time_bearing_symbols: Set[str]
+        time_bearing_symbols: Set[str],
+        *,
+        scoped_time_t_aliases: Optional[Dict[str, Dict[str, List[str]]]] = None,
+        root_path: Optional[str] = None,
     ):
         """
         Initialize migration analyzer.
@@ -37,13 +40,17 @@ class MigrationAnalyzer:
         Args:
             from_config: Source configuration (hardware_model, time_t_size_bits, time_t_signed)
             to_config: Target configuration (hardware_model, time_t_size_bits, time_t_signed)
-            time_t_aliases: Known time_t aliases
-            time_bearing_symbols: Symbols identified as time-bearing
+            time_t_aliases: Known time_t aliases (flat fallback)
+            time_bearing_symbols: Symbols identified as time-bearing (flat fallback)
+            scoped_time_t_aliases: Per-file visible typedef aliases (preferred)
+            root_path: Scan root for resolving scoped file keys
         """
         self.from_config = from_config
         self.to_config = to_config
         self.time_t_aliases = time_t_aliases
         self.time_bearing_symbols = time_bearing_symbols
+        self._scoped_time_t_aliases = scoped_time_t_aliases or {}
+        self._alias_root_path = root_path
         
         # Determine what changed
         self.width_changed = from_config.get('time_t_size_bits') != to_config.get('time_t_size_bits')
@@ -52,6 +59,17 @@ class MigrationAnalyzer:
         
         # Build patterns for detection
         self._build_detection_patterns()
+
+    def _aliases_for_candidate(self, candidate: Candidate) -> Dict[str, List[str]]:
+        if self._scoped_time_t_aliases:
+            from tacs.core.alias_scope import aliases_for_source_file
+
+            return aliases_for_source_file(
+                self._scoped_time_t_aliases,
+                candidate.file,
+                self._alias_root_path,
+            )
+        return dict(self.time_t_aliases or {})
     
     def _build_detection_patterns(self):
         """Build regex patterns for migration risk detection."""
@@ -159,22 +177,26 @@ class MigrationAnalyzer:
     
     def _is_time_bearing(self, candidate: Candidate, code: str) -> bool:
         """Check if candidate involves time-bearing values."""
-        # Check symbol
-        if candidate.symbol in self.time_bearing_symbols:
+        file_aliases = self._aliases_for_candidate(candidate)
+        bearing = set(file_aliases.keys())
+        if not self._scoped_time_t_aliases:
+            bearing |= set(self.time_bearing_symbols)
+
+        if candidate.symbol in bearing:
             return True
-        
-        # Check for time_t or aliases in code
-        time_patterns = ['time_t'] + list(self.time_t_aliases.keys())
+
+        # Check for time_t or in-scope aliases in code
+        time_patterns = ['time_t'] + sorted(file_aliases.keys())
         for pattern in time_patterns:
             if re.search(rf'\b{re.escape(pattern)}\b', code):
                 return True
-        
+
         # Check for time function calls
         time_functions = ['time', 'gettimeofday', 'clock_gettime', 'localtime', 'gmtime', 'mktime']
         for func in time_functions:
             if re.search(rf'\b{re.escape(func)}\s*\(', code):
                 return True
-        
+
         return False
     
     def _detect_width_assumptions(self, candidate: Candidate, code: str) -> List[Dict[str, Any]]:

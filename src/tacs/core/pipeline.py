@@ -502,69 +502,86 @@ class ScanningPipeline:
         # Stage 2: Typedef discovery (using iterative typedef scanner)
         if self.enable_discovery:
             session.start_timing("prescan")
-            typedef_aliases, time_macros = self.discovery_manager.discover_time_aliases(
+            scoped_typedef_aliases, time_macros = self.discovery_manager.discover_time_aliases(
                 root_path, include_patterns, exclude_patterns
             )
-            
-            # Log discoveries to session
-            for alias_name, definitions in typedef_aliases.items():
-                for definition in definitions:
-                    # Extract info from definition string: "file:line: typedef ..."
-                    parts = definition.split(':', 2)
-                    if len(parts) >= 3:
-                        file_path = parts[0]
-                        line_num = int(parts[1]) if parts[1].isdigit() else 0
-                        session.log_typedef(alias_name, "time_t", 1, file_path, line_num)
-            
+            from tacs.core.alias_scope import flatten_scoped_aliases
+            typedef_aliases = flatten_scoped_aliases(scoped_typedef_aliases)
+
+            # Log discoveries to session (unique defining sites)
+            logged: set[tuple[str, str, int]] = set()
+            for _file_abs, file_aliases in scoped_typedef_aliases.items():
+                for alias_name, definitions in file_aliases.items():
+                    for definition in definitions:
+                        # Extract info from definition string: "file:line: typedef ..."
+                        parts = definition.split(':', 2)
+                        if len(parts) >= 3:
+                            file_path = parts[0]
+                            line_num = int(parts[1]) if parts[1].isdigit() else 0
+                            key = (alias_name, file_path, line_num)
+                            if key in logged:
+                                continue
+                            logged.add(key)
+                            session.log_typedef(alias_name, "time_t", 1, file_path, line_num)
+
             session.end_timing("prescan")
             session.log_message("INFO", f"Prescan: {len(typedef_aliases)} typedefs discovered")
-            
+
             # Update rules with discoveries (session/prescan only — never mutate --rules path)
             updated_rules_path = self.discovery_manager.update_rules_with_discoveries(
                 rules_path,
-                typedef_aliases,
+                scoped_typedef_aliases,
                 time_macros,
                 output_dir=str(session.prescan_dir),
                 root_path=root_path,
+                scoped_aliases=scoped_typedef_aliases,
             )
-            
+
             # Save discovery report beside other prescan artifacts
             self.discovery_manager.save_discovery_report(
-                typedef_aliases,
+                scoped_typedef_aliases,
                 time_macros,
                 str(session.prescan_dir / "discovery_report.json"),
                 root_path=root_path,
+                scoped_aliases=scoped_typedef_aliases,
             )
-            
+
             # Extract and save new rules to scan session
             with open(updated_rules_path, 'r', encoding='utf-8') as f:
                 updated_rules = json.load(f)
             with open(rules_path, 'r', encoding='utf-8') as f:
                 original_rules = json.load(f)
-            
+
             # Find new rules (those with "discovered": True)
             new_rules = [rule for rule in updated_rules if rule.get('discovered', False)]
             if new_rules:
                 session.save_discovered_rules(new_rules, rules_path)
                 StatusLogger.timestamped_debug(f"Saved {len(new_rules)} discovered rules to scan session")
-            
-            # Update LLM client with discovered time_t aliases (for Stage S1, Pass P1)
-            # Store for use in function-first pipeline if Stage S1 is enabled
+
+            # Candidate generation and I/O/migration heuristics use scoped maps.
+            # The LLM client keeps a flat fallback plus the scoped map so prompt
+            # payloads can be narrowed to aliases visible to the batch's files.
             if self.function_first:
                 self._time_t_aliases = typedef_aliases
+                self._scoped_time_t_aliases = scoped_typedef_aliases
             if hasattr(self, 'llm_client'):
                 self.llm_client.time_t_aliases = typedef_aliases
-                StatusLogger.timestamped_debug(f"Passed {len(typedef_aliases)} time_t aliases to LLM client for Stage S1, Pass P1")
+                self.llm_client.scoped_time_t_aliases = scoped_typedef_aliases
+                self.llm_client.alias_root_path = root_path
+                StatusLogger.timestamped_debug(
+                    f"Passed {len(typedef_aliases)} time_t aliases to LLM client for Stage S1, Pass P1"
+                )
         else:
             StatusLogger.timestamped_debug("Skipping typedef discovery (disabled)")
             typedef_aliases, time_macros = {}, {}
+            scoped_typedef_aliases = {}
             updated_rules_path = rules_path
             session.log_message("INFO", "Skipping typedef discovery (disabled)")
-        
+
         # Stage 3: IR candidate discovery (using updated rules)
         StatusLogger.timestamped_print("Stage 3: IR candidate discovery...")
         session.start_timing("ir")
-        
+
         # Extract time function names from rules for cast detection
         time_functions = []
         try:
@@ -574,15 +591,15 @@ class ScanningPipeline:
                 if rule.get('category') == 'function' and rule.get('symbol'):
                     symbol = rule.get('symbol')
                     # Add common time functions
-                    if symbol in ['time', 'mktime', 'gmtime', 'localtime', 'clock_gettime', 
+                    if symbol in ['time', 'mktime', 'gmtime', 'localtime', 'clock_gettime',
                                   'gettimeofday', 'timespec_get', 'timespec_getres']:
                         time_functions.append(symbol)
         except Exception:
             pass
-        
+
         candidates = self.ir_adapter.discover_candidates(
             root_path, updated_rules_path, min_risk, include_patterns, exclude_patterns,
-            time_t_aliases=typedef_aliases if self.enable_discovery else {},
+            time_t_aliases=scoped_typedef_aliases if self.enable_discovery else {},
             time_functions=time_functions
         )
         # Belt-and-suspenders: IRAdapter already prepares, but Stage 4/5 may
@@ -640,7 +657,9 @@ class ScanningPipeline:
             self.io_analyzer.update_time_context(
                 time_t_aliases=typedef_aliases,
                 time_bearing_symbols=set(typedef_aliases.keys()),
-                time_function_assignments=time_function_assignments
+                time_function_assignments=time_function_assignments,
+                scoped_time_t_aliases=scoped_typedef_aliases if self.enable_discovery else {},
+                root_path=root_path,
             )
             
             # Analyze I/O boundaries (lazy file loading inside analyzer)
@@ -694,7 +713,9 @@ class ScanningPipeline:
                 from_config=self.migration_from_config,
                 to_config=self.migration_to_config,
                 time_t_aliases=typedef_aliases,
-                time_bearing_symbols=set(typedef_aliases.keys())
+                time_bearing_symbols=set(typedef_aliases.keys()),
+                scoped_time_t_aliases=scoped_typedef_aliases if self.enable_discovery else {},
+                root_path=root_path,
             )
             
             # Analyze migration risks

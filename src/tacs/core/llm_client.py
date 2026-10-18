@@ -91,6 +91,10 @@ class LLMClient:
         self.debug_llm_raw = debug_llm_raw
         self.debug_pass2_prompt = debug_pass2_prompt
         self.time_t_aliases = time_t_aliases or {}
+        # Optional per-file alias map; when set, prompt payloads include only
+        # aliases visible to the files represented in the current candidate batch.
+        self.scoped_time_t_aliases: Dict[str, Dict[str, List[str]]] = {}
+        self.alias_root_path: Optional[str] = None
         self.io_metadata_map = io_metadata_map or {}
         self.confidence_floor = confidence_floor
         # Prefer OLLAMA_API_KEY; keep OLLAMA_CLOUD_TOKEN for existing installs (COMPAT).
@@ -110,6 +114,26 @@ class LLMClient:
         }
 
         self._validate_provider_allowed()
+
+    def _alias_names_for_candidates(self, candidates: List[Candidate]) -> List[str]:
+        """Alias names visible to the files in ``candidates`` (sorted)."""
+        if self.scoped_time_t_aliases:
+            from tacs.core.alias_scope import aliases_for_source_file
+
+            names: set[str] = set()
+            for candidate in candidates:
+                file_path = getattr(candidate, "file", None) or ""
+                if not file_path:
+                    continue
+                names.update(
+                    aliases_for_source_file(
+                        self.scoped_time_t_aliases,
+                        str(file_path),
+                        self.alias_root_path,
+                    ).keys()
+                )
+            return sorted(names)
+        return sorted(str(k) for k in self.time_t_aliases.keys())
 
     def classify_candidates(self, candidates: List[Candidate], batch_size: int = 100, io_metadata_map: Optional[Dict[str, Dict[str, Any]]] = None) -> List[LLMResponse]:
         """
@@ -826,7 +850,7 @@ Only classify as 'yes' when ALL of these are true:
                 for candidate in candidates
             ],
         }
-        aliases = list(self.time_t_aliases.keys())
+        aliases = self._alias_names_for_candidates(candidates)
         if aliases:
             payload["time_t_aliases"] = aliases
         migration = self._migration_facts()
