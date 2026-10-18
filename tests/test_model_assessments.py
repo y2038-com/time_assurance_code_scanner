@@ -63,7 +63,7 @@ def _function(**kwargs) -> FunctionBody:
 
 
 def test_schema_version_is_1_1():
-    assert PUBLIC_RESULT_SCHEMA_VERSION == "1.1"
+    assert PUBLIC_RESULT_SCHEMA_VERSION == "1.2"
 
 
 def test_completed_yes_no_abstain_and_analysis_error():
@@ -182,7 +182,7 @@ def test_candidates_invariant_across_assessment_outcomes(tmp_path: Path):
             for c in data["candidates"]
         ]
         assert len(data["candidates"]) == 1
-        assert data["schema_version"] == "1.1"
+        assert data["schema_version"] == "1.2"
         assert len(data["assessments"]) == 1
         if summary == Y2038Summary.NO:
             assert data["findings"] == []
@@ -295,7 +295,7 @@ def test_llm_none_not_requested_empty_assessments(tmp_path: Path):
     out = tmp_path / "findings.json"
     pipeline.save_results(results, str(out))
     data = json.loads(out.read_text(encoding="utf-8"))
-    assert data["schema_version"] == "1.1"
+    assert data["schema_version"] == "1.2"
     assert data["meta"]["analysis_status"] == "not_requested"
     assert data["assessments"] == []
     assert len(data["candidates"]) >= 1
@@ -767,7 +767,7 @@ def test_single_and_batch_writers_same_assessment_structure(tmp_path: Path):
     pipeline.save_results(results, str(batch))
     a = json.loads(single.read_text(encoding="utf-8"))
     b = json.loads(batch.read_text(encoding="utf-8"))
-    assert a["schema_version"] == b["schema_version"] == "1.1"
+    assert a["schema_version"] == b["schema_version"] == "1.2"
     assert a["assessments"] == b["assessments"]
     assert a["meta"]["assessment_summary"] == b["meta"]["assessment_summary"]
     assert a["meta"]["analysis_status"] == b["meta"]["analysis_status"]

@@ -32,6 +32,11 @@ flattened kept it at `repos/<repo-key>/scan/findings.json`; both still render.
 * `candidates` — deterministic discovery evidence (not confirmed defects).
 * `findings` — model-oriented compatibility view (existing filters still apply).
 
+**Schema 1.1+** adds `assessments[]` and run-level analysis status. **Schema 1.2**
+may include `meta.llm_provider` and `meta.reasoning_effort` (effective OpenAI
+GPT-6 Luna effort). Text and HTML reports show provider/model/reasoning effort
+when present; schema **1.1** files render unchanged without those fields.
+
 Old unversioned `{meta, findings}` files remain renderable. When a versioned
 file has candidates but no model-retained findings, the report states that
 deterministic candidates were recorded rather than implying a zero-candidate

@@ -6,7 +6,57 @@ Git tags use a dotted pre-release form (for example `v0.2.0-rc.1`) while the
 Python package version uses the PEP 440 form (`0.2.0rc1`).
 
 The public JSON result shape is versioned separately as `schema_version` and is
-currently **1.1**.
+currently **1.2**.
+
+## Unreleased
+
+### Added
+
+- Opt-in OpenAI **GPT-6 Luna** (`gpt-6-luna`) via `--model gpt-6-luna` with
+  `--reasoning-effort none|low` on `tacs scan` and `tacs repos`. Unset Luna
+  effort defaults to effective `none` (temperature retained). Explicit `low`
+  omits incompatible sampling fields. Unsupported models/providers reject an
+  explicit effort before any HTTP request.
+- Public result **schema 1.2**: optional `meta.llm_provider` and
+  `meta.reasoning_effort` provenance. Schema **1.1** reports still load and
+  render; loading does not rewrite them.
+- Narrow OpenAI model-policy layer (`tacs.llm.openai_models`) for reasoning
+  effort. Luna payloads omit `max_completion_tokens` (same unset completion
+  budget as pre-Luna OpenAI in TACS; Anthropic/Ollama still use their own 8000
+  caps). TACS has no USD cost estimator.
+
+### Changed
+
+- OpenAI Chat Completions responses are fail-closed on refusal, truncation
+  (`finish_reason=length`), `content_filter`, tool/function calls, non-string
+  content, and unrecognized or missing/null `finish_reason` on the official
+  API. Custom `OPENAI_BASE_URL` endpoints may omit `finish_reason` (compat
+  path only). Optional `reasoning_tokens` usage is captured when present and
+  is not double-counted into completion totals. Deterministic shape/decode
+  errors are non-retryable (one provider call); transport/HTTP retryables
+  still use the existing three-attempt batch loop. Malformed JSON and
+  `function_id` alignment failures remain local parse fallbacks (no HTTP
+  retry).
+- Pass F1/F2/F3 share one canonical model-response wire-contract prompt
+  fragment (`canonical_wire_contract_prompt`) so F2/F3 no longer drift to
+  incomplete “same schema as F1” instructions. Fail-closed validation and
+  `extra=forbid` are unchanged; schema-invalid items still become
+  `analysis_error` without an HTTP retry.
+- Progress and final classification counters count completed yes/no/abstain
+  from assessment `execution_status`, separately from `analysis_error`
+  (compatibility findings may still carry abstain-shaped `y2038_issue`).
+- Text/HTML reports label findings linked to `analysis_error` assessments as
+  analysis errors rather than genuine model abstentions; legacy reports
+  without assessments still render as before.
+
+### Notes
+
+- Luna is opt-in; the default provider remains `--llm none` and the default
+  model id remains `gpt-oss:120b-cloud` (for Ollama when LLM is enabled).
+- `low` may increase latency and completion usage (reasoning tokens count
+  toward the provider’s completion budget when the API enforces one). No
+  claim is made that Luna improves TACS accuracy without evaluation.
+- Package version remains **0.2.0rc1** on this feature branch.
 
 ## 0.2.0rc1 — 2026-09-29
 

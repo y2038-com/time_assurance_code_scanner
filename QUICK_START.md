@@ -157,10 +157,17 @@ tacs scan ... --llm gemini --model gemini-3.6-flash
 # TACS_LLM_PROVIDER=openai
 OPENAI_API_KEY=sk-...
 # TACS_MODEL=gpt-4.1-mini
+# Opt-in GPT-6 Luna (not the default):
+# TACS_MODEL=gpt-6-luna
 ```
 
 ```bash
 tacs scan ... --llm openai --model gpt-4.1-mini
+# Luna (opt-in): unset --reasoning-effort means effective none; low may add latency.
+# OpenAI payloads (including Luna) omit max_completion_tokens (API default budget);
+# Anthropic/Ollama still use their own 8000 completion caps.
+# tacs scan ... --llm openai --model gpt-6-luna --reasoning-effort none
+# tacs scan ... --llm openai --model gpt-6-luna --reasoning-effort low
 ```
 
 ### Anthropic

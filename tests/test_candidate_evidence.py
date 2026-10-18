@@ -224,7 +224,7 @@ def test_save_results_emits_schema_version_and_candidates(tmp_path: Path):
     pipeline = ScanningPipeline.__new__(ScanningPipeline)
     pipeline.save_results(results, str(out))
     data = json.loads(out.read_text(encoding="utf-8"))
-    assert data["schema_version"] == "1.1"
+    assert data["schema_version"] == "1.2"
     assert len(data["candidates"]) == 1
     assert data["candidates"][0]["rule_id"] is None
     assert data["candidates"][0]["discovery_method"] == "define_scanner"
@@ -400,7 +400,7 @@ def test_end_to_end_llm_none_preserves_candidates(tmp_path: Path):
     out = tmp_path / "findings.json"
     pipeline.save_results(results, str(out))
     data = json.loads(out.read_text(encoding="utf-8"))
-    assert data["schema_version"] == "1.1"
+    assert data["schema_version"] == "1.2"
     assert isinstance(data["candidates"], list)
     assert len(data["candidates"]) >= 1
     from tacs.core.rule_catalog import is_valid_rule_id
@@ -708,7 +708,7 @@ def test_evidence_identical_across_model_outcomes_and_stage7(tmp_path: Path):
         if baseline is None:
             baseline = snap
         assert snap == baseline, f"candidates drifted for outcome {label}"
-        assert data["schema_version"] == "1.1"
+        assert data["schema_version"] == "1.2"
         assert data["meta"]["candidate_summary"]["total"] == len(data["candidates"])
         assert data["meta"]["candidate_summary"]["findings"] == len(data["findings"])
         assert data["meta"]["candidate_summary"]["ungrouped"] == 1
@@ -905,7 +905,7 @@ def test_primary_writers_and_render_preserve_schema_fields(tmp_path: Path):
 
     for path in (single_out, batch_out):
         data = json.loads(path.read_text(encoding="utf-8"))
-        assert data["schema_version"] == "1.1"
+        assert data["schema_version"] == "1.2"
         assert len(data["candidates"]) == 1
         assert data["candidates"][0]["discovery_method"] == "io_boundary"
         assert data["meta"]["candidate_summary"]["total"] == 1
@@ -913,7 +913,7 @@ def test_primary_writers_and_render_preserve_schema_fields(tmp_path: Path):
         assert "assessments" in data
         assert "assessment_summary" in data["meta"]
         doc = load_scan_document(str(path))
-        assert doc.schema_version == "1.1"
+        assert doc.schema_version == "1.2"
         assert len(doc.candidates) == 1
         assert doc.has_assessment_section
 

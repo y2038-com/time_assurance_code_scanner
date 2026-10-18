@@ -630,7 +630,7 @@ def test_end_to_end_discovery_invariant_through_scan(tmp_path: Path):
     out = tmp_path / "findings.json"
     pipeline.save_results(results, str(out))
     data = json.loads(out.read_text(encoding="utf-8"))
-    assert data["schema_version"] == "1.1"
+    assert data["schema_version"] == "1.2"
     assert data["meta"]["candidate_summary"]["total"] == len(data["candidates"])
     assert any(c.get("analysis_coverage") == "grouped" for c in data["candidates"])
     assert any(c.get("analysis_coverage") == "ungrouped" for c in data["candidates"])

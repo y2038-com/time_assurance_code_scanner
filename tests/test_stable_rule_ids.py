@@ -544,7 +544,7 @@ def test_writers_and_renderers_preserve_rule_ids(tmp_path: Path):
     pipeline.save_results(results, str(batch))
     for path in (single, batch):
         data = json.loads(path.read_text(encoding="utf-8"))
-        assert data["schema_version"] == "1.1"
+        assert data["schema_version"] == "1.2"
         by = {c["discovery_method"]: c for c in data["candidates"]}
         assert by["catalog_symbol_match"]["rule_id"] == "TACS-RULE-0192"
         assert by["time_t_cast"]["rule_id"] is None

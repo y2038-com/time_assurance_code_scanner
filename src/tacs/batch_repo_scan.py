@@ -88,6 +88,7 @@ class RepoScanJob:
     # Inner per-operation limit, not the repository deadline. See module docstring.
     request_timeout_sec: int
     log_level: str
+    reasoning_effort: str | None = None
 
 
 @dataclass
@@ -136,6 +137,7 @@ def run_repo_scan(job: RepoScanJob) -> dict[str, Any]:
         timeout_sec=job.request_timeout_sec,
         environment_config_path=job.env_config_path,
         max_file_size=job.max_file_size,
+        reasoning_effort=job.reasoning_effort,
     )
 
     # The per-repo directory is the scan's artifact root: the batch run id and

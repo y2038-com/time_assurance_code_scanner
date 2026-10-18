@@ -166,6 +166,7 @@ def _render_one(
         assessment_counts=assessment_counts,
         has_candidate_section=has_candidate_section,
         has_assessment_section=has_assessment_section,
+        meta=doc.meta if isinstance(doc.meta, dict) else None,
     )
 
     if fmt == "text":
