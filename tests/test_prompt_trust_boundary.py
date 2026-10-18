@@ -412,7 +412,9 @@ class _CapturedPost:
 
 PROVIDER_RESPONSES = {
     "ollama": {"response": "[]", "prompt_eval_count": 1, "eval_count": 1},
-    "openai": {"choices": [{"message": {"content": "[]"}}]},
+    "openai": {
+        "choices": [{"message": {"content": "[]"}, "finish_reason": "stop"}]
+    },
     "anthropic": {"content": [{"type": "text", "text": "[]"}]},
     "gemini": {"candidates": [{"content": {"parts": [{"text": "[]"}]}}]},
 }

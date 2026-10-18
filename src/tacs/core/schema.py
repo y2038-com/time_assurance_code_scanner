@@ -99,7 +99,7 @@ PUBLIC_ASSESSMENT_KEYS = (
 )
 
 #: Public result JSON schema version (independent of the package version).
-PUBLIC_RESULT_SCHEMA_VERSION = "1.1"
+PUBLIC_RESULT_SCHEMA_VERSION = "1.2"
 
 
 class AnalysisCoverage(str, Enum):
@@ -423,6 +423,21 @@ class ScanMetadata(BaseModel):
         ),
     )
     model: str = Field(..., description="LLM model used (\"none\" when LLM is disabled)")
+    llm_provider: Optional[str] = Field(
+        default=None,
+        description=(
+            "LLM provider id (openai, ollama, anthropic, gemini, none). "
+            "Absent on pre-1.2 results."
+        ),
+    )
+    reasoning_effort: Optional[str] = Field(
+        default=None,
+        description=(
+            "Effective OpenAI reasoning effort for this scan (\"none\" or \"low\" "
+            "for GPT-6 Luna). Null/absent for non-reasoning models and providers "
+            "(schema 1.2+)."
+        ),
+    )
     confidence_floor: float = Field(..., description="Confidence threshold")
     metrics: Metrics = Field(..., description="Code metrics")
     timestamp: str = Field(..., description="Scan timestamp (UTC ISO 8601)")
@@ -455,7 +470,7 @@ class ScanResults(BaseModel):
     """
     schema_version: str = Field(
         default=PUBLIC_RESULT_SCHEMA_VERSION,
-        description='Public result schema version (e.g. "1.1")',
+        description='Public result schema version (e.g. "1.2")',
     )
     meta: ScanMetadata = Field(..., description="Scan metadata")
     candidates: List[CandidateEvidence] = Field(

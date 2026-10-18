@@ -33,6 +33,115 @@ _SUMMARY_VALUES = frozenset({"yes", "no", "abstain"})
 _NEED_VALUES = frozenset(n.value for n in ContextNeed)
 _ISSUE_TYPE_VALUES = frozenset(t.value for t in TimeIssueType)
 
+# Stable enum lists for the shared prompt fragment (sorted for determinism).
+_NEED_ENUM_PROMPT = "|".join(sorted(_NEED_VALUES))
+_ISSUE_TYPE_ENUM_PROMPT = "|".join(sorted(_ISSUE_TYPE_VALUES))
+
+
+def canonical_wire_contract_prompt(*, detect_y2106: bool = False) -> str:
+    """Complete model-facing wire contract shared by Pass F1, F2, and F3.
+
+    Kept in the same module as :class:`FunctionAnalysisWireItem` so the prompt
+    text cannot drift from the locally enforced pydantic schema (``extra=forbid``).
+    Pass-specific instructions may surround this block; they must not replace it
+    with a cross-reference such as \"same schema as Pass F1\".
+    """
+    if detect_y2106:
+        fields = f"""{{
+  "function_id": "string (exact format provided)",
+  "y2038_summary": "yes|no|abstain",
+  "y2106_summary": "yes|no|abstain",
+  "issue_type": "{_ISSUE_TYPE_ENUM_PROMPT}",
+  "confidence": 0.0-1.0,
+  "issues": [{{"type": "string", "line": int, "description": "string"}}],
+  "needs_more_context": boolean,
+  "needs": ["{_NEED_ENUM_PROMPT.replace('|', '"|"')}"]
+}}"""
+        summary_rules = (
+            "- y2038_summary / y2106_summary must be exactly lowercase "
+            '"yes" | "no" | "abstain" (no synonyms)\n'
+            f'- issue_type must be exactly one of: {_ISSUE_TYPE_ENUM_PROMPT}\n'
+            "- Classify Y2038 and Y2106 independently (both can be YES if applicable)\n"
+        )
+    else:
+        fields = f"""{{
+  "function_id": "string (exact format provided)",
+  "y2038_summary": "yes|no|abstain",
+  "confidence": 0.0-1.0,
+  "issues": [{{"type": "string", "line": int, "description": "string"}}],
+  "needs_more_context": boolean,
+  "needs": ["{_NEED_ENUM_PROMPT.replace('|', '"|"')}"]
+}}"""
+        summary_rules = (
+            '- y2038_summary must be exactly lowercase "yes" | "no" | "abstain" '
+            "(no synonyms such as safe/risky/true)\n"
+        )
+
+    return f"""
+Respond with a JSON array of analysis objects. Each object must have exactly these fields:
+{fields}
+
+WIRE CONTRACT (authoritative; undocumented fields are rejected):
+- Copy each `function_id` exactly from the analysis data (case-sensitive; no trimming, prefixes, suffixes, or aliases)
+- Include exactly one result object per requested function_id; never omit an ID or invent another
+{summary_rules}- confidence must be a JSON number in [0.0, 1.0] (not a string, boolean, NaN, or Infinity)
+- needs_more_context must be a JSON boolean
+- `needs` must be a JSON array whose entries are only: {_NEED_ENUM_PROMPT}
+- `issues` must be a JSON array of objects with exactly the fields type, line, and description; `[]` is valid (especially for no/abstain)
+- Extra top-level or issue fields are forbidden
+- For YES: include concrete issue objects explaining the risks found
+- For NO / ABSTAIN: `issues` may be `[]`, or may include explanatory issue objects
+- For ABSTAIN: set needs_more_context and needs to name missing context when applicable
+- Return a valid JSON array with no extra prose outside an optional single markdown fence
+"""
+
+
+def count_analyses_by_execution(
+    analyses: Sequence[FunctionAnalysis],
+) -> Dict[str, int]:
+    """Count completed yes/no/abstain separately from analysis_error stubs.
+
+    Analysis-error stubs keep compatibility ``y2038_summary=abstain`` but must
+    not be reported as genuine model abstentions.
+    """
+    yes = no = abstain = errors = 0
+    for analysis in analyses:
+        status = getattr(
+            analysis, "execution_status", AssessmentExecutionStatus.COMPLETED
+        )
+        status_val = status.value if hasattr(status, "value") else str(status)
+        if status_val == AssessmentExecutionStatus.ANALYSIS_ERROR.value:
+            errors += 1
+            continue
+        summary = analysis.y2038_summary
+        summary_val = summary.value if hasattr(summary, "value") else str(summary)
+        if summary_val == "yes":
+            yes += 1
+        elif summary_val == "no":
+            no += 1
+        else:
+            abstain += 1
+    return {
+        "yes": yes,
+        "no": no,
+        "abstain": abstain,
+        "analysis_errors": errors,
+        "total": len(list(analyses)),
+    }
+
+
+def format_classification_counts(counts: Dict[str, int]) -> str:
+    """Stable progress clause: yes/no/abstain[/analysis_error]."""
+    parts = [
+        f"{int(counts.get('yes', 0))} yes",
+        f"{int(counts.get('no', 0))} no",
+        f"{int(counts.get('abstain', 0))} abstain",
+    ]
+    errors = int(counts.get("analysis_errors", 0) or 0)
+    if errors:
+        parts.append(f"{errors} analysis_error")
+    return ", ".join(parts)
+
 
 class WireIssue(BaseModel):
     """One issue object from the model wire format.

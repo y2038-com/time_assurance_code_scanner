@@ -66,7 +66,24 @@ def _migration_endpoint_facts(config: Dict[str, Any]) -> Dict[str, Any]:
 class LLMClient:
     """Pluggable LLM client with provider-specific HTTP adapters."""
 
-    def __init__(self, llm_type: str = "none", model: Optional[str] = None, environment_config: Optional[Dict[str, Any]] = None, timeout_sec: int = 30, batch_size_pass2: int = 20, batch_size_pass3: int = 10, debug_llm_raw: bool = False, debug_pass2_prompt: bool = False, time_t_aliases: Optional[Dict[str, List[str]]] = None, io_metadata_map: Optional[Dict[str, Dict[str, Any]]] = None, migration_mode: bool = False, migration_from_config: Optional[Dict[str, Any]] = None, migration_to_config: Optional[Dict[str, Any]] = None, confidence_floor: float = DEFAULT_CONFIDENCE_FLOOR):
+    def __init__(
+        self,
+        llm_type: str = "none",
+        model: Optional[str] = None,
+        environment_config: Optional[Dict[str, Any]] = None,
+        timeout_sec: int = 30,
+        batch_size_pass2: int = 20,
+        batch_size_pass3: int = 10,
+        debug_llm_raw: bool = False,
+        debug_pass2_prompt: bool = False,
+        time_t_aliases: Optional[Dict[str, List[str]]] = None,
+        io_metadata_map: Optional[Dict[str, Dict[str, Any]]] = None,
+        migration_mode: bool = False,
+        migration_from_config: Optional[Dict[str, Any]] = None,
+        migration_to_config: Optional[Dict[str, Any]] = None,
+        confidence_floor: float = DEFAULT_CONFIDENCE_FLOOR,
+        reasoning_effort: Optional[str] = None,
+    ):
         """
         Initialize the LLM client.
 
@@ -81,6 +98,8 @@ class LLMClient:
             confidence_floor: Confidence a 'yes' needs to stand. The prompts quote
                 it, so a caller that configures a floor asks the model for the
                 threshold it will then be held to.
+            reasoning_effort: Optional OpenAI reasoning effort (``none`` / ``low``
+                for GPT-6 Luna). Validated before any HTTP request.
         """
         self.llm_type = llm_type
         self.model = model or default_model_id() or DEFAULT_MODEL
@@ -97,6 +116,7 @@ class LLMClient:
         self.alias_root_path: Optional[str] = None
         self.io_metadata_map = io_metadata_map or {}
         self.confidence_floor = confidence_floor
+        self.reasoning_effort = reasoning_effort
         # Prefer OLLAMA_API_KEY; keep OLLAMA_CLOUD_TOKEN for existing installs (COMPAT).
         self.cloud_token = ollama_api_key()
 
@@ -109,11 +129,13 @@ class LLMClient:
         self.token_stats = {
             "total_prompt_tokens": 0,
             "total_completion_tokens": 0,
+            "total_reasoning_tokens": 0,
             "total_requests": 0,
             "by_stage": {}  # Track per stage/pass
         }
 
         self._validate_provider_allowed()
+        self._validate_reasoning_effort_config()
 
     def _alias_names_for_candidates(self, candidates: List[Candidate]) -> List[str]:
         """Alias names visible to the files in ``candidates`` (sorted)."""
@@ -243,7 +265,15 @@ class LLMClient:
                 if "usage" in response_data:
                     prompt_tokens = response_data["usage"].get("prompt_tokens", 0)
                     completion_tokens = response_data["usage"].get("completion_tokens", 0)
-                    self._track_tokens(prompt_tokens, completion_tokens, stage_name)
+                    reasoning_tokens = response_data["usage"].get("reasoning_tokens")
+                    self._track_tokens(
+                        prompt_tokens,
+                        completion_tokens,
+                        stage_name,
+                        reasoning_tokens=reasoning_tokens
+                        if isinstance(reasoning_tokens, int)
+                        else None,
+                    )
 
                 responses = self._parse_response(response_data, candidates)
 
@@ -402,7 +432,15 @@ class LLMClient:
                 if "usage" in response_data:
                     prompt_tokens = response_data["usage"].get("prompt_tokens", 0)
                     completion_tokens = response_data["usage"].get("completion_tokens", 0)
-                    self._track_tokens(prompt_tokens, completion_tokens, "S3_P1")
+                    reasoning_tokens = response_data["usage"].get("reasoning_tokens")
+                    self._track_tokens(
+                        prompt_tokens,
+                        completion_tokens,
+                        "S3_P1",
+                        reasoning_tokens=reasoning_tokens
+                        if isinstance(reasoning_tokens, int)
+                        else None,
+                    )
 
                 responses = self._parse_response(response_data, [candidate for _, candidate, _ in batch])
 
@@ -617,7 +655,15 @@ int main() {
                 if "usage" in response_data:
                     prompt_tokens = response_data["usage"].get("prompt_tokens", 0)
                     completion_tokens = response_data["usage"].get("completion_tokens", 0)
-                    self._track_tokens(prompt_tokens, completion_tokens, "S2_P1")
+                    reasoning_tokens = response_data["usage"].get("reasoning_tokens")
+                    self._track_tokens(
+                        prompt_tokens,
+                        completion_tokens,
+                        "S2_P1",
+                        reasoning_tokens=reasoning_tokens
+                        if isinstance(reasoning_tokens, int)
+                        else None,
+                    )
 
                 # Debug: Show raw response if requested
                 if self.debug_llm_raw:
@@ -1373,28 +1419,71 @@ Classification in migration mode:
             )
         return result
 
+    def _validate_reasoning_effort_config(self) -> None:
+        """Fail closed on incompatible ``reasoning_effort`` before any HTTP call."""
+        from tacs.llm.openai_models import (
+            InvalidReasoningEffortError,
+            recorded_reasoning_effort,
+            reject_unsupported_reasoning_effort,
+        )
+
+        if self.llm_type == "none":
+            reject_unsupported_reasoning_effort(self.reasoning_effort)
+            return
+        try:
+            recorded_reasoning_effort(
+                provider_id=self.llm_type,
+                model=self.model,
+                requested=self.reasoning_effort,
+            )
+        except InvalidReasoningEffortError:
+            raise
+
+    def effective_reasoning_effort(self) -> Optional[str]:
+        """Effective effort recorded in scan metadata (``none``/``low`` or ``None``)."""
+        from tacs.llm.openai_models import recorded_reasoning_effort
+
+        if self.llm_type == "none":
+            return None
+        return recorded_reasoning_effort(
+            provider_id=self.llm_type,
+            model=self.model,
+            requested=self.reasoning_effort,
+        )
+
     def _make_openai_request(self, prompt: LLMPromptParts) -> Dict[str, Any]:
         """Make request to OpenAI-compatible chat completions API."""
-        import requests
+        from tacs.llm.openai_models import (
+            InvalidReasoningEffortError,
+            build_openai_chat_payload,
+        )
 
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY is not set")
         base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
         url = f"{base_url}/chat/completions"
-        data = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": prompt.system},
-                {"role": "user", "content": prompt.user},
-            ],
-            "temperature": 0.1,
-        }
+        try:
+            data = build_openai_chat_payload(
+                model_id=self.model,
+                system=prompt.system,
+                user=prompt.user,
+                reasoning_effort=self.reasoning_effort,
+            )
+        except InvalidReasoningEffortError:
+            raise
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
-        return self._post_and_normalize(url, data, headers=headers, provider_name="OpenAI")
+        raw = self._post_and_normalize(url, data, headers=headers, provider_name="OpenAI")
+        # Fail-closed OpenAI completion shape (truncation / refusal / non-string).
+        content = self._openai_message_text(raw)
+        usage = self._openai_usage_from_response(raw)
+        return {
+            "choices": [{"message": {"content": content}, "finish_reason": "stop"}],
+            "usage": usage,
+        }
 
     def _make_anthropic_request(self, prompt: LLMPromptParts) -> Dict[str, Any]:
         """Make request to Anthropic Messages API."""
@@ -1785,21 +1874,43 @@ Classification in migration mode:
             responses.append(response)
         return responses
 
-    def _track_tokens(self, prompt_tokens: int, completion_tokens: int, stage_name: str):
-        """Track token usage statistics."""
+    def _track_tokens(
+        self,
+        prompt_tokens: int,
+        completion_tokens: int,
+        stage_name: str,
+        *,
+        reasoning_tokens: Optional[int] = None,
+    ):
+        """Track token usage statistics.
+
+        ``completion_tokens`` already includes reasoning tokens when the provider
+        reports them that way; ``reasoning_tokens`` is optional detail and is
+        never added again into ``total_completion_tokens``.
+        """
         self.token_stats["total_prompt_tokens"] += prompt_tokens
         self.token_stats["total_completion_tokens"] += completion_tokens
+        if reasoning_tokens is not None:
+            self.token_stats["total_reasoning_tokens"] = (
+                int(self.token_stats.get("total_reasoning_tokens") or 0) + int(reasoning_tokens)
+            )
         self.token_stats["total_requests"] += 1
 
         if stage_name not in self.token_stats["by_stage"]:
             self.token_stats["by_stage"][stage_name] = {
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
-                "requests": 0
+                "reasoning_tokens": 0,
+                "requests": 0,
             }
 
         self.token_stats["by_stage"][stage_name]["prompt_tokens"] += prompt_tokens
         self.token_stats["by_stage"][stage_name]["completion_tokens"] += completion_tokens
+        if reasoning_tokens is not None:
+            self.token_stats["by_stage"][stage_name]["reasoning_tokens"] = (
+                int(self.token_stats["by_stage"][stage_name].get("reasoning_tokens") or 0)
+                + int(reasoning_tokens)
+            )
         self.token_stats["by_stage"][stage_name]["requests"] += 1
 
     def get_token_stats(self) -> Dict[str, Any]:
@@ -1815,6 +1926,168 @@ Classification in migration mode:
         self.token_stats = {
             "total_prompt_tokens": 0,
             "total_completion_tokens": 0,
+            "total_reasoning_tokens": 0,
             "total_requests": 0,
             "by_stage": {}
         }
+
+    @staticmethod
+    def _nonneg_int(value: object, *, default: Optional[int] = 0) -> Optional[int]:
+        if value is None:
+            return default
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("invalid token count")
+        if value < 0:
+            raise ValueError("negative token count")
+        return value
+
+    def _openai_usage_from_response(self, raw: Dict[str, Any]) -> Dict[str, Any]:
+        """Map Chat Completions usage; capture optional reasoning_tokens once."""
+        usage_raw = raw.get("usage") if isinstance(raw, dict) else None
+        if not isinstance(usage_raw, dict):
+            return {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+            }
+        try:
+            prompt_tokens = self._nonneg_int(usage_raw.get("prompt_tokens"), default=0) or 0
+            completion_tokens = (
+                self._nonneg_int(usage_raw.get("completion_tokens"), default=0) or 0
+            )
+        except ValueError as exc:
+            raise LLMProviderError(
+                provider="OpenAI",
+                category=LLMErrorCategory.DECODE,
+                retryable=False,
+                detail="invalid_usage",
+            ) from None
+        reasoning_tokens: Optional[int] = None
+        details = usage_raw.get("completion_tokens_details")
+        if isinstance(details, dict) and "reasoning_tokens" in details:
+            try:
+                reasoning_tokens = self._nonneg_int(
+                    details.get("reasoning_tokens"), default=None
+                )
+            except ValueError:
+                raise LLMProviderError(
+                    provider="OpenAI",
+                    category=LLMErrorCategory.DECODE,
+                    retryable=False,
+                    detail="invalid_usage",
+                ) from None
+        out: Dict[str, Any] = {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
+        }
+        if reasoning_tokens is not None:
+            out["reasoning_tokens"] = reasoning_tokens
+            out["completion_tokens_details"] = {"reasoning_tokens": reasoning_tokens}
+        return out
+
+    def _openai_compat_missing_finish_reason_ok(self) -> bool:
+        """Accept absent/null finish_reason only on non-official OpenAI base URLs.
+
+        Official ``api.openai.com`` (and unset ``OPENAI_BASE_URL``) is fail-closed:
+        missing/null finish_reason is an unexpected shape. Custom OpenAI-compatible
+        endpoints may omit the field; that legacy acceptance is scoped here only.
+        """
+        from tacs.llm.openai_models import is_official_openai_base_url
+
+        return not is_official_openai_base_url(os.getenv("OPENAI_BASE_URL"))
+
+    def _openai_message_text(self, data: Dict[str, Any]) -> str:
+        """Return assistant message text, or raise a controlled provider error.
+
+        Terminal policy (non-retryable). Ordinary errors never echo finish_reason
+        values, refusals, or content.
+
+        * ``stop`` — accept
+        * ``length`` — truncation (no parse)
+        * ``content_filter`` — provider rejection
+        * ``tool_calls`` / ``function_call`` — unexpected output type
+        * missing/null — unexpected shape on official OpenAI; allowed only on
+          OpenAI-compatible custom ``OPENAI_BASE_URL``
+        * any other value — unexpected shape (value not echoed)
+        """
+        choices = data.get("choices") if isinstance(data, dict) else None
+        if not isinstance(choices, list) or not choices:
+            raise LLMProviderError(
+                provider="OpenAI",
+                category=LLMErrorCategory.DECODE,
+                retryable=False,
+                detail="unexpected_response_format",
+            )
+        first = choices[0]
+        if not isinstance(first, dict):
+            raise LLMProviderError(
+                provider="OpenAI",
+                category=LLMErrorCategory.DECODE,
+                retryable=False,
+                detail="unexpected_response_format",
+            )
+
+        finish_reason = first.get("finish_reason")
+        if finish_reason == "length":
+            raise LLMProviderError(
+                provider="OpenAI",
+                category=LLMErrorCategory.DECODE,
+                retryable=False,
+                detail="output_truncated",
+            )
+        if finish_reason == "content_filter":
+            raise LLMProviderError(
+                provider="OpenAI",
+                category=LLMErrorCategory.DECODE,
+                retryable=False,
+                detail="output_rejected",
+            )
+        if finish_reason in ("tool_calls", "function_call"):
+            raise LLMProviderError(
+                provider="OpenAI",
+                category=LLMErrorCategory.DECODE,
+                retryable=False,
+                detail="unexpected_output_type",
+            )
+        if finish_reason is None or finish_reason == "stop":
+            if finish_reason is None and not self._openai_compat_missing_finish_reason_ok():
+                raise LLMProviderError(
+                    provider="OpenAI",
+                    category=LLMErrorCategory.DECODE,
+                    retryable=False,
+                    detail="unexpected_response_format",
+                )
+        else:
+            raise LLMProviderError(
+                provider="OpenAI",
+                category=LLMErrorCategory.DECODE,
+                retryable=False,
+                detail="unexpected_response_format",
+            )
+
+        message = first.get("message")
+        if not isinstance(message, dict):
+            raise LLMProviderError(
+                provider="OpenAI",
+                category=LLMErrorCategory.DECODE,
+                retryable=False,
+                detail="unexpected_response_format",
+            )
+        refusal = message.get("refusal")
+        if isinstance(refusal, str) and refusal.strip():
+            raise LLMProviderError(
+                provider="OpenAI",
+                category=LLMErrorCategory.DECODE,
+                retryable=False,
+                detail="unexpected_response_format",
+            )
+        content = message.get("content")
+        if content is None or not isinstance(content, str):
+            raise LLMProviderError(
+                provider="OpenAI",
+                category=LLMErrorCategory.DECODE,
+                retryable=False,
+                detail="unexpected_response_format",
+            )
+        return content

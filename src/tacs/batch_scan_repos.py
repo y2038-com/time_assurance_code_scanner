@@ -710,6 +710,7 @@ def _build_pipeline(
     timeout_sec: int,
     environment_config_path: str,
     max_file_size: int | None = None,
+    reasoning_effort: str | None = None,
 ) -> Any:
     """
     Construct the scanning pipeline for one repository.
@@ -777,6 +778,7 @@ def _build_pipeline(
         migration_from_config_path=None,
         migration_to_config_path=None,
         include_no_findings=include_no_findings,
+        reasoning_effort=reasoning_effort,
     )
 
 
@@ -932,6 +934,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             f"Model name for selected provider "
             f"(default: {DEFAULT_MODEL} or TACS_MODEL; ignored when --llm none)"
+        ),
+    )
+    parser.add_argument(
+        "--reasoning-effort",
+        choices=["none", "low"],
+        default=None,
+        help=(
+            "OpenAI reasoning effort for GPT-6 Luna (none|low). When unset for Luna, "
+            "effective effort is none. Rejected for --llm none and non-reasoning "
+            "models/providers (matches tacs scan)."
         ),
     )
     parser.add_argument(
@@ -1262,6 +1274,7 @@ def main(argv: list[str] | None = None) -> int:
                 # repository budget, so these are set separately.
                 request_timeout_sec=args.request_timeout_sec,
                 log_level=effective_log_level,
+                reasoning_effort=getattr(args, "reasoning_effort", None),
             )
             outcome = _run_repo_scan(job, deadline_sec=args.scanner_timeout_sec)
             if outcome.timed_out:

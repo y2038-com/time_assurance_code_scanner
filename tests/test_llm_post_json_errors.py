@@ -233,7 +233,7 @@ def test_function_llm_still_retries_retryable_errors(
                 retryable=True,
             )
         return {
-            "choices": [{"message": {"content": "[]"}}],
+            "choices": [{"message": {"content": "[]"}, "finish_reason": "stop"}],
             "usage": {"prompt_tokens": 1, "completion_tokens": 1},
         }
 

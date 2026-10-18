@@ -249,7 +249,7 @@ def test_stage_9_debug_keeps_batch_detail(
 
     assert "Stage 9 function classifications: 0 yes, 0 no, 1 abstain" in err
     assert "Stage 9: Processing batch 1 of 1" in err
-    assert "final abstain(s) after file context" in err
+    assert "final completed abstain(s) after file context" in err
 
 
 def test_stage_9_final_abstain_ids_not_at_info(
@@ -259,7 +259,7 @@ def test_stage_9_final_abstain_ids_not_at_info(
     err = capsys.readouterr().err
 
     assert "Stage 9 function classifications: 0 yes, 0 no, 1 abstain" in err
-    assert "final abstain(s) after file context" not in err
+    assert "final completed abstain(s) after file context" not in err
     assert "benchmark.c@measure_window" not in err
 
 

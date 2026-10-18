@@ -37,6 +37,23 @@ _ASSESSMENT_NOTE = (
 )
 
 
+def _format_run_provenance(meta: dict[str, Any] | None) -> str | None:
+    """One-line provider/model/reasoning provenance from scan meta (schema 1.2+)."""
+    if not isinstance(meta, dict):
+        return None
+    model = meta.get("model")
+    if model is None or (isinstance(model, str) and not model.strip()):
+        return None
+    parts = [f"model: {model}"]
+    provider = meta.get("llm_provider")
+    if provider is not None and str(provider).strip():
+        parts.insert(0, f"provider: {provider}")
+    effort = meta.get("reasoning_effort")
+    if effort is not None and str(effort).strip():
+        parts.append(f"reasoning_effort: {effort}")
+    return " | ".join(parts)
+
+
 def render_text(
     findings: list[NormalizedFinding],
     *,
@@ -47,15 +64,21 @@ def render_text(
     assessment_counts: dict[str, Any] | None = None,
     has_candidate_section: bool = False,
     has_assessment_section: bool = False,
+    meta: dict[str, Any] | None = None,
 ) -> str:
     """Render findings (and optional candidates/assessments) as readable CLI text."""
     candidates = list(candidates or [])
     assessments = list(assessments or [])
+    status_by_fid = _assessment_status_by_function_id(assessments)
     counts = candidate_counts or {}
     a_counts = assessment_counts or {}
     candidate_total = int(counts.get("total", len(candidates)))
     ungrouped = int(counts.get("ungrouped", 0))
     header_lines = [_ASSURANCE_DISCLAIMER, ""]
+    provenance = _format_run_provenance(meta)
+    if provenance:
+        header_lines.append(provenance)
+        header_lines.append("")
 
     if has_candidate_section:
         header_lines.append(_CANDIDATE_EVIDENCE_NOTE)
@@ -115,15 +138,25 @@ def render_text(
         header_lines.append("")
 
     if not findings:
-        if has_candidate_section or has_assessment_section:
-            return "\n".join(header_lines).rstrip() + "\n"
+        if has_candidate_section or has_assessment_section or provenance:
+            empty_note = (
+                ""
+                if has_candidate_section or has_assessment_section
+                else "No findings match the selected filters."
+            )
+            parts = list(header_lines)
+            if empty_note:
+                parts.append(empty_note)
+            return "\n".join(parts).rstrip() + "\n"
         return f"{_ASSURANCE_DISCLAIMER}\n\nNo findings match the selected filters."
 
     total = len(findings)
     if list_mode:
         lines = list(header_lines)
         for f in findings:
-            issue_display = _display_issue_class(f)
+            issue_display = _display_issue_class(
+                f, assessment_status_by_fid=status_by_fid
+            )
             confidence = f"{f.confidence:.2f}" if f.confidence is not None else "N/A"
             line_range = (
                 f"{f.start_line}-{f.end_line}"
@@ -133,12 +166,17 @@ def render_text(
                 else str(f.start_line or "N/A")
             )
             lines.append(
-                f"[{f.index:>3}] {issue_display:>11} {f.risk:>8} {confidence:>5} "
+                f"[{f.index:>3}] {issue_display:>14} {f.risk:>8} {confidence:>5} "
                 f"{f.file_path}:{line_range} {f.rule_id}"
             )
         return "\n".join(lines)
 
-    finding_blocks = [_render_text_finding(f, total=total) for f in findings]
+    finding_blocks = [
+        _render_text_finding(
+            f, total=total, assessment_status_by_fid=status_by_fid
+        )
+        for f in findings
+    ]
     if has_candidate_section or has_assessment_section:
         return "\n".join(header_lines).rstrip() + "\n\n" + "\n\n".join(finding_blocks)
     return "\n\n".join([_ASSURANCE_DISCLAIMER] + finding_blocks)
@@ -223,18 +261,27 @@ def render_html(
     assessment_counts: dict[str, Any] | None = None,
     has_candidate_section: bool = False,
     has_assessment_section: bool = False,
+    meta: dict[str, Any] | None = None,
 ) -> str:
     """Render findings (and optional candidates/assessments) as a standalone HTML report."""
     candidates = list(candidates or [])
     assessments = list(assessments or [])
+    status_by_fid = _assessment_status_by_function_id(assessments)
     counts = candidate_counts or {}
     a_counts = assessment_counts or {}
     candidate_total = int(counts.get("total", len(candidates)))
     ungrouped = int(counts.get("ungrouped", 0))
     grouped = int(counts.get("grouped", 0))
     functions_with = int(counts.get("functions_with_candidates", 0))
+    provenance = _format_run_provenance(meta)
+    provenance_html = (
+        f'<div class="meta">{html.escape(provenance)}</div>' if provenance else ""
+    )
 
-    stats = Counter(f.issue_class for f in findings)
+    display_classes = [
+        _display_issue_class(f, assessment_status_by_fid=status_by_fid) for f in findings
+    ]
+    stats = Counter(display_classes)
     risk_stats = Counter(f.risk for f in findings)
     grouped_findings = _group_findings(findings, group_by)
 
@@ -244,7 +291,9 @@ def render_html(
         cards = []
         for f in group_items:
             rendered.append(f)
-            cards.append(_render_finding_card(f))
+            cards.append(
+                _render_finding_card(f, assessment_status_by_fid=status_by_fid)
+            )
         sections.append(
             f"""
             <section class="group">
@@ -253,7 +302,12 @@ def render_html(
             </section>
             """
         )
-    payload = _json_for_script([_finding_to_json(f) for f in rendered])
+    payload = _json_for_script(
+        [
+            _finding_to_json(f, assessment_status_by_fid=status_by_fid)
+            for f in rendered
+        ]
+    )
     candidates_script = ""
     if has_candidate_section:
         candidates_payload = _json_for_script(candidates)
@@ -374,6 +428,7 @@ def render_html(
     .badge.yes {{ background: rgba(239, 68, 68, 0.12); color: #fca5a5; }}
     .badge.no {{ background: rgba(16, 185, 129, 0.12); color: #6ee7b7; }}
     .badge.abstain {{ background: rgba(245, 158, 11, 0.12); color: #fcd34d; }}
+    .badge.analysis_error {{ background: rgba(239, 68, 68, 0.12); color: #fca5a5; }}
     .badge.candidate {{ background: rgba(96, 165, 250, 0.12); color: #93c5fd; }}
     .body {{ padding: 0 12px 12px 12px; }}
     pre {{ margin: 0; background: var(--code); border: 1px solid var(--border); border-radius: 8px; padding: 10px; overflow: auto; }}
@@ -391,6 +446,7 @@ def render_html(
     <div>
       <h1 style="margin: 0;">{html.escape(title)}</h1>
       <div class="meta">Total finding records: {len(findings)}</div>
+      {provenance_html}
       <div class="meta" style="max-width: 52rem; margin-top: 6px;">{html.escape(_ASSURANCE_DISCLAIMER)}</div>
       {preservation}
     </div>
@@ -400,6 +456,7 @@ def render_html(
       <div class="pill">yes: {stats.get('yes', 0)}</div>
       <div class="pill">no: {stats.get('no', 0)}</div>
       <div class="pill">abstain: {stats.get('abstain', 0)}</div>
+      <div class="pill">analysis_error: {stats.get('analysis_error', 0)}</div>
       <div class="pill">high risk: {risk_stats.get('high', 0)}</div>
     </div>
   </div>
@@ -410,6 +467,7 @@ def render_html(
       <option value="yes">yes</option>
       <option value="no">no</option>
       <option value="abstain">abstain</option>
+      <option value="analysis_error">analysis_error</option>
       <option value="unknown">unknown</option>
     </select>
     <input id="minConf" type="number" min="0" max="1" step="0.01" placeholder="Min confidence"/>
@@ -542,8 +600,15 @@ def _render_candidate_card(cand: dict[str, Any], index: int) -> str:
     """
 
 
-def _render_text_finding(f: NormalizedFinding, *, total: int) -> str:
-    issue_display = _display_issue_class(f)
+def _render_text_finding(
+    f: NormalizedFinding,
+    *,
+    total: int,
+    assessment_status_by_fid: dict[str, str] | None = None,
+) -> str:
+    issue_display = _display_issue_class(
+        f, assessment_status_by_fid=assessment_status_by_fid
+    )
     line_label = "Line"
     line_value = "N/A"
     if f.start_line is not None:
@@ -589,8 +654,15 @@ def _group_findings(
     return sorted(buckets.items(), key=lambda kv: kv[0])
 
 
-def _render_finding_card(f: NormalizedFinding) -> str:
-    issue_display = _display_issue_class(f)
+def _render_finding_card(
+    f: NormalizedFinding,
+    *,
+    assessment_status_by_fid: dict[str, str] | None = None,
+) -> str:
+    issue_display = _display_issue_class(
+        f, assessment_status_by_fid=assessment_status_by_fid
+    )
+    badge_class = issue_display if issue_display == "analysis_error" else f.issue_class
     conf = f"{f.confidence:.2f}" if f.confidence is not None else "N/A"
     lines = []
     for sl in f.snippet_lines:
@@ -606,7 +678,7 @@ def _render_finding_card(f: NormalizedFinding) -> str:
       <details class="card" id="finding-{f.index}" data-finding-index="{f.index}">
         <summary>
           <span>
-            <span class="badge {html.escape(f.issue_class)}">{html.escape(issue_display)}</span>
+            <span class="badge {html.escape(badge_class)}">{html.escape(issue_display)}</span>
             Finding {f.index}: {html.escape(f.rule_id)}
           </span>
           <span class="meta">{html.escape(f.file_path)} | risk {html.escape(f.risk)} | conf {conf}</span>
@@ -619,21 +691,53 @@ def _render_finding_card(f: NormalizedFinding) -> str:
     """
 
 
-def _finding_to_json(f: NormalizedFinding) -> dict[str, object]:
+def _finding_to_json(
+    f: NormalizedFinding,
+    *,
+    assessment_status_by_fid: dict[str, str] | None = None,
+) -> dict[str, object]:
     return {
         "index": f.index,
         "file_path": f.file_path,
         "rule_id": f.rule_id,
         "reason_short": f.reason_short,
-        "issue_class": _display_issue_class(f),
+        "issue_class": _display_issue_class(
+            f, assessment_status_by_fid=assessment_status_by_fid
+        ),
         "confidence": f.confidence,
     }
 
 
-def _display_issue_class(f: NormalizedFinding) -> str:
+def _assessment_status_by_function_id(
+    assessments: Sequence[dict[str, Any]] | None,
+) -> dict[str, str]:
+    """Map function_id -> execution_status from public assessments (when present)."""
+    out: dict[str, str] = {}
+    for row in assessments or []:
+        if not isinstance(row, dict):
+            continue
+        fid = row.get("function_id")
+        status = row.get("execution_status")
+        if isinstance(fid, str) and fid.strip() and isinstance(status, str) and status.strip():
+            out[fid] = status.strip()
+    return out
+
+
+def _display_issue_class(
+    f: NormalizedFinding,
+    *,
+    assessment_status_by_fid: dict[str, str] | None = None,
+) -> str:
+    """Display label for a finding; analysis-error stubs are not shown as abstain."""
     y2106_issue = f.raw.get("y2106_issue")
     if f.issue_class == "yes":
         return "yes"
     if isinstance(y2106_issue, str) and y2106_issue.strip().lower() == "yes":
         return "yes(y2106)"
+    if assessment_status_by_fid:
+        fid = f.raw.get("function_id")
+        if isinstance(fid, str) and assessment_status_by_fid.get(fid) == "analysis_error":
+            # Compatibility findings may still carry y2038_issue=abstain for
+            # operational stubs; surface the authoritative assessment status.
+            return "analysis_error"
     return f.issue_class

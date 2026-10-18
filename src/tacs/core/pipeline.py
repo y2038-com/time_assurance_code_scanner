@@ -86,6 +86,7 @@ class ScanningPipeline:
         migration_from_config_path: Optional[str] = None,
         migration_to_config_path: Optional[str] = None,
         include_no_findings: bool = False,
+        reasoning_effort: Optional[str] = None,
     ):
         """
         Initialize the scanning pipeline.
@@ -166,6 +167,7 @@ class ScanningPipeline:
         # Migration mode
         self.migration_mode = migration_mode
         self.include_no_findings = include_no_findings
+        self.reasoning_effort = reasoning_effort
         # Y2038 classification counts from the last scan, taken before output
         # filtering drops safe ("no") findings. Summary lines and the batch runner
         # read this so a dropped "no" is not reported as a "no" verdict count.
@@ -244,6 +246,7 @@ class ScanningPipeline:
                 # Y2106 prompt and response handling never run, so --detect-y2106
                 # would change only finding retention and the summary counts.
                 detect_y2106=detect_y2106,
+                reasoning_effort=reasoning_effort,
             )
             # Set migration mode configs if enabled
             if self.migration_mode:
@@ -272,6 +275,7 @@ class ScanningPipeline:
                 migration_from_config=self.migration_from_config,
                 migration_to_config=self.migration_to_config,
                 confidence_floor=confidence_floor,
+                reasoning_effort=reasoning_effort,
             )
             # Store time_t aliases for Stage S1, Pass P1 (will be set when discovery runs)
             self._time_t_aliases = {}
@@ -815,13 +819,18 @@ class ScanningPipeline:
             findings = self._run_legacy_analysis(filtered_candidates, session)
 
         # Verdict counts before filtering. Finding-level counts keep dropped
-        # "no" records visible in batch status; function-level counts match
-        # Stage 8/9 summaries (one verdict per function_id) so the final CLI
-        # line is not compared to a different granularity.
+        # "no" records visible in batch status. Function-level progress uses
+        # authoritative assessments so analysis-error stubs are not labeled
+        # as model abstentions.
         self.last_classification_counts = self._classification_counts(findings)
-        self.last_function_classification_counts = self._function_classification_counts(
-            findings
-        )
+        if getattr(self, "_assessment_store", None):
+            self.last_function_classification_counts = (
+                self._function_classification_counts_from_assessments()
+            )
+        else:
+            self.last_function_classification_counts = self._function_classification_counts(
+                findings
+            )
         
         # Default behavior: do not save "no"/safe findings unless explicitly requested.
         findings = self._filter_findings_for_output(findings)
@@ -876,17 +885,29 @@ class ScanningPipeline:
 
     @staticmethod
     def _classification_counts(findings: List[Finding]) -> Dict[str, int]:
-        """Count Y2038 verdicts across finding records (not unique functions)."""
+        """Count Y2038 verdicts across finding records (not unique functions).
+
+        Compatibility finding records may still use abstain-shaped
+        ``y2038_issue`` for analysis-error stubs. Prefer
+        :meth:`_function_classification_counts_from_assessments` for progress
+        messages that must separate genuine abstentions from analysis errors.
+        """
         return {
             "yes": sum(1 for f in findings if f.y2038_issue == Y2038Issue.YES),
             "no": sum(1 for f in findings if f.y2038_issue == Y2038Issue.NO),
             "abstain": sum(1 for f in findings if f.y2038_issue == Y2038Issue.ABSTAIN),
+            "analysis_errors": 0,
             "total": len(findings),
         }
 
     @staticmethod
     def _function_classification_counts(findings: List[Finding]) -> Dict[str, int]:
-        """Count Y2038 verdicts once per function_id (Stage 8/9 granularity)."""
+        """Count Y2038 verdicts once per function_id from finding records.
+
+        Does not separate analysis-error stubs (those keep abstain-shaped
+        ``y2038_issue``). Prefer assessment-based counts for authoritative
+        progress lines when assessments are available.
+        """
         by_fn: Dict[str, Y2038Issue] = {}
         for finding in findings:
             fid = finding.function_id or f"{finding.file}:{finding.lines}"
@@ -896,8 +917,44 @@ class ScanningPipeline:
             "yes": sum(1 for v in by_fn.values() if v == Y2038Issue.YES),
             "no": sum(1 for v in by_fn.values() if v == Y2038Issue.NO),
             "abstain": sum(1 for v in by_fn.values() if v == Y2038Issue.ABSTAIN),
+            "analysis_errors": 0,
             "total": len(by_fn),
         }
+
+    def _function_classification_counts_from_assessments(self) -> Dict[str, int]:
+        """Authoritative yes/no/abstain/analysis_error counts from assessments."""
+        from tacs.core.schema import AssessmentExecutionStatus, ModelVerdict
+
+        yes = no = abstain = errors = 0
+        store = getattr(self, "_assessment_store", None) or {}
+        for assessment in store.values():
+            status = getattr(assessment, "execution_status", None)
+            status_val = status.value if hasattr(status, "value") else str(status or "")
+            if status_val == AssessmentExecutionStatus.ANALYSIS_ERROR.value:
+                errors += 1
+                continue
+            if status_val != AssessmentExecutionStatus.COMPLETED.value:
+                continue
+            verdict = getattr(assessment, "verdict", None)
+            if verdict == ModelVerdict.YES or verdict == "yes":
+                yes += 1
+            elif verdict == ModelVerdict.NO or verdict == "no":
+                no += 1
+            elif verdict == ModelVerdict.ABSTAIN or verdict == "abstain":
+                abstain += 1
+        return {
+            "yes": yes,
+            "no": no,
+            "abstain": abstain,
+            "analysis_errors": errors,
+            "total": yes + no + abstain + errors,
+        }
+
+    @staticmethod
+    def _format_function_classification_counts(counts: Dict[str, int]) -> str:
+        from tacs.core.function_analysis_response import format_classification_counts
+
+        return format_classification_counts(counts)
 
     def _filter_findings_for_output(self, findings: List[Finding]) -> List[Finding]:
         """Filter findings before saving/output.
@@ -1195,54 +1252,60 @@ class ScanningPipeline:
             self._record_function_assessments(analyses, batch_functions)
             findings.extend(batch_findings)
             
-            # Log batch results by unique function classification (not per-issue findings)
-            batch_yes = sum(
-                1 for a in analyses
-                if (a.y2038_summary.value if hasattr(a.y2038_summary, "value") else str(a.y2038_summary)) == "yes"
+            # Log batch results from authoritative analysis execution status.
+            from tacs.core.function_analysis_response import (
+                count_analyses_by_execution,
+                format_classification_counts,
             )
-            batch_no = sum(
-                1 for a in analyses
-                if (a.y2038_summary.value if hasattr(a.y2038_summary, "value") else str(a.y2038_summary)) == "no"
-            )
-            batch_abstain = sum(
-                1 for a in analyses
-                if (a.y2038_summary.value if hasattr(a.y2038_summary, "value") else str(a.y2038_summary)) == "abstain"
-            )
-            if batch_yes + batch_no + batch_abstain != len(batch_functions):
+
+            batch_counts = count_analyses_by_execution(analyses)
+            if int(batch_counts["total"]) != len(batch_functions):
                 raise RuntimeError(
                     f"Stage 8 batch {batch_num} classification total "
-                    f"{batch_yes}+{batch_no}+{batch_abstain} != {len(batch_functions)} functions"
+                    f"{batch_counts['total']} != {len(batch_functions)} functions"
                 )
             StatusLogger.timestamped_print(
                 f"Stage 8, Pass 2a: Batch {batch_num} results: "
-                f"{batch_yes} yes, {batch_no} no, {batch_abstain} abstain"
+                + format_classification_counts(batch_counts)
             )
         
-        # Log Stage 8, Pass 2a summary (one classification per unique function_id)
-        by_fn: Dict[str, Y2038Issue] = {}
-        for finding in findings:
-            fid = finding.function_id or f"{finding.file}:{finding.lines}"
-            if fid not in by_fn:
-                by_fn[fid] = finding.y2038_issue
-        yes_count = sum(1 for v in by_fn.values() if v == Y2038Issue.YES)
-        no_count = sum(1 for v in by_fn.values() if v == Y2038Issue.NO)
-        abstain_count = sum(1 for v in by_fn.values() if v == Y2038Issue.ABSTAIN)
+        # Log Stage 8, Pass 2a summary from assessments (not abstain-shaped stubs).
+        pass_counts = self._function_classification_counts_from_assessments()
         StatusLogger.timestamped_print(
-            f"Stage 8, Pass 2a function classifications: "
-            f"{yes_count} yes, {no_count} no, {abstain_count} abstain"
+            "Stage 8, Pass 2a function classifications: "
+            + self._format_function_classification_counts(pass_counts)
         )
         
-        # Log abstain details
+        # Log genuine completed abstain details (enrichment candidates).
+        abstain_count = int(pass_counts.get("abstain", 0) or 0)
+        error_count = int(pass_counts.get("analysis_errors", 0) or 0)
         if abstain_count > 0:
-            StatusLogger.timestamped_debug(f"Stage 8, Pass 2a: {abstain_count} abstain(s) requiring additional passes:")
-            for finding in findings[:10]:  # Log first 10 abstains
-                if finding.y2038_issue == Y2038Issue.ABSTAIN:
-                    needs_info = ""
-                    if "needs more context:" in finding.reason:
-                        needs_info = " (" + finding.reason.split("needs more context:")[-1].strip() + ")"
-                    StatusLogger.timestamped_debug(f"  - {finding.function_id}: confidence={finding.confidence:.2f}{needs_info}")
+            StatusLogger.timestamped_debug(
+                f"Stage 8, Pass 2a: {abstain_count} completed abstain(s) "
+                "requiring additional passes:"
+            )
+            from tacs.core.schema import AssessmentExecutionStatus, ModelVerdict
+
+            shown = 0
+            for assessment in (self._assessment_store or {}).values():
+                if (
+                    assessment.execution_status == AssessmentExecutionStatus.COMPLETED
+                    and assessment.verdict == ModelVerdict.ABSTAIN
+                ):
+                    StatusLogger.timestamped_debug(
+                        f"  - {assessment.function_id}: "
+                        f"confidence={assessment.confidence}"
+                    )
+                    shown += 1
+                    if shown >= 10:
+                        break
             if abstain_count > 10:
                 StatusLogger.timestamped_debug(f"  ... and {abstain_count - 10} more")
+        if error_count > 0:
+            StatusLogger.timestamped_debug(
+                f"Stage 8, Pass 2a: {error_count} analysis_error(s) "
+                "(not counted as model abstentions)"
+            )
         
         return findings
     
@@ -1767,22 +1830,57 @@ class ScanningPipeline:
         ]
         final_findings.extend(new_findings)
         
-        # Log Pass F2 results (function-level: one verdict per function_id among
-        # the enriched set this pass produced)
-        f2_fn = self._function_classification_counts(new_findings)
+        # Log Pass F2 results from assessments for the enriched function set.
+        from tacs.core.schema import AssessmentExecutionStatus, ModelVerdict
+
+        f2_yes = f2_no = f2_abstain = f2_errors = 0
+        for fid in eligible_ids:
+            assessment = (self._assessment_store or {}).get(fid)
+            if assessment is None:
+                continue
+            status = assessment.execution_status
+            if status == AssessmentExecutionStatus.ANALYSIS_ERROR:
+                f2_errors += 1
+                continue
+            if status != AssessmentExecutionStatus.COMPLETED:
+                continue
+            if assessment.verdict == ModelVerdict.YES:
+                f2_yes += 1
+            elif assessment.verdict == ModelVerdict.NO:
+                f2_no += 1
+            elif assessment.verdict == ModelVerdict.ABSTAIN:
+                f2_abstain += 1
+        f2_fn = {
+            "yes": f2_yes,
+            "no": f2_no,
+            "abstain": f2_abstain,
+            "analysis_errors": f2_errors,
+        }
         StatusLogger.timestamped_print(
-            f"Stage 8, Pass 2b function classifications: "
-            f"{f2_fn['yes']} yes, {f2_fn['no']} no, {f2_fn['abstain']} abstain"
+            "Stage 8, Pass 2b function classifications: "
+            + self._format_function_classification_counts(f2_fn)
         )
         
-        # Log abstain details if any remain
-        if f2_fn["abstain"] > 0:
+        if f2_abstain > 0:
             StatusLogger.timestamped_debug(
-                f"Stage 8, Pass 2b: {f2_fn['abstain']} abstain(s) remaining after enrichment:"
+                f"Stage 8, Pass 2b: {f2_abstain} completed abstain(s) remaining after enrichment:"
             )
-            for finding in new_findings:
-                if finding.y2038_issue == Y2038Issue.ABSTAIN:
-                    StatusLogger.timestamped_debug(f"  - {finding.function_id}: confidence={finding.confidence:.2f}, reason={finding.reason[:80]}")
+            for fid in eligible_ids:
+                assessment = (self._assessment_store or {}).get(fid)
+                if (
+                    assessment is not None
+                    and assessment.execution_status == AssessmentExecutionStatus.COMPLETED
+                    and assessment.verdict == ModelVerdict.ABSTAIN
+                ):
+                    reason = (assessment.reason or "")[:80]
+                    StatusLogger.timestamped_debug(
+                        f"  - {fid}: confidence={assessment.confidence}, reason={reason}"
+                    )
+        if f2_errors > 0:
+            StatusLogger.timestamped_debug(
+                f"Stage 8, Pass 2b: {f2_errors} analysis_error(s) "
+                "(not counted as model abstentions)"
+            )
         
         return final_findings
     
@@ -1947,20 +2045,57 @@ class ScanningPipeline:
         final_findings.extend(new_findings)
         
         # Log Pass F3 results (function-level among this pass's outputs)
-        f3_fn = self._function_classification_counts(new_findings)
+        from tacs.core.schema import AssessmentExecutionStatus, ModelVerdict
+
+        f3_yes = f3_no = f3_abstain = f3_errors = 0
+        for fid in eligible_ids:
+            assessment = (self._assessment_store or {}).get(fid)
+            if assessment is None:
+                continue
+            status = assessment.execution_status
+            if status == AssessmentExecutionStatus.ANALYSIS_ERROR:
+                f3_errors += 1
+                continue
+            if status != AssessmentExecutionStatus.COMPLETED:
+                continue
+            if assessment.verdict == ModelVerdict.YES:
+                f3_yes += 1
+            elif assessment.verdict == ModelVerdict.NO:
+                f3_no += 1
+            elif assessment.verdict == ModelVerdict.ABSTAIN:
+                f3_abstain += 1
+        f3_fn = {
+            "yes": f3_yes,
+            "no": f3_no,
+            "abstain": f3_abstain,
+            "analysis_errors": f3_errors,
+        }
         StatusLogger.timestamped_print(
-            f"Stage 9 function classifications: "
-            f"{f3_fn['yes']} yes, {f3_fn['no']} no, {f3_fn['abstain']} abstain"
+            "Stage 9 function classifications: "
+            + self._format_function_classification_counts(f3_fn)
         )
         
-        # Log abstain details if any remain (these are final)
+        # Log completed abstain details if any remain (these are final)
         if f3_fn["abstain"] > 0:
             StatusLogger.timestamped_debug(
-                f"Stage 9: {f3_fn['abstain']} final abstain(s) after file context:"
+                f"Stage 9: {f3_fn['abstain']} final completed abstain(s) after file context:"
             )
-            for finding in new_findings:
-                if finding.y2038_issue == Y2038Issue.ABSTAIN:
-                    StatusLogger.timestamped_debug(f"  - {finding.function_id}: confidence={finding.confidence:.2f}, reason={finding.reason[:80]}")
+            for fid in eligible_ids:
+                assessment = (self._assessment_store or {}).get(fid)
+                if (
+                    assessment is not None
+                    and assessment.execution_status == AssessmentExecutionStatus.COMPLETED
+                    and assessment.verdict == ModelVerdict.ABSTAIN
+                ):
+                    reason = (assessment.reason or "")[:80]
+                    StatusLogger.timestamped_debug(
+                        f"  - {fid}: confidence={assessment.confidence}, reason={reason}"
+                    )
+        if f3_fn["analysis_errors"] > 0:
+            StatusLogger.timestamped_debug(
+                f"Stage 9: {f3_fn['analysis_errors']} analysis_error(s) "
+                "(not counted as model abstentions)"
+            )
         
         return final_findings
     
@@ -1973,7 +2108,8 @@ class ScanningPipeline:
         for finding in findings:
             finding.file = repo_relative_path(finding.file, root_path)
         
-        # Count findings by type
+        # Count findings by type (compatibility projection; may include
+        # abstain-shaped analysis-error stubs).
         from tacs.core.schema import TimeIssueType
         yes_count = sum(1 for f in findings if f.y2038_issue == Y2038Issue.YES)
         no_count = sum(1 for f in findings if f.y2038_issue == Y2038Issue.NO)
@@ -1981,10 +2117,12 @@ class ScanningPipeline:
         
         # Verdict counts from before "no" findings were dropped from the output set.
         classified = self.last_classification_counts or self._classification_counts(findings)
-        function_classified = (
-            self.last_function_classification_counts
-            or self._function_classification_counts(findings)
-        )
+        if self.last_function_classification_counts is not None:
+            function_classified = self.last_function_classification_counts
+        elif getattr(self, "_assessment_store", None):
+            function_classified = self._function_classification_counts_from_assessments()
+        else:
+            function_classified = self._function_classification_counts(findings)
         
         if self.llm_type == "none":
             if len(findings) == 0:
@@ -2026,8 +2164,8 @@ class ScanningPipeline:
                 f"Scan complete: {_format_count(len(findings), 'finding record')} retained"
             )
             StatusLogger.timestamped_print(
-                f"  Final function classifications: {function_classified['yes']} yes, "
-                f"{function_classified['no']} no, {function_classified['abstain']} abstain"
+                "  Final function classifications: "
+                + self._format_function_classification_counts(function_classified)
             )
             StatusLogger.timestamped_debug(
                 f"  Finding classifications (pre-filter): {classified['yes']} yes, "
@@ -2044,24 +2182,39 @@ class ScanningPipeline:
             # function). Retained records are persisted findings after dropping
             # safe "no" results — one function yes can expand to several records.
             StatusLogger.timestamped_print(
-                f"Final function classifications: {function_classified['yes']} yes, "
-                f"{function_classified['no']} no, {function_classified['abstain']} abstain"
+                "Final function classifications: "
+                + self._format_function_classification_counts(function_classified)
             )
             StatusLogger.timestamped_print(
                 f"Retained finding records: {len(findings)}"
             )
         
-        # Log final abstain summary
+        # Log final completed-abstain vs analysis-error summary
+        genuine_abstain = int(function_classified.get("abstain", 0) or 0)
+        analysis_errors = int(function_classified.get("analysis_errors", 0) or 0)
+        if genuine_abstain > 0 and self.llm_type != "none":
+            StatusLogger.timestamped_print(
+                f"Final completed abstain summary: "
+                f"{_format_count(genuine_abstain, 'function')} "
+                f"could not be definitively classified"
+            )
+        if analysis_errors > 0 and self.llm_type != "none":
+            StatusLogger.timestamped_print(
+                f"Final analysis_error summary: "
+                f"{_format_count(analysis_errors, 'function')} "
+                f"had invalid or unusable model items "
+                f"(not counted as model abstentions)"
+            )
         if abstain_count > 0 and self.llm_type != "none":
-            StatusLogger.timestamped_print(f"Final abstain summary: {_format_count(abstain_count, 'finding')} "
-                f"could not be definitively classified")
             abstain_by_pass = {}
             for finding in findings:
                 if finding.y2038_issue == Y2038Issue.ABSTAIN:
                     pass_name = finding.final_pass or "unknown"
                     abstain_by_pass[pass_name] = abstain_by_pass.get(pass_name, 0) + 1
             for pass_name, count in sorted(abstain_by_pass.items()):
-                StatusLogger.timestamped_debug(f"  - {count} from {pass_name}")
+                StatusLogger.timestamped_debug(
+                    f"  - {count} abstain-shaped compatibility finding(s) from {pass_name}"
+                )
         elif abstain_count > 0 and self.llm_type == "none":
             StatusLogger.timestamped_debug(
                 f"Abstain breakdown (LLM disabled): "
@@ -2135,8 +2288,8 @@ class ScanningPipeline:
             )
         else:
             pipeline_results = (
-                f"- Final function classifications: {function_classified['yes']} yes, "
-                f"{function_classified['no']} no, {function_classified['abstain']} abstain\n"
+                f"- Final function classifications: "
+                f"{self._format_function_classification_counts(function_classified)}\n"
                 f"- Retained finding records: {len(findings)}\n"
                 f"  - Yes: {yes_count}\n"
                 f"  - No: {no_count}\n"
@@ -2250,10 +2403,13 @@ Timing (ms):
             findings_count=len(findings),
         )
 
+        effective_effort = self._effective_reasoning_effort_for_meta()
         metadata = ScanMetadata(
             root=display_scan_root(root_path),
             rules_path=display_rules_path(rules_path),
             model=reported_model,
+            llm_provider=str(self.llm_type) if self.llm_type else "none",
+            reasoning_effort=effective_effort,
             confidence_floor=self.confidence_floor,
             metrics=metrics,
             timestamp=datetime.utcnow().isoformat() + "Z",
@@ -2269,6 +2425,25 @@ Timing (ms):
             candidates=evidence,
             assessments=assessments,
             findings=findings,
+        )
+
+    def _effective_reasoning_effort_for_meta(self) -> Optional[str]:
+        """Effective reasoning effort for public metadata (null when non-reasoning)."""
+        from tacs.llm.openai_models import recorded_reasoning_effort
+
+        if self.llm_type == "none":
+            return None
+        # Prefer the live client when present (already validated at construct time).
+        if self.function_first and hasattr(self, "function_llm_client"):
+            base = getattr(self.function_llm_client, "base_client", None)
+            if base is not None and hasattr(base, "effective_reasoning_effort"):
+                return base.effective_reasoning_effort()
+        if hasattr(self, "llm_client") and hasattr(self.llm_client, "effective_reasoning_effort"):
+            return self.llm_client.effective_reasoning_effort()
+        return recorded_reasoning_effort(
+            provider_id=self.llm_type,
+            model=self.model,
+            requested=self.reasoning_effort,
         )
     
     def _run_legacy_analysis(self, candidates: List[Candidate], session: ScanSession) -> List[Finding]:

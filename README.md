@@ -16,8 +16,9 @@ This repository is the open-source scanner engine and CLI. It is the code-scanni
 ## Status
 
 **v0.2.0rc1** — release candidate on the CLI-first scanning pipeline. Public
-result documents use **schema_version `1.1`** (`candidates[]`, `assessments[]`,
-`findings[]`). See [CHANGELOG.md](CHANGELOG.md) for changes since v0.1.0.
+result documents use **schema_version `1.2`** (`candidates[]`, `assessments[]`,
+`findings[]`, plus optional `meta.llm_provider` / `meta.reasoning_effort`).
+Schema **1.1** reports still load and render. See [CHANGELOG.md](CHANGELOG.md).
 
 | Command | Purpose |
 |---------|---------|
@@ -33,7 +34,8 @@ result documents use **schema_version `1.1`** (`candidates[]`, `assessments[]`,
 | *(none)* | — | Default; discovery-only candidates |
 | Ollama Cloud | `gpt-oss:120b-cloud` | Recommended optional path; `OLLAMA_API_KEY`, leave `OLLAMA_HOST` unset |
 | Ollama local | e.g. `llama3.1` | Set `OLLAMA_HOST=http://127.0.0.1:11434` |
-| OpenAI / Anthropic / Gemini | see `.env.example` | Requires the matching API key |
+| OpenAI | e.g. `gpt-4.1-mini`, opt-in `gpt-6-luna` | `OPENAI_API_KEY`; Luna: `--reasoning-effort none|low` (unset ⇒ `none`) |
+| Anthropic / Gemini | see `.env.example` | Requires the matching API key |
 
 BYOLLM: bring your own provider; no vendor lock-in. API keys and provider
 settings may be supplied through process environment variables or a local

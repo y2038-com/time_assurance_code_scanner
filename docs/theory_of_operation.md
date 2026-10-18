@@ -966,12 +966,19 @@ assumptions, and which potential risks were identified.
 
 The principal user-facing result is typically `findings.json`.
 
-Starting with public result **schema_version `1.1`**, that document has the shape:
+Starting with public result **schema_version `1.1`**, that document has the shape
+below. **Schema `1.2`** adds optional `meta.llm_provider` and
+`meta.reasoning_effort` (effective OpenAI effort for GPT-6 Luna: `"none"` or
+`"low"`; null/absent for non-reasoning models). Schema **1.1** files still load
+and render without rewrite.
 
 ```json
 {
-  "schema_version": "1.1",
+  "schema_version": "1.2",
   "meta": {
+    "model": "gpt-6-luna",
+    "llm_provider": "openai",
+    "reasoning_effort": "none",
     "candidate_summary": {},
     "analysis_status": "complete|partial|failed|not_requested",
     "assessment_summary": {}

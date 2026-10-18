@@ -6,7 +6,7 @@ from __future__ import annotations
 import sys
 import click
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 from tacs.core.status_logger import StatusLogger
 from tacs.core.logging_config import configure_logging, resolve_log_level
 from tacs.core.llm_client import DEFAULT_CONFIDENCE_FLOOR
@@ -103,6 +103,15 @@ def _default_model() -> str:
     show_default=True,
     help='Model name for selected provider (default: gpt-oss:120b-cloud or TACS_MODEL)',
 )
+@click.option(
+    '--reasoning-effort',
+    type=click.Choice(['none', 'low'], case_sensitive=False),
+    default=None,
+    help=(
+        'OpenAI reasoning effort for GPT-6 Luna (none|low). When unset for Luna, '
+        'effective effort is none. Rejected for --llm none and non-reasoning models/providers.'
+    ),
+)
 @click.option('--no-enable-discovery', is_flag=True, default=False, help='Disable typedef/macro discovery (default: enabled)')
 @click.option('--out', default='findings.json', help='Output file path (default: findings.json)')
 @click.option('--redact-prompts/--no-redact-prompts', default=True, help='Redact prompts in logs (default: enabled)')
@@ -128,6 +137,7 @@ def main(
     confidence_floor: float,
     llm: str,
     model: str,
+    reasoning_effort: Optional[str],
     batch_size_stage1: int,
     request_timeout_sec: int,
     out: str,
@@ -241,6 +251,7 @@ def main(
             migration_from_config_path=migration_from,
             migration_to_config_path=migration_to,
             include_no_findings=include_no_findings,
+            reasoning_effort=reasoning_effort,
         )
         
         # Run scan

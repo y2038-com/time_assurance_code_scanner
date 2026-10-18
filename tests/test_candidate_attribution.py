@@ -577,7 +577,7 @@ def test_single_scan_writer_preserves_attribution(tmp_path: Path):
     out = tmp_path / "findings.json"
     pipeline.save_results(results, str(out))
     data = json.loads(out.read_text(encoding="utf-8"))
-    assert data["schema_version"] == "1.1"
+    assert data["schema_version"] == "1.2"
     by_sym = {c["symbol"]: c for c in data["candidates"] if c["symbol"] in ("k_sleep", "time_t")}
     assert by_sym["k_sleep"]["risk"] == "low"
     assert by_sym["time_t"]["risk"] == "high"

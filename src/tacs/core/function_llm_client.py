@@ -9,6 +9,11 @@ import json
 import os
 import hashlib
 from typing import List, Dict, Any, Optional
+from tacs.core.function_analysis_response import (
+    canonical_wire_contract_prompt,
+    count_analyses_by_execution,
+    format_classification_counts,
+)
 from tacs.core.function_schemas import (
     FunctionBody, FunctionAnalysis, FunctionBatch, FunctionCache,
     Y2038Summary, ContextNeed, FunctionFinding, IssueSpan
@@ -30,9 +35,18 @@ from tacs.core.status_logger import StatusLogger
 class FunctionLLMClient:
     """LLM client specialized for function-first analysis."""
 
-    def __init__(self, llm_type: str, model: str, environment_config: Optional[Dict[str, Any]],
-                 timeout_sec: int, batch_size_func: int, confidence_floor: float,
-                 debug_llm_raw: bool = False, detect_y2106: bool = False):
+    def __init__(
+        self,
+        llm_type: str,
+        model: str,
+        environment_config: Optional[Dict[str, Any]],
+        timeout_sec: int,
+        batch_size_func: int,
+        confidence_floor: float,
+        debug_llm_raw: bool = False,
+        detect_y2106: bool = False,
+        reasoning_effort: Optional[str] = None,
+    ):
         """
         Initialize the function-first LLM client.
 
@@ -45,6 +59,7 @@ class FunctionLLMClient:
             confidence_floor: Minimum confidence threshold, quoted in the prompts
             debug_llm_raw: Enable raw LLM debugging
             detect_y2106: Enable Y2106 detection (32-bit unsigned time_t overflow in 2106)
+            reasoning_effort: Optional OpenAI reasoning effort for GPT-6 Luna
         """
         self.llm_type = llm_type
         self.model = model
@@ -54,6 +69,7 @@ class FunctionLLMClient:
         self.confidence_floor = confidence_floor
         self.debug_llm_raw = debug_llm_raw
         self.detect_y2106 = detect_y2106
+        self.reasoning_effort = reasoning_effort
 
         # Migration mode (set by pipeline if enabled)
         self.migration_mode = False
@@ -77,6 +93,7 @@ class FunctionLLMClient:
             # The base client writes the environment rules these prompts carry,
             # and it quotes the floor, so it needs the configured one.
             confidence_floor=confidence_floor,
+            reasoning_effort=reasoning_effort,
         )
 
     def analyze_functions_pass_f1(self, function_batch: FunctionBatch) -> List[FunctionAnalysis]:
@@ -123,7 +140,15 @@ class FunctionLLMClient:
                 if "usage" in response_data:
                     prompt_tokens = response_data["usage"].get("prompt_tokens", 0)
                     completion_tokens = response_data["usage"].get("completion_tokens", 0)
-                    self.base_client._track_tokens(prompt_tokens, completion_tokens, "S2_P1")
+                    reasoning_tokens = response_data["usage"].get("reasoning_tokens")
+                    self.base_client._track_tokens(
+                        prompt_tokens,
+                        completion_tokens,
+                        "S2_P1",
+                        reasoning_tokens=reasoning_tokens
+                        if isinstance(reasoning_tokens, int)
+                        else None,
+                    )
 
                 # Debug: Show response if requested
                 if self.debug_llm_raw:
@@ -132,14 +157,10 @@ class FunctionLLMClient:
                 # Parse responses
                 analyses = self._parse_pass_f1_response(response_data, function_batch.functions)
 
-                # Log results
-                yes_count = sum(1 for a in analyses if a.y2038_summary == Y2038Summary.YES)
-                no_count = sum(1 for a in analyses if a.y2038_summary == Y2038Summary.NO)
-                abstain_count = sum(1 for a in analyses if a.y2038_summary == Y2038Summary.ABSTAIN)
-
+                counts = count_analyses_by_execution(analyses)
                 StatusLogger.timestamped_print(
-                    f"Stage 8, Pass 2a function classifications: "
-                    f"{yes_count} yes, {no_count} no, {abstain_count} abstain"
+                    "Stage 8, Pass 2a function classifications: "
+                    + format_classification_counts(counts)
                 )
                 if prompt_tokens > 0 or completion_tokens > 0:
                     StatusLogger.timestamped_print(f"Token usage: {prompt_tokens} prompt + {completion_tokens} completion = {prompt_tokens + completion_tokens} total")
@@ -205,7 +226,15 @@ class FunctionLLMClient:
                 if "usage" in response_data:
                     prompt_tokens = response_data["usage"].get("prompt_tokens", 0)
                     completion_tokens = response_data["usage"].get("completion_tokens", 0)
-                    self.base_client._track_tokens(prompt_tokens, completion_tokens, "S2_P2")
+                    reasoning_tokens = response_data["usage"].get("reasoning_tokens")
+                    self.base_client._track_tokens(
+                        prompt_tokens,
+                        completion_tokens,
+                        "S2_P2",
+                        reasoning_tokens=reasoning_tokens
+                        if isinstance(reasoning_tokens, int)
+                        else None,
+                    )
 
                 # Debug: Show response if requested
                 if self.debug_llm_raw:
@@ -216,14 +245,10 @@ class FunctionLLMClient:
                 # Parse responses
                 analyses = self._parse_pass_f2_response(response_data, function_batch.functions)
 
-                # Log results
-                yes_count = sum(1 for a in analyses if a.y2038_summary == Y2038Summary.YES)
-                no_count = sum(1 for a in analyses if a.y2038_summary == Y2038Summary.NO)
-                abstain_count = sum(1 for a in analyses if a.y2038_summary == Y2038Summary.ABSTAIN)
-
+                counts = count_analyses_by_execution(analyses)
                 StatusLogger.timestamped_print(
                     f"Stage 8, Pass 2b iteration {iteration} function classifications: "
-                    f"{yes_count} yes, {no_count} no, {abstain_count} abstain"
+                    + format_classification_counts(counts)
                 )
                 if prompt_tokens > 0 or completion_tokens > 0:
                     StatusLogger.timestamped_print(f"Token usage: {prompt_tokens} prompt + {completion_tokens} completion = {prompt_tokens + completion_tokens} total")
@@ -287,7 +312,15 @@ class FunctionLLMClient:
                 if "usage" in response_data:
                     prompt_tokens = response_data["usage"].get("prompt_tokens", 0)
                     completion_tokens = response_data["usage"].get("completion_tokens", 0)
-                    self.base_client._track_tokens(prompt_tokens, completion_tokens, "S3_P1")
+                    reasoning_tokens = response_data["usage"].get("reasoning_tokens")
+                    self.base_client._track_tokens(
+                        prompt_tokens,
+                        completion_tokens,
+                        "S3_P1",
+                        reasoning_tokens=reasoning_tokens
+                        if isinstance(reasoning_tokens, int)
+                        else None,
+                    )
 
                 # Debug: Show response if requested
                 if self.debug_llm_raw:
@@ -297,13 +330,10 @@ class FunctionLLMClient:
                 analyses = self._parse_pass_f3_response(response_data, function_batch.functions)
 
                 # Log results
-                yes_count = sum(1 for a in analyses if a.y2038_summary == Y2038Summary.YES)
-                no_count = sum(1 for a in analyses if a.y2038_summary == Y2038Summary.NO)
-                abstain_count = sum(1 for a in analyses if a.y2038_summary == Y2038Summary.ABSTAIN)
-
+                counts = count_analyses_by_execution(analyses)
                 StatusLogger.timestamped_print(
-                    f"Stage 9, Pass 1 function classifications: "
-                    f"{yes_count} yes, {no_count} no, {abstain_count} abstain"
+                    "Stage 9, Pass 1 function classifications: "
+                    + format_classification_counts(counts)
                 )
                 if prompt_tokens > 0 or completion_tokens > 0:
                     StatusLogger.timestamped_print(f"Token usage: {prompt_tokens} prompt + {completion_tokens} completion = {prompt_tokens + completion_tokens} total")
@@ -367,6 +397,7 @@ class FunctionLLMClient:
                 type(exc)(
                     provider=exc.provider,
                     category=exc.category,
+                    retryable=False,
                     status_code=exc.status_code,
                     attempt=exc.attempt,
                     response_body_len=exc.response_body_len,
@@ -631,52 +662,6 @@ Response: {"function_id": "test.c@nanosleep_wrapper:30-32", "y2038_summary": "no
         system_prompt += """
 Analyze every entry of the analysis data's 'functions' array. Each entry gives the
 function_id, the function body as written, and the absolute candidate line numbers.
-"""
-
-        if self.detect_y2106:
-            system_prompt += """
-Respond with a JSON array of analysis objects. Each object must have exactly these fields:
-{
-  "function_id": "string (exact format provided)",
-  "y2038_summary": "yes|no|abstain",
-  "y2106_summary": "yes|no|abstain",
-  "issue_type": "y2038|y2106|both|none|abstain",
-  "confidence": 0.0-1.0,
-  "issues": [{"type": "y2038|y2106|both|safe|ambiguous", "line": int, "description": "string"}],
-  "needs_more_context": boolean,
-  "needs": ["typedef"|"struct"|"macro"|"callee"|"header"]
-}
-
-LINE NUMBER REQUIREMENTS (VERY IMPORTANT):
-- When `issues` is non-empty, each `issues[].line` must be the 1-based ABSOLUTE line number in the original file.
-- The first line of a function's `body` corresponds to the `<start_line>` embedded in `function_id` (format: `<relpath>@<symbol>:<start>-<end>`).
-- If the issue spans a range, choose the most relevant line within that range from the function body.
-- When a function's `candidate_lines` array is non-empty, each `issues[].line` MUST be one of those candidate line numbers.
-
-CRITICAL REQUIREMENTS:
-- Copy each `function_id` exactly from the analysis data (case-sensitive; no trimming, prefixes, suffixes, or aliases)
-- Include exactly one result object per requested function_id; never omit an ID or invent another
-- Classify Y2038 and Y2106 independently (both can be YES if applicable)
-- issue_type must be exactly: "y2038" | "y2106" | "both" | "none" | "abstain"
-- y2038_summary / y2106_summary must be exactly lowercase "yes" | "no" | "abstain" (no synonyms)
-- confidence must be a JSON number in [0.0, 1.0] (not a string, boolean, NaN, or Infinity)
-- needs_more_context must be a JSON boolean
-- `issues` must be a JSON array of objects with exactly the fields type, line, and description; `[]` is valid (especially for no/abstain)
-- For YES: include concrete issue objects explaining the Y2038/Y2106 risks found
-- For NO / ABSTAIN: `issues` may be `[]`, or may include explanatory issue objects
-- For ABSTAIN: set needs_more_context and needs to name missing context (typedef, struct, macro, callee, header)
-- Return valid JSON array - no extra text or formatting"""
-        else:
-            system_prompt += """
-Respond with a JSON array of analysis objects. Each object must have exactly these fields:
-{
-  "function_id": "string (exact format provided)",
-  "y2038_summary": "yes|no|abstain",
-  "confidence": 0.0-1.0,
-  "issues": [{"type": "string", "line": int, "description": "string"}],
-  "needs_more_context": boolean,
-  "needs": ["typedef"|"struct"|"macro"|"callee"|"header"]
-}
 
 LINE NUMBER REQUIREMENTS (VERY IMPORTANT):
 - When `issues` is non-empty, each `issues[].line` must be the 1-based ABSOLUTE line number in the original file.
@@ -684,19 +669,9 @@ LINE NUMBER REQUIREMENTS (VERY IMPORTANT):
 - If unsure, choose the closest line in the provided function body that matches the described issue.
 - When a function's `candidate_lines` array is non-empty, each `issues[].line` MUST be one of those candidate line numbers.
 
-CRITICAL REQUIREMENTS:
-- Copy each `function_id` exactly from the analysis data (case-sensitive; no trimming, prefixes, suffixes, or aliases)
-- Include exactly one result object per requested function_id; never omit an ID or invent another
-- y2038_summary must be exactly lowercase "yes" | "no" | "abstain" (no synonyms such as safe/risky/true)
-- confidence must be a JSON number in [0.0, 1.0] (not a string, boolean, NaN, or Infinity)
-- needs_more_context must be a JSON boolean
-- `issues` must be a JSON array of objects with exactly the fields type, line, and description; `[]` is valid (especially for no/abstain)
-- Be decisive: classify as YES ONLY for genuine Y2038 risks (overflow before 2038), NO for everything else
-- For YES: include concrete issue objects explaining the Y2038 risks found
-- For NO / ABSTAIN: `issues` may be `[]`, or may include explanatory issue objects
-- For ABSTAIN: set needs_more_context and needs to name missing context (typedef, struct, macro, callee, header)
-- Return valid JSON array - no extra text or formatting"""
-
+Be decisive: classify as YES ONLY for genuine Y2038 risks (overflow before 2038), NO for everything else (unless Y2106 mode applies as documented above).
+"""
+        system_prompt += canonical_wire_contract_prompt(detect_y2106=self.detect_y2106)
         system_prompt += self._function_response_format_rules()
 
         return LLMPromptParts(
@@ -725,12 +700,13 @@ Even if time_t is 64-bit, narrowing patterns ARE Y2038/Y2106 risks:
 Each entry of the analysis data's 'functions' array carries the original body, its
 absolute candidate_lines, and the context_additions gathered for it.
 
-With this additional context, provide your final analysis. Respond with a JSON array matching the same schema as Pass F1.
+With this additional context, provide your final analysis.
 Be decisive - this is your final chance to classify these functions.
 
 LINE NUMBER REQUIREMENT:
 - When `issues` is non-empty, set each `issues[].line` to one of the function's `candidate_lines` (pick the most relevant match).
 """
+        system_prompt += canonical_wire_contract_prompt(detect_y2106=self.detect_y2106)
         system_prompt += self._function_response_format_rules()
 
         payload = self._function_payload("function_y2038_analysis_with_added_context", function_batch)
@@ -770,18 +746,8 @@ candidate_lines, the leading lines of the file it came from, and every typedef,
 struct and macro found anywhere in that file.
 """
 
-        # The schema below is literal JSON, so it stays out of the f-string above.
         system_prompt += """
 This is your FINAL analysis opportunity. You have full file context - make a DECISIVE decision.
-Respond with a JSON array matching the same schema as Pass F1:
-{
-  "function_id": "string (exact format provided)",
-  "y2038_summary": "yes|no|abstain",
-  "confidence": 0.0-1.0,
-  "issues": [{"type": "string", "line": int, "description": "string"}],
-  "needs_more_context": false,
-  "needs": []
-}
 
 LINE NUMBER REQUIREMENTS (VERY IMPORTANT):
 - When `issues` is non-empty, each `issues[].line` must be the 1-based ABSOLUTE line number in the original file.
@@ -790,11 +756,12 @@ LINE NUMBER REQUIREMENTS (VERY IMPORTANT):
 - When a function's `candidate_lines` array is non-empty, each `issues[].line` MUST be one of those candidate line numbers.
 
 IMPORTANT:
-- Use "needs_more_context": false (this is the final pass)
-- Use "needs": [] (no more context needed)
+- Prefer "needs_more_context": false and "needs": [] on this final pass
 - `issues` may be `[]` when no concrete issue objects are needed
 - Be DECISIVE - classify as YES or NO unless truly impossible
-- Only use ABSTAIN if genuinely impossible to determine even with full file context"""
+- Only use ABSTAIN if genuinely impossible to determine even with full file context
+"""
+        system_prompt += canonical_wire_contract_prompt(detect_y2106=self.detect_y2106)
         system_prompt += self._function_response_format_rules()
 
         return LLMPromptParts(
