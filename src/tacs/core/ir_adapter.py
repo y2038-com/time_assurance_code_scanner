@@ -20,6 +20,7 @@ from tacs.core.candidate_utils import prepare_candidates
 from tacs.core.candidate_evidence import normalize_discovery_method
 from tacs.core.ir_match import IRMatchError, iter_match_field_sets
 from tacs.core.alias_scope import aliases_for_source_file
+from tacs.core.include_patterns import resolved_include_patterns
 
 
 def _ir_symbols_methods_and_rule_ids(
@@ -271,7 +272,7 @@ class IRAdapter:
         StatusLogger.timestamped_debug("Scanning for #define statements...")
         files = self._get_files(
             root_path,
-            include_patterns or ['**/*.c', '**/*.h'],
+            resolved_include_patterns(include_patterns),
             exclude_patterns or [],
             self.max_file_size,
         )
@@ -401,7 +402,7 @@ class IRAdapter:
         StatusLogger.timestamped_debug("Scanning for arithmetic operations on time_t...")
         files = self._get_files(
             root_path,
-            include_patterns or ['**/*.c', '**/*.h'],
+            resolved_include_patterns(include_patterns),
             exclude_patterns or [],
             self.max_file_size,
         )

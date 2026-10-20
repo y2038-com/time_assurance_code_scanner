@@ -32,8 +32,12 @@ id. There is no separate enable/disable flag — `llm: "none"` turns LLM analysi
 off for that repository.
 
 File selection also matches `tacs scan`: use `include` / `exclude` with glob
-patterns (not extension lists). Batch-wide `--include` / `--exclude` /
-`--min-risk` apply when an entry omits those keys.
+patterns (not extension lists). When omitted, both commands use the same
+defaults (`**/*.c`, `**/*.h`, `**/*.cc`, `**/*.cpp`, `**/*.cxx`, `**/*.hh`,
+`**/*.hpp`, `**/*.hxx`; exclude `**/tests/**`). Batch-wide `--include` /
+`--exclude` / `--min-risk` apply when an entry omits those keys; a
+repository `scan_overrides.include` list replaces the batch value rather than
+merging with it.
 
 ```jsonl
 {"repo_url":"https://github.com/example/lib.git","scan_overrides":{"config_override":"ilp32_signed_32bit","llm":"anthropic","model":"claude-sonnet-4-5","include":["**/*.c","**/*.h"],"exclude":["**/vendor/**"],"min_risk":"medium","max_file_size":5242880}}
@@ -43,7 +47,7 @@ patterns (not extension lists). Batch-wide `--include` / `--exclude` /
 | Key | Type | Meaning |
 | --- | --- | --- |
 | `config_override` | string | Environment config id, skipping auto-detect |
-| `include` | list | Include globs, e.g. `["**/*.c", "**/*.h"]` |
+| `include` | list | Include globs; replaces defaults, e.g. `["**/*.c", "**/*.cpp"]` |
 | `exclude` | list | Exclude globs, e.g. `["**/tests/**"]` |
 | `max_file_size` | integer | Byte limit per source file; omit for no limit |
 | `llm` | string | Provider: `none`, `ollama`, `openai`, `anthropic`, or `gemini` |

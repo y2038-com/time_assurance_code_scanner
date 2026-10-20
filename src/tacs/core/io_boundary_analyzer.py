@@ -9,6 +9,7 @@ from tacs.core.schema import Candidate, IOCandidate, IOCandidateType, Remediatio
 from tacs.core.io_format_parser import FormatSpecifierParser, FormatSpec
 from tacs.core.status_logger import StatusLogger
 from tacs.core.source_files import enumerate_source_files
+from tacs.core.include_patterns import resolved_include_patterns
 
 
 class IOFunctionRegistry:
@@ -311,7 +312,7 @@ class IOBoundaryAnalyzer:
 
         enumeration = enumerate_source_files(
             root_path,
-            include_patterns or ['**/*.c', '**/*.h'],
+            resolved_include_patterns(include_patterns),
             exclude_patterns=exclude_patterns,
             max_file_size=self.max_file_size,
         )

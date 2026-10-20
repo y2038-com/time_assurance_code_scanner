@@ -24,6 +24,12 @@ from tacs.batch_repo_scan import (
 )
 from tacs.core.env_capabilities import UNKNOWN_SETTING, time64_suffix
 from tacs.core.file_limits import validate_max_file_size
+from tacs.core.include_patterns import (
+    DEFAULT_EXCLUDE_PATTERNS,
+    DEFAULT_INCLUDE_PATTERNS,
+    format_default_exclude_help,
+    format_default_include_help,
+)
 from tacs.core.llm_client import DEFAULT_CONFIDENCE_FLOOR
 from tacs.core.path_utils import display_local_path, update_latest_symlink
 from tacs.core.run_ids import new_run_id
@@ -33,9 +39,8 @@ from tacs.llm.env import DEFAULT_MODEL, default_llm_type, default_model_id
 
 LOGGER = logging.getLogger("tacs.batch_scan_repos")
 
-#: Match ``tacs scan --include`` / ``--exclude`` defaults.
-DEFAULT_INCLUDE_PATTERNS = ("**/*.c", "**/*.h")
-DEFAULT_EXCLUDE_PATTERNS = ("**/tests/**",)
+# Re-exported so callers and tests keep a stable import path; the tuples are
+# defined once in ``tacs.core.include_patterns``.
 
 
 class RepoScanTimeout(Exception):
@@ -486,7 +491,7 @@ REMOVED_SCAN_OVERRIDES = {
     ),
     "file_extensions": (
         'scan_overrides.file_extensions is no longer supported; '
-        'use "include" with glob patterns (e.g. ["**/*.c", "**/*.h"]) instead'
+        'use "include" with glob patterns (e.g. ["**/*.c", "**/*.cpp"]) instead'
     ),
     "exclude_patterns": (
         'scan_overrides.exclude_patterns is no longer supported; '
@@ -950,18 +955,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "--include",
         action="append",
         default=None,
-        help=(
-            "Include glob patterns (repeatable; default: **/*.c, **/*.h; "
-            "matches tacs scan). Per-repo scan_overrides.include wins when set."
+        help=format_default_include_help(
+            extra="Matches tacs scan. Per-repo scan_overrides.include wins when set."
         ),
     )
     parser.add_argument(
         "--exclude",
         action="append",
         default=None,
-        help=(
-            "Exclude glob patterns (repeatable; default: **/tests/**; "
-            "matches tacs scan). Per-repo scan_overrides.exclude wins when set."
+        help=format_default_exclude_help(
+            extra="Matches tacs scan. Per-repo scan_overrides.exclude wins when set."
         ),
     )
     parser.add_argument(

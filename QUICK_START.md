@@ -62,6 +62,14 @@ full patterns tree). Treat them as **candidates for review**, not confirmed defe
 Discovery artifacts (merged rules, discovery report) land under
 `results/scans/<session>/prescan/` — the `--rules` file you pass is never modified.
 
+Default `--include` covers common C and C++ sources and headers (`**/*.c`,
+`**/*.h`, `**/*.cc`, `**/*.cpp`, `**/*.cxx`, `**/*.hh`, `**/*.hpp`,
+`**/*.hxx`). Default `--exclude` is `**/tests/**`. Passing `--include`
+replaces those globs; it does not add fragment extensions such as `.ipp`,
+`.tpp`, `.inl`, or `.tcc` to the catalog IR allowlist. A larger tree means
+more files, candidates, and (when LLM-enabled) more requests, tokens, and
+cost.
+
 Useful checks:
 
 ```bash

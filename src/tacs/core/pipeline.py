@@ -13,6 +13,7 @@ from tacs.core.schema import (
     Y2038Issue, SeverityLevel, IOCandidate
 )
 from tacs.core.file_limits import validate_max_file_size
+from tacs.core.include_patterns import resolved_include_patterns
 from tacs.core.metrics import calculate_metrics
 from tacs.core.path_utils import (
     display_rules_path,
@@ -2998,7 +2999,7 @@ Timing (ms):
 
         enumeration = enumerate_source_files(
             root_path,
-            include_patterns or ['**/*.c', '**/*.h'],
+            resolved_include_patterns(include_patterns),
             exclude_patterns=exclude_patterns,
             max_file_size=self.max_file_size,
         )
