@@ -10,6 +10,19 @@ currently **1.2**.
 
 ## Unreleased
 
+### Changed
+
+- Default scan scope for ``tacs scan`` and ``tacs repos`` now includes common
+  C and C++ sources and headers: ``**/*.c``, ``**/*.h``, ``**/*.cc``,
+  ``**/*.cpp``, ``**/*.cxx``, ``**/*.hh``, ``**/*.hpp``, ``**/*.hxx``. Explicit
+  ``--include`` and per-repository ``scan_overrides.include`` still replace
+  those defaults. Default exclude remains ``**/tests/**``. Implementation
+  fragments (``.ipp``, ``.tpp``, ``.inl``, ``.tcc``) and uncommon uppercase
+  extensions stay out of the default globs and out of the catalog IR
+  allowlist; explicit ``--include`` of those names does not catalog-scan them.
+  Broader defaults can increase files scanned, candidates, runtime, LLM
+  requests, tokens, and cost.
+
 ## 0.2.0rc2 — 2026-10-18
 
 Second release candidate. Focus since RC1: translation-unit-aware typedef

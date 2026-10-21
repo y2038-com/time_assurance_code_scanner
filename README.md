@@ -58,6 +58,7 @@ Details: [docs/privacy.md](docs/privacy.md).
 - Evidence-oriented pipeline with optional multi-stage LLM analysis
 - Human review is authoritative — scanner outputs are **candidates for review**
 - Language surface today is C/C++; the project name and CLI are not limited to C forever
+- Default scan scope is common C/C++ sources and headers (`**/*.c`, `**/*.h`, `**/*.cc`, `**/*.cpp`, `**/*.cxx`, `**/*.hh`, `**/*.hpp`, `**/*.hxx`); `--include` replaces that glob list, not the catalog IR allowlist. See [docs/usage/RUNNING_FULL_PIPELINE.md](docs/usage/RUNNING_FULL_PIPELINE.md).
 
 ## Limitations
 

@@ -33,8 +33,13 @@ NON_CALLABLE_CATEGORIES = {
     'macro', 'simple type', 'structure'
 }
 
-# Allowed source file extensions
-SRC_EXTS = {'.c', '.h', '.hpp', '.hh', '.cpp', '.cc', '.cxx'}
+# Allowed source file extensions (keep in lockstep with DEFAULT_SOURCE_EXTENSIONS).
+try:
+    from tacs.core.include_patterns import DEFAULT_SOURCE_EXTENSIONS
+
+    SRC_EXTS = set(DEFAULT_SOURCE_EXTENSIONS)
+except ImportError:
+    SRC_EXTS = {'.c', '.h', '.cc', '.cpp', '.cxx', '.hh', '.hpp', '.hxx'}
 
 
 # ============================== Rule handling ===============================

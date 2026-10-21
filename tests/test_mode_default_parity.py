@@ -97,10 +97,18 @@ def test_request_timeout_defaults_match() -> None:
 
 def test_include_exclude_defaults_match_scan() -> None:
     from tacs.batch_scan_repos import DEFAULT_EXCLUDE_PATTERNS, DEFAULT_INCLUDE_PATTERNS
+    from tacs.core.include_patterns import (
+        DEFAULT_EXCLUDE_PATTERNS as CORE_EXCLUDE,
+        DEFAULT_INCLUDE_PATTERNS as CORE_INCLUDE,
+    )
 
     scan = _scan_defaults()
     assert list(scan["include"]) == list(DEFAULT_INCLUDE_PATTERNS)
     assert list(scan["exclude"]) == list(DEFAULT_EXCLUDE_PATTERNS)
+    assert DEFAULT_INCLUDE_PATTERNS == CORE_INCLUDE
+    assert DEFAULT_EXCLUDE_PATTERNS == CORE_EXCLUDE
+    assert "**/*.cpp" in DEFAULT_INCLUDE_PATTERNS
+    assert "**/*.hh" in DEFAULT_INCLUDE_PATTERNS
     resolved = _resolved_repos_defaults()
     assert resolved["include"] == list(DEFAULT_INCLUDE_PATTERNS)
     assert resolved["exclude"] == list(DEFAULT_EXCLUDE_PATTERNS)

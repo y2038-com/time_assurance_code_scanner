@@ -595,12 +595,14 @@ def test_batch_cli_include_exclude_defaults_are_recorded(
     _, run_dir = _run_batch(tmp_path, monkeypatch)
 
     options = _effective_options(run_dir)
-    assert options["include"] == ["**/*.c", "**/*.h"]
+    from tacs.core.include_patterns import DEFAULT_INCLUDE_PATTERNS
+
+    assert options["include"] == list(DEFAULT_INCLUDE_PATTERNS)
     assert options["exclude"] == ["**/tests/**"]
     assert options["min_risk"] == "medium"
 
     summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
-    assert summary["args"]["include"] == ["**/*.c", "**/*.h"]
+    assert summary["args"]["include"] == list(DEFAULT_INCLUDE_PATTERNS)
     assert summary["args"]["exclude"] == ["**/tests/**"]
     assert summary["args"]["min_risk"] == "medium"
 

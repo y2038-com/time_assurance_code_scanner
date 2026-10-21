@@ -10,6 +10,12 @@ from typing import List, Optional
 from tacs.core.status_logger import StatusLogger
 from tacs.core.logging_config import configure_logging, resolve_log_level
 from tacs.core.llm_client import DEFAULT_CONFIDENCE_FLOOR
+from tacs.core.include_patterns import (
+    DEFAULT_EXCLUDE_PATTERNS,
+    DEFAULT_INCLUDE_PATTERNS,
+    format_default_exclude_help,
+    format_default_include_help,
+)
 from tacs.core.pipeline import ScanningPipeline
 from tacs.llm.env import (
     DEFAULT_LOCAL_HOST,
@@ -65,10 +71,20 @@ def _default_model() -> str:
     '--env-config',
     help='Environment configuration JSON file path (optional; must be valid if given)',
 )
-@click.option('--exclude', multiple=True, default=['**/tests/**'], help='Exclude glob patterns (default: **/tests/**)')
+@click.option(
+    '--exclude',
+    multiple=True,
+    default=DEFAULT_EXCLUDE_PATTERNS,
+    help=format_default_exclude_help(),
+)
 @click.option('--include-no-findings', is_flag=True, default=False, help='Include findings classified as NO (safe) in output (default: disabled)')
 @click.option('--function-first/--no-function-first', default=True, help='Use function-first pipeline (default: enabled)')
-@click.option('--include', multiple=True, default=['**/*.c', '**/*.h'], help='Include glob patterns (default: **/*.c, **/*.h)')
+@click.option(
+    '--include',
+    multiple=True,
+    default=DEFAULT_INCLUDE_PATTERNS,
+    help=format_default_include_help(),
+)
 @click.option('--io-analysis/--no-io-analysis', default=True, help='Enable I/O-boundary analysis (default: enabled)')
 @click.option('--io-score-threshold', type=float, default=6.0, help='Minimum score for I/O-boundary candidates (default: 6.0)')
 @click.option('--io-check-literal-widths/--no-io-check-literal-widths', default=True, help='Check for suspicious literal widths (4/8) in I/O operations (default: enabled)')

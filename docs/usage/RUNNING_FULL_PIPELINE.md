@@ -14,6 +14,38 @@ LLM providers are **opt-in** (`--llm none` by default). Examples below that use
 `--llm ollama` assume you have configured `OLLAMA_API_KEY` (and left `OLLAMA_HOST`
 unset for Ollama Cloud) or set `OLLAMA_HOST` for a local daemon.
 
+## File selection
+
+By default both `tacs scan` and `tacs repos` include common C and C++ source
+and header files:
+
+- `**/*.c`
+- `**/*.h`
+- `**/*.cc`
+- `**/*.cpp`
+- `**/*.cxx`
+- `**/*.hh`
+- `**/*.hpp`
+- `**/*.hxx`
+
+Default exclude is `**/tests/**`. Implementation fragments (`.ipp`, `.tpp`,
+`.inl`, `.tcc`) and uncommon uppercase extensions are **not** in that default
+list.
+
+`--include` / `--exclude` **replace** those globs rather than extending
+them. Repeat the flag to list several patterns. For `tacs repos`, a
+repository’s `scan_overrides.include` / `scan_overrides.exclude` replaces the
+batch CLI value for that repository (which itself is the shared default when
+the CLI flag is omitted). Replacing the globs does not expand the catalog IR
+allowlist: catalog matching still uses the common translation-unit extensions
+above (`.c`, `.h`, `.cc`, `.cpp`, `.cxx`, `.hh`, `.hpp`, `.hxx`). An explicit
+`--include` of `.ipp` / `.tpp` / `.inl` / `.tcc` or uncommon uppercase
+spellings will not produce catalog candidates from those files.
+
+Widening the default scope can increase files and lines scanned, candidate
+counts, runtime, and — when an LLM is enabled — request count, token use, and
+cost. Narrow with `--include` when you only need a subset.
+
 ## Y2106 Detection
 
 The scanner can detect both Y2038 and Y2106 issues when the `--detect-y2106` flag is enabled:
