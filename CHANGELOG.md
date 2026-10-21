@@ -2,26 +2,42 @@
 
 All notable changes to the public Time Assurance Code Scanner (`tacs`) are
 documented here. Versions follow [PEP 440](https://peps.python.org/pep-0440/).
-Git tags use a dotted pre-release form (for example `v0.2.0-rc.2`) while the
-Python package version uses the PEP 440 form (`0.2.0rc2`).
+Git tags use a dotted pre-release form (for example `v0.2.0-rc.3`) while the
+Python package version uses the PEP 440 form (`0.2.0rc3`).
 
 The public JSON result shape is versioned separately as `schema_version` and is
 currently **1.2**.
 
 ## Unreleased
 
+## 0.2.0rc3 — 2026-10-20
+
+Third release candidate. Focus since RC2: the default scan scope for
+``tacs scan`` and ``tacs repos`` now includes common C and C++ source and
+header extensions. Package version is **0.2.0rc3**; the public report schema
+remains **1.2**.
+
 ### Changed
 
-- Default scan scope for ``tacs scan`` and ``tacs repos`` now includes common
-  C and C++ sources and headers: ``**/*.c``, ``**/*.h``, ``**/*.cc``,
-  ``**/*.cpp``, ``**/*.cxx``, ``**/*.hh``, ``**/*.hpp``, ``**/*.hxx``. Explicit
-  ``--include`` and per-repository ``scan_overrides.include`` still replace
-  those defaults. Default exclude remains ``**/tests/**``. Implementation
-  fragments (``.ipp``, ``.tpp``, ``.inl``, ``.tcc``) and uncommon uppercase
-  extensions stay out of the default globs and out of the catalog IR
-  allowlist; explicit ``--include`` of those names does not catalog-scan them.
-  Broader defaults can increase files scanned, candidates, runtime, LLM
-  requests, tokens, and cost.
+- Default include patterns are ``**/*.c``, ``**/*.h``, ``**/*.cc``,
+  ``**/*.cpp``, ``**/*.cxx``, ``**/*.hh``, ``**/*.hpp``, and ``**/*.hxx``.
+  Default exclude remains ``**/tests/**``. Explicit ``--include`` and
+  per-repository ``scan_overrides.include`` still **replace** those defaults
+  rather than extending them.
+- Implementation fragments (``.ipp``, ``.tpp``, ``.inl``, ``.tcc``), uncommon
+  uppercase spellings, and module extensions stay out of the default globs and
+  out of the catalog IR allowlist. Explicit ``--include`` of those names does
+  not catalog-scan them.
+- Broader defaults can increase files and lines scanned, candidate counts,
+  runtime, and — when an LLM is enabled — request count, token use, and cost.
+
+### Notes
+
+- This RC does not add a complete C++ parser, change detection rules, or claim
+  improved accuracy, certification, or coverage beyond the tested common
+  translation-unit extensions.
+- Default LLM behavior is unchanged: provider ``none``, model id
+  ``gpt-oss:120b-cloud`` (used when an LLM is opted in).
 
 ## 0.2.0rc2 — 2026-10-18
 

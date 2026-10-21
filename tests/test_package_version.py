@@ -16,7 +16,7 @@ import pytest
 from tacs import __version__ as tacs_version
 
 
-EXPECTED = "0.2.0rc2"
+EXPECTED = "0.2.0rc3"
 DIST_NAME = "time-assurance-code-scanner"
 
 
