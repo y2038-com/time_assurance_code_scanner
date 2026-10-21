@@ -15,7 +15,7 @@ This repository is the open-source scanner engine and CLI. It is the code-scanni
 
 ## Status
 
-**v0.2.0rc2** — release candidate on the CLI-first scanning pipeline. Public
+**v0.2.0rc3** — release candidate on the CLI-first scanning pipeline. Public
 result documents use **schema_version `1.2`** (`candidates[]`, `assessments[]`,
 `findings[]`, plus optional `meta.llm_provider` / `meta.reasoning_effort`).
 Schema **1.1** reports still load and render. See [CHANGELOG.md](CHANGELOG.md).
