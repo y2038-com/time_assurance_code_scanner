@@ -2,13 +2,61 @@
 
 All notable changes to the public Time Assurance Code Scanner (`tacs`) are
 documented here. Versions follow [PEP 440](https://peps.python.org/pep-0440/).
-Git tags use a dotted pre-release form (for example `v0.2.0-rc.3`) while the
-Python package version uses the PEP 440 form (`0.2.0rc3`).
+The current Git tag is ``v0.2.0`` for package version ``0.2.0``. Pre-releases
+used a dotted tag form (for example ``v0.2.0-rc.3``) with the PEP 440 package
+form (``0.2.0rc3``).
 
 The public JSON result shape is versioned separately as `schema_version` and is
 currently **1.2**.
 
 ## Unreleased
+
+## 0.2.0 — 2026-10-21
+
+First stable ``0.2.0`` after RC1–RC3. Package version is **0.2.0**; the public
+report schema remains **1.2**. Default LLM remains ``--llm none``; the default
+model identifier remains ``gpt-oss:120b-cloud`` (used when an LLM is opted in).
+Findings and model assessments are **review candidates**, not certification;
+human review remains required.
+
+### Summary
+
+Capabilities delivered through the RC lineage and included in this stable cut:
+
+- Deterministic C and C++ source scanning with catalog-symbol, type, cast,
+  arithmetic, define, and I/O-boundary candidate discovery.
+- Stable candidate and function attribution (report-local candidate IDs;
+  exact ``function_id`` binding for model results).
+- Translation-unit-scoped typedef discovery and project include closures,
+  including preservation of legitimate local typedef aliases that collide with
+  catalog symbols.
+- Default scan scope of common C and C++ translation-unit extensions:
+  ``**/*.c``, ``**/*.h``, ``**/*.cc``, ``**/*.cpp``, ``**/*.cxx``, ``**/*.hh``,
+  ``**/*.hpp``, ``**/*.hxx``. Default exclude remains ``**/tests/**``. Explicit
+  ``--include`` and per-repository ``scan_overrides.include`` **replace** those
+  defaults rather than extending them. Fragment and uncommon extensions
+  (``.ipp``, ``.tpp``, ``.inl``, ``.tcc``, uppercase variants, module
+  extensions) stay outside the default globs and the catalog IR allowlist.
+- Optional LLM-assisted assessment (Ollama, OpenAI, Anthropic, Gemini).
+- Opt-in OpenAI GPT-6 Luna (``gpt-6-luna``) with ``--reasoning-effort none|low``.
+- Public result schema **1.2** provider and reasoning-effort provenance
+  (``meta.llm_provider``, ``meta.reasoning_effort``). Schema **1.0** / **1.1**
+  reports still load and render.
+- Hardened OpenAI Chat Completions handling (fail-closed on refusal,
+  truncation, ``content_filter``, tool calls, and unrecognized
+  ``finish_reason`` on the official API).
+- Shared canonical F1/F2/F3 staged-analysis response contract.
+- Clear distinction between completed model abstentions and
+  ``analysis_error`` (text/HTML reports label analysis errors separately).
+- Text and HTML report rendering via ``tacs render``.
+
+### Notes
+
+- This release does not add a complete C++ parser, claim proven detection
+  accuracy, or certify that scanned code is free of Y2038/Y2106 defects.
+- Function recognition remains a bounded lexical recognizer.
+- Luna is opt-in; live model results remain provider- and model-dependent.
+- TACS has no USD cost estimator.
 
 ## 0.2.0rc3 — 2026-10-20
 

@@ -16,12 +16,13 @@ import pytest
 from tacs import __version__ as tacs_version
 
 
-EXPECTED = "0.2.0rc3"
+EXPECTED = "0.2.0"
 DIST_NAME = "time-assurance-code-scanner"
 
 
-def test_package_dunder_version_is_release_candidate() -> None:
+def test_package_dunder_version_is_stable() -> None:
     assert tacs_version == EXPECTED
+    assert "rc" not in tacs_version.lower()
 
 
 def test_pyproject_version_matches_package() -> None:
@@ -66,6 +67,7 @@ def test_click_version_option_matches_package() -> None:
     "module_name",
     ["tacs", "report_renderer"],
 )
-def test_distribution_modules_report_release_candidate(module_name: str) -> None:
+def test_distribution_modules_report_stable_version(module_name: str) -> None:
     mod = __import__(module_name)
     assert getattr(mod, "__version__") == EXPECTED
+    assert "rc" not in getattr(mod, "__version__").lower()
