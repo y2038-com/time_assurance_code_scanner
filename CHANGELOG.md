@@ -11,6 +11,11 @@ currently **1.2**.
 
 ## Unreleased
 
+- Fix typedef declaration-boundary detection so a function-pointer typedef
+  cannot consume later C or C++ declarations. ``bool _configured`` is no
+  longer misidentified as a ``time_t`` alias. TACS still uses bounded lexical
+  analysis and is not a complete C or C++ parser.
+
 ## 0.2.0 — 2026-10-21
 
 First stable ``0.2.0`` after RC1–RC3. Package version is **0.2.0**; the public
