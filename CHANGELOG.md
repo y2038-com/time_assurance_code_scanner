@@ -11,6 +11,10 @@ currently **1.2**.
 
 ## Unreleased
 
+- When ``--detect-y2106`` is enabled, public ``assessments[].verdict`` and
+  console/batch yes/no/abstain summaries aggregate Y2038 and Y2106 issue
+  flags. A Y2038-negative / Y2106-positive result is counted as ``yes`` and
+  retained; issue-specific finding fields are unchanged. Schema remains **1.2**.
 - Fix typedef declaration-boundary detection so a function-pointer typedef
   cannot consume later C or C++ declarations. ``bool _configured`` is no
   longer misidentified as a ``time_t`` alias. TACS still uses bounded lexical

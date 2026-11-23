@@ -55,8 +55,12 @@ The scanner can detect both Y2038 and Y2106 issues when the `--detect-y2106` fla
 
 By default, only Y2038 issues are detected. When `--detect-y2106` is enabled:
 - The scanner classifies findings with `issue_type` (y2038, y2106, both, none, abstain)
-- Summary statistics show both Y2038 and Y2106 counts
 - Findings include both `y2038_issue` and `y2106_issue` classifications
+- Public `assessments[].verdict` and console/batch yes/no/abstain counts are the
+  **aggregate** of enabled issue summaries: `yes` if either issue is `yes`, else
+  `abstain` if either is `abstain`, else `no`. Issue-specific fields stay exact;
+  a Y2038-negative / Y2106-positive result is not counted only as negative
+- Summary statistics also show separate Y2106 debug counts when logging is DEBUG
 
 **Example with Y2106 detection:**
 ```bash

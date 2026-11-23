@@ -102,8 +102,13 @@ def count_analyses_by_execution(
     """Count completed yes/no/abstain separately from analysis_error stubs.
 
     Analysis-error stubs keep compatibility ``y2038_summary=abstain`` but must
-    not be reported as genuine model abstentions.
+    not be reported as genuine model abstentions. Completed counts use the same
+    aggregate rule as public ``ModelAssessment.verdict`` so a Y2106-only yes is
+    not counted as a negative classification.
     """
+    from tacs.core.model_assessment import aggregate_issue_verdict
+    from tacs.core.schema import ModelVerdict
+
     yes = no = abstain = errors = 0
     for analysis in analyses:
         status = getattr(
@@ -113,11 +118,13 @@ def count_analyses_by_execution(
         if status_val == AssessmentExecutionStatus.ANALYSIS_ERROR.value:
             errors += 1
             continue
-        summary = analysis.y2038_summary
-        summary_val = summary.value if hasattr(summary, "value") else str(summary)
-        if summary_val == "yes":
+        verdict = aggregate_issue_verdict(
+            analysis.y2038_summary,
+            getattr(analysis, "y2106_summary", None),
+        )
+        if verdict == ModelVerdict.YES:
             yes += 1
-        elif summary_val == "no":
+        elif verdict == ModelVerdict.NO:
             no += 1
         else:
             abstain += 1

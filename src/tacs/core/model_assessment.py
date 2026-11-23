@@ -41,12 +41,63 @@ _ABS_PATH_RE = re.compile(
 )
 
 
-def _summary_to_verdict(summary: Y2038Summary) -> ModelVerdict:
-    if summary == Y2038Summary.YES:
+def _summary_value(summary: Any) -> Optional[str]:
+    """Normalize a yes/no/abstain summary or issue enum to a lowercase string."""
+    if summary is None:
+        return None
+    value = summary.value if hasattr(summary, "value") else summary
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    if normalized in {"yes", "no", "abstain"}:
+        return normalized
+    return None
+
+
+def aggregate_issue_verdict(
+    y2038_summary: Any,
+    y2106_summary: Any = None,
+) -> ModelVerdict:
+    """Aggregate enabled issue-specific summaries into one public verdict.
+
+    When Y2106 detection ran, the model classifies Y2038 and Y2106
+    independently. The public ``ModelAssessment.verdict`` is then the
+    aggregate of every present issue summary:
+
+    - ``yes`` if any present summary is ``yes``
+    - else ``abstain`` if any present summary is ``abstain``
+    - else ``no``
+
+    Missing ``y2106_summary`` (Y2106 detection disabled, or legacy /
+    incomplete data) leaves the verdict equal to the Y2038 summary alone.
+    Callers must still treat ``execution_status=analysis_error`` separately;
+    those assessments keep a null verdict and are not passed through here.
+    """
+    values = []
+    for summary in (y2038_summary, y2106_summary):
+        normalized = _summary_value(summary)
+        if normalized is not None:
+            values.append(normalized)
+    if not values:
+        return ModelVerdict.ABSTAIN
+    if "yes" in values:
         return ModelVerdict.YES
-    if summary == Y2038Summary.NO:
-        return ModelVerdict.NO
-    return ModelVerdict.ABSTAIN
+    if "abstain" in values:
+        return ModelVerdict.ABSTAIN
+    return ModelVerdict.NO
+
+
+def aggregate_finding_issue_class(
+    y2038_issue: Any,
+    y2106_issue: Any = None,
+) -> str:
+    """Aggregate finding-level issue fields into ``yes`` / ``no`` / ``abstain``.
+
+    Same priority as :func:`aggregate_issue_verdict`. Used by summary counters
+    so a retained ``y2038_issue=no`` + ``y2106_issue=yes`` finding counts as a
+    positive result without rewriting the issue-specific fields.
+    """
+    return aggregate_issue_verdict(y2038_issue, y2106_issue).value
 
 
 def _bound_reason(text: str, max_chars: int = ASSESSMENT_REASON_MAX_CHARS) -> str:
@@ -138,7 +189,10 @@ def build_model_assessment(
     verdict: Optional[ModelVerdict] = None
     confidence: Optional[float] = None
     if status == AssessmentExecutionStatus.COMPLETED:
-        verdict = _summary_to_verdict(analysis.y2038_summary)
+        verdict = aggregate_issue_verdict(
+            analysis.y2038_summary,
+            getattr(analysis, "y2106_summary", None),
+        )
         confidence = _clamp_confidence(analysis.confidence)
 
     # Copy ids so later filtering cannot mutate FunctionBody.candidate_ids.
