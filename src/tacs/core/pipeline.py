@@ -605,7 +605,8 @@ class ScanningPipeline:
         candidates = self.ir_adapter.discover_candidates(
             root_path, updated_rules_path, min_risk, include_patterns, exclude_patterns,
             time_t_aliases=scoped_typedef_aliases if self.enable_discovery else {},
-            time_functions=time_functions
+            time_functions=time_functions,
+            environment_config=self.environment_config,
         )
         # Belt-and-suspenders: IRAdapter already prepares, but Stage 4/5 may
         # append more candidates later; re-prepare immediately after discovery

@@ -76,7 +76,8 @@ class IRAdapter:
         include_patterns: List[str] = None,
         exclude_patterns: List[str] = None,
         time_t_aliases: Dict[str, List[str]] = None,
-        time_functions: List[str] = None
+        time_functions: List[str] = None,
+        environment_config: Optional[Dict[str, Any]] = None,
     ) -> List[Candidate]:
         """
         Discover candidates using the fast scanner.
@@ -89,6 +90,7 @@ class IRAdapter:
             exclude_patterns: List of glob patterns to exclude
             time_t_aliases: Dict of discovered time_t typedef aliases for cast detection
             time_functions: List of time-related function names for cast detection
+            environment_config: Optional target ABI / time_t width configuration
             
         Returns:
             List of Candidate objects
@@ -232,6 +234,17 @@ class IRAdapter:
             # Scan for arithmetic operations on time_t
             arithmetic_candidates = self._scan_for_arithmetic(root_path, include_patterns, exclude_patterns, time_t_aliases)
             candidates.extend(arithmetic_candidates)
+
+            # Function-local time-derived narrowing (issue #52)
+            narrowing_candidates = self._scan_for_local_narrowing(
+                root_path,
+                include_patterns,
+                exclude_patterns,
+                time_t_aliases,
+                time_functions,
+                environment_config,
+            )
+            candidates.extend(narrowing_candidates)
 
             # Symlink aliases and overlapping detectors can emit the same hit more
             # than once; collapse exact duplicates and stabilize order here so
@@ -383,6 +396,65 @@ class IRAdapter:
         # candidate generation. Represent as empty scoped map and let
         # ArithmeticScanner receive the flat dict only when intentionally legacy.
         return {}
+
+    def _scan_for_local_narrowing(
+        self,
+        root_path: str,
+        include_patterns: List[str] = None,
+        exclude_patterns: List[str] = None,
+        time_t_aliases: Dict[str, Any] = None,
+        time_functions: List[str] = None,
+        environment_config: Optional[Dict[str, Any]] = None,
+    ) -> List[Candidate]:
+        """Scan function bodies for time-derived narrowing conversions."""
+        from tacs.core.local_narrowing_scanner import (
+            LocalNarrowingScanner,
+            narrowing_matches_to_candidates,
+        )
+
+        scoped = self._normalize_scoped_aliases(time_t_aliases, root_path)
+        flat_legacy: Dict[str, List[str]] = {}
+        if time_t_aliases and not scoped:
+            sample = next(iter(time_t_aliases.values()), None)
+            if isinstance(sample, list):
+                flat_legacy = {str(k): list(v) for k, v in time_t_aliases.items()}
+
+        StatusLogger.timestamped_debug(
+            "Scanning for function-local time-derived narrowing..."
+        )
+        files = self._get_files(
+            root_path,
+            resolved_include_patterns(include_patterns),
+            exclude_patterns or [],
+            self.max_file_size,
+        )
+        all_matches = []
+        for file_path in files:
+            file_aliases = (
+                aliases_for_source_file(scoped, str(file_path), root_path)
+                if scoped
+                else flat_legacy
+            )
+            alias_names = list(file_aliases.keys()) if file_aliases else []
+            scanner = LocalNarrowingScanner(
+                time_t_aliases=alias_names,
+                time_functions=time_functions or [],
+                environment_config=environment_config,
+            )
+            try:
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+                matches = scanner.scan_source(content, str(file_path))
+                all_matches.extend(matches)
+            except Exception as e:
+                StatusLogger.timestamped_warning(f"Could not read {file_path}: {e}")
+                continue
+
+        if all_matches:
+            StatusLogger.timestamped_debug(
+                f"  Found {len(all_matches)} local time-narrowing site(s)"
+            )
+        return narrowing_matches_to_candidates(all_matches)
 
     def _scan_for_arithmetic(self, root_path: str, include_patterns: List[str] = None, 
                              exclude_patterns: List[str] = None, 
