@@ -886,38 +886,52 @@ class ScanningPipeline:
 
     @staticmethod
     def _classification_counts(findings: List[Finding]) -> Dict[str, int]:
-        """Count Y2038 verdicts across finding records (not unique functions).
+        """Count aggregate issue verdicts across finding records.
 
-        Compatibility finding records may still use abstain-shaped
-        ``y2038_issue`` for analysis-error stubs. Prefer
+        Uses ``y2038_issue`` together with ``y2106_issue`` when present so a
+        Y2106-only positive finding is not counted as negative. Compatibility
+        finding records may still use abstain-shaped ``y2038_issue`` for
+        analysis-error stubs. Prefer
         :meth:`_function_classification_counts_from_assessments` for progress
         messages that must separate genuine abstentions from analysis errors.
         """
+        from tacs.core.model_assessment import aggregate_finding_issue_class
+
+        classes = [
+            aggregate_finding_issue_class(
+                f.y2038_issue, getattr(f, "y2106_issue", None)
+            )
+            for f in findings
+        ]
         return {
-            "yes": sum(1 for f in findings if f.y2038_issue == Y2038Issue.YES),
-            "no": sum(1 for f in findings if f.y2038_issue == Y2038Issue.NO),
-            "abstain": sum(1 for f in findings if f.y2038_issue == Y2038Issue.ABSTAIN),
+            "yes": sum(1 for c in classes if c == "yes"),
+            "no": sum(1 for c in classes if c == "no"),
+            "abstain": sum(1 for c in classes if c == "abstain"),
             "analysis_errors": 0,
             "total": len(findings),
         }
 
     @staticmethod
     def _function_classification_counts(findings: List[Finding]) -> Dict[str, int]:
-        """Count Y2038 verdicts once per function_id from finding records.
+        """Count aggregate issue verdicts once per function_id from findings.
 
         Does not separate analysis-error stubs (those keep abstain-shaped
         ``y2038_issue``). Prefer assessment-based counts for authoritative
         progress lines when assessments are available.
         """
-        by_fn: Dict[str, Y2038Issue] = {}
+        from tacs.core.model_assessment import aggregate_finding_issue_class
+
+        by_fn: Dict[str, str] = {}
         for finding in findings:
             fid = finding.function_id or f"{finding.file}:{finding.lines}"
             if fid not in by_fn:
-                by_fn[fid] = finding.y2038_issue
+                by_fn[fid] = aggregate_finding_issue_class(
+                    finding.y2038_issue, getattr(finding, "y2106_issue", None)
+                )
         return {
-            "yes": sum(1 for v in by_fn.values() if v == Y2038Issue.YES),
-            "no": sum(1 for v in by_fn.values() if v == Y2038Issue.NO),
-            "abstain": sum(1 for v in by_fn.values() if v == Y2038Issue.ABSTAIN),
+            "yes": sum(1 for v in by_fn.values() if v == "yes"),
+            "no": sum(1 for v in by_fn.values() if v == "no"),
+            "abstain": sum(1 for v in by_fn.values() if v == "abstain"),
             "analysis_errors": 0,
             "total": len(by_fn),
         }

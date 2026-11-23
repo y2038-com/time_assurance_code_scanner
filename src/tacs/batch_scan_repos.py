@@ -298,6 +298,14 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _parse_findings_summary(findings_path: Path) -> dict[str, int]:
+    """Summarize retained findings with aggregate Y2038/Y2106 issue status.
+
+    A finding with ``y2038_issue=no`` and ``y2106_issue=yes`` counts as a
+    positive (``yes_findings``). Issue-specific fields in the JSON are not
+    rewritten.
+    """
+    from tacs.core.model_assessment import aggregate_finding_issue_class
+
     if not findings_path.exists():
         return {"total_findings": 0, "yes_findings": 0, "no_findings": 0, "abstain_findings": 0}
     data = json.loads(findings_path.read_text(encoding="utf-8"))
@@ -306,9 +314,11 @@ def _parse_findings_summary(findings_path: Path) -> dict[str, int]:
     no = 0
     abstain = 0
     for f in findings:
-        issue = ""
-        if isinstance(f, dict):
-            issue = str(f.get("y2038_issue", "")).strip().lower()
+        if not isinstance(f, dict):
+            continue
+        issue = aggregate_finding_issue_class(
+            f.get("y2038_issue"), f.get("y2106_issue")
+        )
         if issue == "yes":
             yes += 1
         elif issue == "no":

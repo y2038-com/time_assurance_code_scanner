@@ -364,7 +364,12 @@ class ModelAssessment(BaseModel):
     )
     verdict: Optional[ModelVerdict] = Field(
         default=None,
-        description="Model yes/no/abstain when execution_status is completed; else null",
+        description=(
+            "Aggregate model yes/no/abstain when execution_status is completed; "
+            "else null. When Y2106 detection was enabled, yes if any enabled "
+            "issue-specific summary is yes; issue-specific fields on findings "
+            "remain authoritative for Y2038 vs Y2106"
+        ),
     )
     confidence: Optional[float] = Field(
         default=None,
@@ -392,9 +397,20 @@ class AssessmentSummary(BaseModel):
 
     total: int = Field(0, description="Assessments in the public collection")
     completed: int = Field(0, description="execution_status=completed")
-    yes: int = Field(0, description="completed with verdict=yes")
-    no: int = Field(0, description="completed with verdict=no")
-    abstain: int = Field(0, description="completed with verdict=abstain")
+    yes: int = Field(
+        0,
+        description=(
+            "completed with aggregate verdict=yes (any enabled rollover issue)"
+        ),
+    )
+    no: int = Field(
+        0,
+        description="completed with aggregate verdict=no",
+    )
+    abstain: int = Field(
+        0,
+        description="completed with aggregate verdict=abstain",
+    )
     analysis_errors: int = Field(0, description="execution_status=analysis_error")
     not_requested: int = Field(
         0,
