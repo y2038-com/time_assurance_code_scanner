@@ -11,6 +11,16 @@ currently **1.2**.
 
 ## Unreleased
 
+- Add function-local detection of time-derived narrowing conversions (explicit
+  casts and implicit assignments to narrower fixed-width types). Provenance
+  follows recognized time types, Unix-epoch/absolute-time return-value calls
+  (exact stdlib names plus bounded ``*SecondsUtc`` / epoch / Unix-time
+  identifier fullmatches), and simple local assignment chains. Duration,
+  timeout, boot, monotonic, and counter-style names are rejected; identifier
+  names alone are not enough for the new scanner. Visible range checks are
+  recorded as mitigating evidence. Schema remains **1.2**; candidates use
+  ``discovery_method=time_t_cast`` with null rule IDs (same policy as other
+  dynamic cast detections).
 - When ``--detect-y2106`` is enabled, public ``assessments[].verdict`` and
   console/batch yes/no/abstain summaries aggregate Y2038 and Y2106 issue
   flags. A Y2038-negative / Y2106-positive result is counted as ``yes`` and
