@@ -211,6 +211,22 @@ class TimeLocal:
     type_repr: TypeRepr
     provenance: str
     decl_line: Optional[int] = None
+    time_semantic: str = "time_related_unknown"
+    origin_candidate_ids: List[str] = field(default_factory=list)
+    externally_seeded: bool = False
+
+
+@dataclass
+class ExternalTimeSeed:
+    """Externally supplied time provenance for a callee parameter (issue #57)."""
+
+    name: str
+    declared_type: str
+    time_semantic: str
+    provenance: str
+    origin_candidate_ids: List[str] = field(default_factory=list)
+    bits: Optional[int] = None
+    signedness: Optional[str] = None
 
 
 @dataclass
@@ -238,6 +254,9 @@ class NarrowingMatch:
     guard_evidence: str = ""
     conversion_kind: str = "width_reduction"  # width_reduction|signedness_change|both|unknown
     unresolved: List[str] = field(default_factory=list)
+    from_external_seed: bool = False
+    time_semantic: str = "time_related_unknown"
+    origin_candidate_ids: List[str] = field(default_factory=list)
 
 
 def _normalize_type(raw: str) -> str:
@@ -435,6 +454,14 @@ class LocalNarrowingScanner:
         self.environment_config = environment_config or {}
         self._time_types = {"time_t"} | self.time_t_aliases
 
+    def resolve_placeholder_time_t(self) -> TypeRepr:
+        """``time_t`` representation under the scanner's environment config."""
+        return resolve_type_repr(
+            "time_t",
+            environment_config=self.environment_config,
+            time_t_aliases=self.time_t_aliases,
+        )
+
     def scan_source(self, source: str, file_path: str) -> List[NarrowingMatch]:
         if not source:
             return []
@@ -449,12 +476,120 @@ class LocalNarrowingScanner:
         matches: List[NarrowingMatch] = []
         for fn in functions:
             matches.extend(
-                self._scan_function(source, lines, line_starts, file_path, fn)
+                self._scan_function(
+                    source,
+                    lines,
+                    line_starts,
+                    file_path,
+                    fn,
+                    externally_time_derived_parameters=None,
+                )
             )
         matches.sort(
             key=lambda m: (m.file_path, m.line_number, m.col_start, m.symbol)
         )
         return matches
+
+    def scan_function(
+        self,
+        source: str,
+        file_path: str,
+        fn: ScannedFunction,
+        *,
+        externally_time_derived_parameters: Optional[
+            Dict[str, ExternalTimeSeed]
+        ] = None,
+    ) -> List[NarrowingMatch]:
+        """Scan one function, optionally seeding parameters with external provenance."""
+        if not source or fn is None:
+            return []
+        lines = source.splitlines(keepends=True)
+        line_starts = [0]
+        for line in lines:
+            line_starts.append(line_starts[-1] + len(line))
+        matches = self._scan_function(
+            source,
+            lines,
+            line_starts,
+            file_path,
+            fn,
+            externally_time_derived_parameters=externally_time_derived_parameters,
+        )
+        matches.sort(
+            key=lambda m: (m.file_path, m.line_number, m.col_start, m.symbol)
+        )
+        return matches
+
+    def collect_time_locals(
+        self,
+        source: str,
+        fn: ScannedFunction,
+        *,
+        externally_time_derived_parameters: Optional[
+            Dict[str, ExternalTimeSeed]
+        ] = None,
+    ) -> Dict[str, TimeLocal]:
+        """Return time-bearing locals discovered in ``fn`` (no sink emission)."""
+        if not source:
+            return {}
+        lines = source.splitlines(keepends=True)
+        start_idx = max(0, fn.start_line - 1)
+        end_idx = min(len(lines), fn.end_line)
+        body_lines = lines[start_idx:end_idx]
+        masked_body = mask_non_code("".join(body_lines))
+        time_locals: Dict[str, TimeLocal] = {}
+        local_types: Dict[str, TypeRepr] = {}
+        field_types: Dict[str, TypeRepr] = {}
+        guards: Dict[str, List[str]] = {}
+        self._apply_external_seeds(
+            time_locals, local_types, externally_time_derived_parameters
+        )
+        offset = 0
+        for rel_i, raw_line in enumerate(body_lines):
+            abs_line = start_idx + rel_i + 1
+            masked_line = masked_body[offset : offset + len(raw_line)]
+            offset += len(raw_line)
+            self._ingest_line(
+                masked_line,
+                abs_line,
+                time_locals,
+                local_types,
+                field_types,
+                guards,
+            )
+        return time_locals
+
+    def _apply_external_seeds(
+        self,
+        time_locals: Dict[str, TimeLocal],
+        local_types: Dict[str, TypeRepr],
+        seeds: Optional[Dict[str, ExternalTimeSeed]],
+    ) -> None:
+        if not seeds:
+            return
+        for name, seed in seeds.items():
+            trepr = resolve_type_repr(
+                seed.declared_type,
+                environment_config=self.environment_config,
+                time_t_aliases=self.time_t_aliases,
+            )
+            if seed.bits is not None or seed.signedness is not None:
+                trepr = TypeRepr(
+                    trepr.type_name,
+                    seed.bits if seed.bits is not None else trepr.bits,
+                    seed.signedness if seed.signedness is not None else trepr.signedness,
+                    True,
+                )
+            local_types[name] = trepr
+            time_locals[name] = TimeLocal(
+                name=name,
+                type_repr=trepr,
+                provenance=seed.provenance,
+                decl_line=None,
+                time_semantic=seed.time_semantic,
+                origin_candidate_ids=list(seed.origin_candidate_ids or ()),
+                externally_seeded=True,
+            )
 
     def _scan_function(
         self,
@@ -463,6 +598,10 @@ class LocalNarrowingScanner:
         line_starts: List[int],
         file_path: str,
         fn: ScannedFunction,
+        *,
+        externally_time_derived_parameters: Optional[
+            Dict[str, ExternalTimeSeed]
+        ] = None,
     ) -> List[NarrowingMatch]:
         start_idx = max(0, fn.start_line - 1)
         end_idx = min(len(lines), fn.end_line)
@@ -476,6 +615,9 @@ class LocalNarrowingScanner:
         # Struct/union field types declared in this function's nested scopes.
         field_types: Dict[str, TypeRepr] = {}
         guards: Dict[str, List[str]] = {}
+        self._apply_external_seeds(
+            time_locals, local_types, externally_time_derived_parameters
+        )
 
         # First pass: declarations, assignments, provenance, guards.
         offset = 0
@@ -552,6 +694,7 @@ class LocalNarrowingScanner:
                     type_repr=trepr,
                     provenance=f"declared as {type_name}",
                     decl_line=line_number,
+                    time_semantic="time_t_value",
                 )
             if rhs:
                 self._maybe_mark_from_rhs(
@@ -589,6 +732,14 @@ class LocalNarrowingScanner:
                         ),
                         provenance=provenance,
                         decl_line=prior.decl_line if prior else line_number,
+                        time_semantic=(
+                            prior.time_semantic
+                            if prior
+                            else "unix_epoch_seconds"
+                        ),
+                        origin_candidate_ids=list(
+                            prior.origin_candidate_ids if prior else ()
+                        ),
                     )
                 elif base in time_locals and _looks_like_calendar_epoch_rhs(rhs):
                     existing = time_locals[base]
@@ -599,6 +750,8 @@ class LocalNarrowingScanner:
                             f"{existing.provenance}; calendar/epoch accumulation"
                         ),
                         decl_line=existing.decl_line or line_number,
+                        time_semantic=existing.time_semantic or "unix_epoch_seconds",
+                        origin_candidate_ids=list(existing.origin_candidate_ids),
                     )
                 continue
 
@@ -636,6 +789,7 @@ class LocalNarrowingScanner:
                     f"assigned from Unix-epoch/absolute-time call {call}()"
                 ),
                 decl_line=line_number,
+                time_semantic="unix_epoch_seconds",
             )
             return
         ref = _rhs_refs_time_local(rhs, time_locals)
@@ -646,6 +800,9 @@ class LocalNarrowingScanner:
                 type_repr=trepr if trepr.known else parent.type_repr,
                 provenance=f"assigned from time-derived {ref} ({parent.provenance})",
                 decl_line=line_number,
+                time_semantic=parent.time_semantic,
+                origin_candidate_ids=list(parent.origin_candidate_ids),
+                externally_seeded=parent.externally_seeded,
             )
             return
         # Cast of a time-derived value in the RHS.
@@ -661,6 +818,9 @@ class LocalNarrowingScanner:
                         f"({parent.provenance})"
                     ),
                     decl_line=line_number,
+                    time_semantic=parent.time_semantic,
+                    origin_candidate_ids=list(parent.origin_candidate_ids),
+                    externally_seeded=parent.externally_seeded,
                 )
                 return
         # Calendar/epoch construction only strengthens an already time-bearing
@@ -756,6 +916,9 @@ class LocalNarrowingScanner:
                     guard_evidence=guard_ev,
                     conversion_kind=kind,
                     unresolved=unresolved,
+                    from_external_seed=src.externally_seeded,
+                    time_semantic=src.time_semantic,
+                    origin_candidate_ids=list(src.origin_candidate_ids),
                 )
             )
 
@@ -824,6 +987,9 @@ class LocalNarrowingScanner:
                     guard_evidence=guard_ev,
                     conversion_kind=kind,
                     unresolved=unresolved,
+                    from_external_seed=src.externally_seeded,
+                    time_semantic=src.time_semantic,
+                    origin_candidate_ids=list(src.origin_candidate_ids),
                 )
             )
 
@@ -896,6 +1062,9 @@ class LocalNarrowingScanner:
                     guard_evidence=guard_ev,
                     conversion_kind=kind,
                     unresolved=unresolved,
+                    from_external_seed=src.externally_seeded,
+                    time_semantic=src.time_semantic,
+                    origin_candidate_ids=list(src.origin_candidate_ids),
                 )
             )
         return out

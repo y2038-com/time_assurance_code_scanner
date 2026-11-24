@@ -186,7 +186,7 @@ def test_explicit_include_replaces_defaults(
     }
     assert "keep.c" in files
     assert "drop.cpp" not in files
-    assert payload["schema_version"] == "1.2"
+    assert payload["schema_version"] == "1.3"
 
 
 def test_c_only_explicit_include_still_scans_c(tmp_path: Path) -> None:

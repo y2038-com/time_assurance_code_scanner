@@ -671,6 +671,8 @@ LINE NUMBER REQUIREMENTS (VERY IMPORTANT):
 
 Be decisive: classify as YES ONLY for genuine Y2038 risks (overflow before 2038), NO for everything else (unless Y2106 mode applies as documented above).
 """
+        if self._batch_has_propagation_paths(function_batch):
+            system_prompt += self._propagation_assessment_instructions()
         system_prompt += canonical_wire_contract_prompt(detect_y2106=self.detect_y2106)
         system_prompt += self._function_response_format_rules()
 
@@ -706,6 +708,8 @@ Be decisive - this is your final chance to classify these functions.
 LINE NUMBER REQUIREMENT:
 - When `issues` is non-empty, set each `issues[].line` to one of the function's `candidate_lines` (pick the most relevant match).
 """
+        if self._batch_has_propagation_paths(function_batch):
+            system_prompt += self._propagation_assessment_instructions()
         system_prompt += canonical_wire_contract_prompt(detect_y2106=self.detect_y2106)
         system_prompt += self._function_response_format_rules()
 
@@ -776,6 +780,29 @@ IMPORTANT:
         )
 
     @staticmethod
+    def _batch_has_propagation_paths(function_batch: FunctionBatch) -> bool:
+        """True when any function carries structured propagation evidence."""
+        for func in function_batch.functions:
+            additions = getattr(func, "context_additions", None) or {}
+            paths = additions.get("propagation_paths")
+            if paths:
+                return True
+        return False
+
+    @staticmethod
+    def _propagation_assessment_instructions() -> str:
+        """Trusted instructions included only when propagation_paths are present."""
+        return """
+DIRECT-CALLEE TIME PROPAGATION (when present):
+- Some functions may include `propagation_paths`: deterministic one-hop caller→callee
+  evidence supplied by TACS (argument index, parameter, resolution basis, time semantic).
+- Assess only supplied paths; do not invent edges.
+- Assess ONLY the supplied deterministic path and the function body/context given.
+- Do NOT invent additional callers, callees, call sites, or value-flow edges.
+- Do NOT treat parameter or variable names alone as proof of time semantics.
+"""
+
+    @staticmethod
     def _function_response_format_rules() -> str:
         """How the answer must be shaped, given nothing partial is salvaged."""
         return (
@@ -829,6 +856,10 @@ IMPORTANT:
             facts["context_additions"] = {
                 str(key): value for key, value in func.context_additions.items()
             }
+            # Promote propagation evidence for direct model attention.
+            paths = func.context_additions.get("propagation_paths")
+            if paths:
+                facts["propagation_paths"] = paths
         if include_file_context:
             facts["file_context"] = self._file_context_facts(func)
         return facts

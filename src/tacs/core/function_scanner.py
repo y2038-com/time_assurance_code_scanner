@@ -90,87 +90,92 @@ def mask_non_code(source: str) -> str:
 
     Newlines are preserved so character offsets stay aligned with ``source``
     for line mapping. Brace/paren matching on the result ignores non-code.
+
+    Uses a ``bytearray`` scratch buffer to avoid millions of list appends on
+    large translation units (hot path for issue #57 indexing).
     """
-    out: List[str] = []
-    i = 0
     n = len(source)
+    if n == 0:
+        return ""
+    out = bytearray(n)
+    i = 0
     while i < n:
         ch = source[i]
         nxt = source[i + 1] if i + 1 < n else ""
 
         if ch == "/" and nxt == "/":
-            out.append(" ")
-            out.append(" ")
+            out[i] = 0x20
+            out[i + 1] = 0x20
             i += 2
             while i < n and source[i] != "\n":
-                out.append("\r" if source[i] == "\r" else " ")
+                out[i] = 0x0D if source[i] == "\r" else 0x20
                 i += 1
             continue
 
         if ch == "/" and nxt == "*":
-            out.append(" ")
-            out.append(" ")
+            out[i] = 0x20
+            out[i + 1] = 0x20
             i += 2
             while i < n:
                 if source[i] == "\n":
-                    out.append("\n")
+                    out[i] = 0x0A
                     i += 1
                 elif source[i] == "*" and i + 1 < n and source[i + 1] == "/":
-                    out.append(" ")
-                    out.append(" ")
+                    out[i] = 0x20
+                    out[i + 1] = 0x20
                     i += 2
                     break
                 else:
-                    out.append("\r" if source[i] == "\r" else " ")
+                    out[i] = 0x0D if source[i] == "\r" else 0x20
                     i += 1
             continue
 
         if ch == '"':
-            out.append(" ")
+            out[i] = 0x20
             i += 1
             while i < n:
                 if source[i] == "\\" and i + 1 < n:
-                    out.append(" ")
-                    out.append(" ")
+                    out[i] = 0x20
+                    out[i + 1] = 0x20
                     i += 2
                     continue
                 if source[i] == '"':
-                    out.append(" ")
+                    out[i] = 0x20
                     i += 1
                     break
                 if source[i] == "\n":
-                    out.append("\n")
+                    out[i] = 0x0A
                     i += 1
                 else:
-                    out.append("\r" if source[i] == "\r" else " ")
+                    out[i] = 0x0D if source[i] == "\r" else 0x20
                     i += 1
             continue
 
         if ch == "'":
-            out.append(" ")
+            out[i] = 0x20
             i += 1
             while i < n:
                 if source[i] == "\\" and i + 1 < n:
-                    out.append(" ")
-                    out.append(" ")
+                    out[i] = 0x20
+                    out[i + 1] = 0x20
                     i += 2
                     continue
                 if source[i] == "'":
-                    out.append(" ")
+                    out[i] = 0x20
                     i += 1
                     break
                 if source[i] == "\n":
-                    out.append("\n")
+                    out[i] = 0x0A
                     i += 1
                 else:
-                    out.append("\r" if source[i] == "\r" else " ")
+                    out[i] = 0x0D if source[i] == "\r" else 0x20
                     i += 1
             continue
 
-        out.append(ch)
+        out[i] = ord(ch)
         i += 1
 
-    return "".join(out)
+    return out.decode("latin-1")
 
 
 def _line_number(source: str, pos: int) -> int:
@@ -359,18 +364,26 @@ def _is_transparent_scope(header: str) -> bool:
     return bool(_TRANSPARENT_SCOPE_RE.match(compact))
 
 
-def scan_functions(source: str) -> List[ScannedFunction]:
+def scan_functions(
+    source: str,
+    *,
+    masked: Optional[str] = None,
+) -> List[ScannedFunction]:
     """Scan ``source`` for ordinary C/C++ function definitions.
 
     Skips prototypes (``;``), control statements, non-function brace blocks
     (enum/initializer), and uses bounded declaration lookahead. Enters
     namespace, extern, class, struct, and union scopes so nested free functions
     and straightforward in-class methods can be found.
+
+    When ``masked`` is provided it must be ``mask_non_code(source)`` (or an
+    equivalent offset-aligned mask) so callers can reuse one mask per file.
     """
     if not source:
         return []
 
-    masked = mask_non_code(source)
+    if masked is None:
+        masked = mask_non_code(source)
     n = len(masked)
     functions: List[ScannedFunction] = []
     i = 0

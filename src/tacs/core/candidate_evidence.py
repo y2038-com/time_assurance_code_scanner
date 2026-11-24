@@ -10,7 +10,8 @@ still run on a Stage-7-filtered subset without changing these evidence records.
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+import json
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from tacs.core.candidate_utils import candidate_id_for
 from tacs.core.function_schemas import FunctionBody
@@ -115,6 +116,7 @@ def build_candidate_evidence(
         coverage = (
             AnalysisCoverage.GROUPED if function_id else AnalysisCoverage.UNGROUPED
         )
+        paths = getattr(candidate, "propagation_paths", None)
         out.append(
             CandidateEvidence(
                 candidate_id=cid,
@@ -136,6 +138,7 @@ def build_candidate_evidence(
                 ),
                 function_id=function_id,
                 analysis_coverage=coverage,
+                propagation_paths=list(paths) if paths else None,
             )
         )
     return out
@@ -194,7 +197,8 @@ def attach_candidate_ids_to_functions(
     """Return FunctionBody copies with ``candidate_ids`` filled from the candidate set.
 
     Split parts receive only candidates whose lines fall in that part's
-    ``candidate_lines`` (or span when lines are empty).
+    ``candidate_lines`` (or span when lines are empty). Also copies schema 1.3
+    ``propagation_paths`` into ``context_additions`` for LLM context.
     """
     # Index candidates by (relpath, line) → list (multi-symbol same line).
     by_file_line: Dict[Tuple[str, int], List[Candidate]] = {}
@@ -207,6 +211,8 @@ def attach_candidate_ids_to_functions(
         rel = repo_relative_path(func.file_path, root_path)
         ids: List[str] = []
         seen = set()
+        prop_paths: List[Any] = []
+        prop_seen: set = set()
         line_set = set(func.candidate_lines or [])
         if not line_set and func.start_line and func.end_line:
             line_set = set(range(int(func.start_line), int(func.end_line) + 1))
@@ -216,5 +222,23 @@ def attach_candidate_ids_to_functions(
                 if cid not in seen:
                     seen.add(cid)
                     ids.append(cid)
-        updated.append(func.model_copy(update={"candidate_ids": ids}))
+                for path in getattr(candidate, "propagation_paths", None) or []:
+                    try:
+                        dumped = (
+                            path.model_dump()
+                            if hasattr(path, "model_dump")
+                            else dict(path)
+                        )
+                    except Exception:
+                        continue
+                    key = json.dumps(dumped, sort_keys=True, default=str)
+                    if key not in prop_seen:
+                        prop_seen.add(key)
+                        prop_paths.append(dumped)
+        updates: Dict[str, Any] = {"candidate_ids": ids}
+        if prop_paths:
+            ctx = dict(func.context_additions or {})
+            ctx["propagation_paths"] = prop_paths
+            updates["context_additions"] = ctx
+        updated.append(func.model_copy(update=updates))
     return updated
