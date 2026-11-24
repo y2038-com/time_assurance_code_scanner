@@ -969,12 +969,15 @@ The principal user-facing result is typically `findings.json`.
 Starting with public result **schema_version `1.1`**, that document has the shape
 below. **Schema `1.2`** adds optional `meta.llm_provider` and
 `meta.reasoning_effort` (effective OpenAI effort for GPT-6 Luna: `"none"` or
-`"low"`; null/absent for non-reasoning models). Schema **1.1** files still load
-and render without rewrite.
+`"low"`; null/absent for non-reasoning models). **Schema `1.3`** adds optional
+`candidates[].propagation_paths` for one-hop direct-callee time-argument
+evidence (issue #57). Argument and parameter indexes in those paths are
+**zero-based**. Schema **1.0**–**1.2** files still load and render without
+rewrite and without invented propagation paths.
 
 ```json
 {
-  "schema_version": "1.2",
+  "schema_version": "1.3",
   "meta": {
     "model": "gpt-6-luna",
     "llm_provider": "openai",
@@ -1022,8 +1025,44 @@ and render without rewrite.
   risk, description, or array position. See [Catalog rule IDs](#catalog-rule-ids)
   below. Detectors emit controlled `discovery_method` values at production time
   (`catalog_symbol_match`, `time_t_cast`, `define_scanner`, `arithmetic_scanner`,
-  `io_boundary`, `migration`). Missing provenance becomes `unknown` rather than
-  a fabricated catalog match.
+  `io_boundary`, `migration`, `direct_callee_time_propagation`). Missing
+  provenance becomes `unknown` rather than a fabricated catalog match.
+  Schema **1.3** may attach `propagation_paths` when a sink was reached through
+  one-hop caller→callee argument seeding; local `time_t_cast` discovery keeps
+  precedence when the same sink is also found function-locally.
+* **Propagation paths (schema 1.3).** Each path records `kind`
+  (`direct_callee_argument`), `depth` / `propagation_depth` (exactly 1),
+  sorted deduplicated `origin_candidate_ids`, public `caller_function_id` and
+  `callee_function_id`, a repository-relative `call_site`, resolution
+  `state` / `basis` (`same_file_static` or
+  `visible_declaration_unique_definition` when resolved), zero-based
+  `argument` / `parameter` indexes with bounded expression text (max 512
+  characters; never silently truncated then trusted), `time_semantic`, and
+  optional `truncated` / `stop_reasons`. Absence of `propagation_paths` means
+  no structured propagation was recorded. Empty lists are allowed but renderers
+  treat them as no evidence. Bounds: at most 32 paths per candidate, at most
+  32 origin IDs, at most 4 propagated parameters per call, at most 8 ambiguous
+  targets retained internally. Stop reasons include
+  `argument_expression_too_long`, `too_many_propagated_parameters`,
+  `ambiguous_target_limit`, `unsupported_call_form`,
+  `unsupported_parameter_form`, `arity_mismatch`, `external_target`,
+  `indirect_call`, `recursive_path`, `unresolved_target`,
+  `pointer_or_reference_parameter`, `variadic_parameter`, and
+  `parse_truncated`. Resolution may also be `configuration_dependent` when
+  preprocessor condition stacks at the call and definition are not identical
+  (textual stacks only; no Boolean solver). Cross-record integrity (origin IDs
+  exist, indexes and parameter identity match, locations lie in caller/callee
+  spans) is enforced during path construction in `callee_propagation`; the
+  Pydantic models enforce enums, index signs, lengths, and relative paths.
+  Legacy 1.0–1.2 reports never invent paths. Model prompts receive the
+  “assess only supplied paths; do not invent edges” instruction only when a
+  batch carries structured `propagation_paths`. Propagation analysis is
+  demand-driven within a single scan: call-site parsing runs only for
+  functions with deterministic time-bearing evidence; project-wide
+  definition/declaration indexing is deferred until a time-bearing direct
+  call needs cross-file resolution; seeded callee narrowing is cached by
+  semantic identity. Per-scan mask and candidate-file indexes are not
+  retained across repositories or configurations.
 * Intermediate IR line records use an authoritative `matches[]` array. Each
   match carries its own symbol, risk, description, discovery method, rule ID,
   line, and optional columns. Optional `line_max_risk` / `match_count` fields

@@ -171,10 +171,50 @@ def _assert_compatible_provenance(existing: Candidate, incoming: Candidate) -> N
     method_a = _normalized_discovery_method(existing)
     method_b = _normalized_discovery_method(incoming)
     if method_a is not None and method_b is not None and method_a != method_b:
+        # Local narrowing and one-hop propagation may hit the same sink.
+        # Precedence is handled in ``_merge_discovery_and_paths``.
+        allowed = {"time_t_cast", "direct_callee_time_propagation"}
+        if {method_a, method_b} <= allowed:
+            return
         raise CandidateProvenanceConflictError(
             f"Conflicting discovery_method for identical candidate "
             f"{candidate_identity_key(existing)!r}: {method_a!r} vs {method_b!r}"
         )
+
+
+def _merge_discovery_and_paths(existing: Candidate, incoming: Candidate) -> Candidate:
+    """Merge discovery_method and schema 1.3 propagation_paths.
+
+    Precedence: keep ``time_t_cast`` when combining with
+    ``direct_callee_time_propagation``; otherwise keep first-seen method when
+    equal. Always union propagation paths deterministically.
+    """
+    method_a = _normalized_discovery_method(existing)
+    method_b = _normalized_discovery_method(incoming)
+    chosen_method = method_a or method_b
+    if method_a == "time_t_cast" or method_b == "time_t_cast":
+        chosen_method = "time_t_cast"
+    elif method_a == method_b:
+        chosen_method = method_a
+    elif method_a and method_b and method_a != method_b:
+        chosen_method = method_a  # first-seen after allowed-pair check
+
+    paths_a = getattr(existing, "propagation_paths", None) or []
+    paths_b = getattr(incoming, "propagation_paths", None) or []
+    merged_paths = None
+    if paths_a or paths_b:
+        from tacs.core.callee_propagation import _dedupe_paths
+
+        merged_paths = _dedupe_paths(list(paths_a) + list(paths_b))
+
+    updates: Dict[str, object] = {}
+    if chosen_method and chosen_method != (existing.discovery_method or ""):
+        updates["discovery_method"] = chosen_method
+    if merged_paths is not None:
+        updates["propagation_paths"] = merged_paths
+    if updates:
+        return existing.model_copy(update=updates)
+    return existing
 
 
 def dedupe_candidates(candidates: Sequence[Candidate]) -> List[Candidate]:
@@ -185,6 +225,10 @@ def dedupe_candidates(candidates: Sequence[Candidate]) -> List[Candidate]:
     materially different descriptions (after line-ending normalization) for
     the same identity raise :class:`CandidateProvenanceConflictError` rather
     than silently keeping a producer-order-dependent description.
+
+    Exception: ``time_t_cast`` and ``direct_callee_time_propagation`` for the
+    same sink merge with ``time_t_cast`` precedence and unioned propagation
+    paths (issue #57).
     """
     seen: Dict[Tuple[str, int, int, int, str, str], int] = {}
     out: List[Candidate] = []
@@ -202,7 +246,8 @@ def dedupe_candidates(candidates: Sequence[Candidate]) -> List[Candidate]:
         idx = seen[key]
         _assert_compatible_provenance(out[idx], normalized)
         merged = _merge_rule_attribution(out[idx], normalized)
-        out[idx] = _merge_description(merged, normalized)
+        merged = _merge_description(merged, normalized)
+        out[idx] = _merge_discovery_and_paths(merged, normalized)
     return out
 
 

@@ -611,7 +611,7 @@ def test_recorded_effort_provenance():
 
 
 def test_schema_version_is_1_2():
-    assert PUBLIC_RESULT_SCHEMA_VERSION == "1.2"
+    assert PUBLIC_RESULT_SCHEMA_VERSION == "1.3"
 
 
 def test_meta_round_trip_reasoning_effort():

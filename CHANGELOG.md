@@ -7,10 +7,34 @@ used a dotted tag form (for example ``v0.2.0-rc.3``) with the PEP 440 package
 form (``0.2.0rc3``).
 
 The public JSON result shape is versioned separately as `schema_version` and is
-currently **1.2**.
+currently **1.3**.
 
 ## Unreleased
 
+- Add one-hop direct-callee time-argument propagation (issue #57): when a
+  caller passes a deterministically time-bearing scalar into a ``resolved``
+  project-local callee, TACS seeds that parameter and reuses the issue #52
+  local narrowing detector. Only same-file ``static`` definitions and
+  unique definitions with a compatible declaration visible through the
+  translation-unit / include closure propagate. Cross-file ``static``
+  definitions, preprocessor-condition mismatches, function-pointer /
+  name shadowing, arity or parameter-type mismatches, and unsupported
+  call forms fail closed. Call-site indexing scans only the function body
+  after ``{`` so declarators are never treated as calls. Propagation is
+  **demand-driven**: call-site parsing and resolution run only for
+  functions with deterministic time-bearing evidence; full definition
+  indexing is deferred until a time-bearing call argument is observed;
+  seeded callee narrowing is cached per semantic identity within a scan.
+  Public result schema is **1.3** (package remains **0.2.0**): optional
+  ``candidates[].propagation_paths`` carries typed
+  caller/call-site/argument/parameter/resolution evidence with bounded
+  path counts and expression lengths. Argument and parameter indexes are
+  **zero-based**. Discovery method ``direct_callee_time_propagation`` is
+  used when the sink exists only via propagation; independent local
+  ``time_t_cast`` hits keep that method and attach paths. LLM prompts
+  include propagation assessment instructions only when structured paths
+  are present. Schema **1.0**–**1.2** continue to load and render without
+  invented paths.
 - Add function-local detection of time-derived narrowing conversions (explicit
   casts and implicit assignments to narrower fixed-width types). Provenance
   follows recognized time types, Unix-epoch/absolute-time return-value calls
@@ -18,7 +42,7 @@ currently **1.2**.
   identifier fullmatches), and simple local assignment chains. Duration,
   timeout, boot, monotonic, and counter-style names are rejected; identifier
   names alone are not enough for the new scanner. Visible range checks are
-  recorded as mitigating evidence. Schema remains **1.2**; candidates use
+  recorded as mitigating evidence. Candidates use
   ``discovery_method=time_t_cast`` with null rule IDs (same policy as other
   dynamic cast detections).
 - When ``--detect-y2106`` is enabled, public ``assessments[].verdict`` and

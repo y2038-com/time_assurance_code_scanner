@@ -206,6 +206,48 @@ def _render_text_assessment(
     ]
 
 
+def _render_text_propagation_paths(cand: dict[str, Any]) -> list[str]:
+    """Render schema 1.3 propagation_paths as deterministic text lines."""
+    paths = cand.get("propagation_paths")
+    if not isinstance(paths, list) or not paths:
+        return []
+    lines = ["Time propagation:"]
+    for path in paths:
+        if not isinstance(path, dict):
+            continue
+        caller = str(path.get("caller_function_id") or "")
+        call_site = path.get("call_site") or {}
+        file_path = str(call_site.get("file") or "")
+        line = call_site.get("line")
+        arg = path.get("argument") or {}
+        # JSON indexes are zero-based; display as 1-based for humans.
+        arg_index = arg.get("index")
+        arg_display = (
+            "" if arg_index is None else str(int(arg_index) + 1)
+        )
+        arg_expr = str(arg.get("expression") or "")
+        callee = str(path.get("callee_function_id") or "")
+        param = path.get("parameter") or {}
+        pname = str(param.get("name") or "")
+        ptype = str(param.get("declared_type") or "")
+        resolution = path.get("resolution") or {}
+        state = str(resolution.get("state") or "")
+        basis = str(resolution.get("basis") or "").replace("_", " ")
+        depth = path.get("propagation_depth") or path.get("depth") or 1
+        lines.append(f"  {caller} at {file_path}:{line}")
+        lines.append(f"  argument {arg_display}: {arg_expr}")
+        lines.append(f"  -> {callee} ({ptype} {pname})".rstrip())
+        basis_note = f" ({basis})" if basis else ""
+        lines.append(f"  resolution: {state}{basis_note}")
+        lines.append(f"  depth: {depth}")
+        if path.get("truncated"):
+            lines.append("  truncated: true")
+        stops = path.get("stop_reasons") or []
+        if stops:
+            lines.append(f"  stop_reasons: {', '.join(str(s) for s in stops)}")
+    return lines
+
+
 def _render_text_candidate(
     cand: dict[str, Any], *, index: int, total: int
 ) -> list[str]:
@@ -215,7 +257,7 @@ def _render_text_candidate(
     coverage = cand.get("analysis_coverage") or "ungrouped"
     function_id = cand.get("function_id") or "(ungrouped)"
     snippet = str(cand.get("one_line_snippet") or "").replace("\n", " ")
-    return [
+    lines = [
         f"Candidate {index} of {total}",
         f"candidate_id: {cand.get('candidate_id') or ''}",
         f"discovery_method: {discovery}",
@@ -228,6 +270,8 @@ def _render_text_candidate(
         f"function_id: {function_id}",
         f"snippet: {snippet}",
     ]
+    lines.extend(_render_text_propagation_paths(cand))
+    return lines
 
 
 def _json_for_script(data: object) -> str:
@@ -569,6 +613,61 @@ def _render_assessment_card(row: dict[str, Any], index: int) -> str:
     """
 
 
+def _render_html_propagation_paths(cand: dict[str, Any]) -> str:
+    """Render schema 1.3 propagation paths with escaped source expressions."""
+    paths = cand.get("propagation_paths")
+    if not isinstance(paths, list) or not paths:
+        return ""
+    blocks: list[str] = []
+    for path in paths:
+        if not isinstance(path, dict):
+            continue
+        caller = html.escape(str(path.get("caller_function_id") or ""))
+        call_site = path.get("call_site") or {}
+        file_path = html.escape(str(call_site.get("file") or ""))
+        line = html.escape(str(call_site.get("line") or ""))
+        arg = path.get("argument") or {}
+        arg_index = arg.get("index")
+        arg_display = html.escape(
+            "" if arg_index is None else str(int(arg_index) + 1)
+        )
+        arg_expr = html.escape(str(arg.get("expression") or ""))
+        callee = html.escape(str(path.get("callee_function_id") or ""))
+        param = path.get("parameter") or {}
+        pname = html.escape(str(param.get("name") or ""))
+        ptype = html.escape(str(param.get("declared_type") or ""))
+        resolution = path.get("resolution") or {}
+        state = html.escape(str(resolution.get("state") or ""))
+        basis = html.escape(str(resolution.get("basis") or "").replace("_", " "))
+        depth = html.escape(str(path.get("propagation_depth") or path.get("depth") or 1))
+        stops = path.get("stop_reasons") or []
+        stop_html = ""
+        if stops:
+            stop_html = (
+                "<p><strong>stop_reasons:</strong> "
+                + html.escape(", ".join(str(s) for s in stops))
+                + "</p>"
+            )
+        truncated = (
+            "<p><strong>truncated:</strong> true</p>" if path.get("truncated") else ""
+        )
+        blocks.append(
+            f"""
+          <div class="propagation">
+            <p><strong>Time propagation</strong></p>
+            <p>{caller} at {file_path}:{line}</p>
+            <p>argument {arg_display}: <code>{arg_expr}</code></p>
+            <p>→ {callee} ({ptype} {pname})</p>
+            <p>resolution: {state}{(' (' + basis + ')') if basis else ''}</p>
+            <p>depth: {depth}</p>
+            {truncated}
+            {stop_html}
+          </div>
+            """
+        )
+    return "".join(blocks)
+
+
 def _render_candidate_card(cand: dict[str, Any], index: int) -> str:
     rule_id = cand.get("rule_id")
     rule_display = rule_id if isinstance(rule_id, str) and rule_id.strip() else "(none)"
@@ -581,6 +680,7 @@ def _render_candidate_card(cand: dict[str, Any], index: int) -> str:
     symbol = str(cand.get("symbol") or "")
     risk = str(cand.get("risk") or "")
     cid = str(cand.get("candidate_id") or "")
+    propagation_html = _render_html_propagation_paths(cand)
     return f"""
       <details class="card" id="candidate-{index}">
         <summary>
@@ -595,6 +695,7 @@ def _render_candidate_card(cand: dict[str, Any], index: int) -> str:
           <p><strong>discovery_method:</strong> {html.escape(discovery)} &nbsp; <strong>rule_id:</strong> {html.escape(rule_display)}</p>
           <p><strong>function_id:</strong> {html.escape(function_id)}</p>
           <pre>{html.escape(snippet)}</pre>
+          {propagation_html}
         </div>
       </details>
     """

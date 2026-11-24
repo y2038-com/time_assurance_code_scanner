@@ -5,10 +5,16 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator, validator
 from enum import Enum
+
+#: Schema 1.3 bounds for structured propagation evidence.
+MAX_PROPAGATION_PATHS = 32
+MAX_ORIGIN_CANDIDATE_IDS = 32
+MAX_PROPAGATION_EXPRESSION_CHARS = 512
 
 
 class SeverityLevel(str, Enum):
@@ -77,6 +83,7 @@ DISCOVERY_METHODS = frozenset({
     "arithmetic_scanner",
     "io_boundary",
     "migration",
+    "direct_callee_time_propagation",
     "unknown",
 })
 
@@ -99,7 +106,199 @@ PUBLIC_ASSESSMENT_KEYS = (
 )
 
 #: Public result JSON schema version (independent of the package version).
-PUBLIC_RESULT_SCHEMA_VERSION = "1.2"
+#: Schema 1.3 adds optional ``candidates[].propagation_paths`` for one-hop
+#: direct-callee time-argument evidence (issue #57). Schema 1.0–1.2 remain
+#: loadable; missing paths mean no structured propagation was recorded.
+PUBLIC_RESULT_SCHEMA_VERSION = "1.3"
+
+
+class PropagationKind(str, Enum):
+    """How time semantics reached the sink candidate."""
+
+    DIRECT_CALLEE_ARGUMENT = "direct_callee_argument"
+
+
+class CallResolutionState(str, Enum):
+    """Conservative call-target resolution classification."""
+
+    RESOLVED = "resolved"
+    PROBABLE = "probable"
+    AMBIGUOUS = "ambiguous"
+    CONFIGURATION_DEPENDENT = "configuration_dependent"
+    INDIRECT = "indirect"
+    EXTERNAL = "external"
+    UNRESOLVED = "unresolved"
+
+
+class CallResolutionBasis(str, Enum):
+    """Evidence basis when ``CallResolutionState.RESOLVED``."""
+
+    SAME_FILE_STATIC = "same_file_static"
+    VISIBLE_DECLARATION_UNIQUE_DEFINITION = "visible_declaration_unique_definition"
+
+
+class TimeSemantic(str, Enum):
+    """Structured time semantic attached to a propagated value."""
+
+    UNIX_EPOCH_SECONDS = "unix_epoch_seconds"
+    ABSOLUTE_UTC_SECONDS = "absolute_utc_seconds"
+    TIME_T_VALUE = "time_t_value"
+    TIME_RELATED_UNKNOWN = "time_related_unknown"
+
+
+class PropagationStopReason(str, Enum):
+    """Deterministic reason a propagation attempt stopped or was truncated."""
+
+    ARGUMENT_EXPRESSION_TOO_LONG = "argument_expression_too_long"
+    TOO_MANY_PROPAGATED_PARAMETERS = "too_many_propagated_parameters"
+    AMBIGUOUS_TARGET_LIMIT = "ambiguous_target_limit"
+    UNSUPPORTED_CALL_FORM = "unsupported_call_form"
+    UNSUPPORTED_PARAMETER_FORM = "unsupported_parameter_form"
+    ARITY_MISMATCH = "arity_mismatch"
+    EXTERNAL_TARGET = "external_target"
+    INDIRECT_CALL = "indirect_call"
+    RECURSIVE_PATH = "recursive_path"
+    UNRESOLVED_TARGET = "unresolved_target"
+    NO_TIME_PROVENANCE = "no_time_provenance"
+    POINTER_OR_REFERENCE_PARAMETER = "pointer_or_reference_parameter"
+    VARIADIC_PARAMETER = "variadic_parameter"
+    PARSE_TRUNCATED = "parse_truncated"
+
+
+def _reject_unsafe_source_path(value: str) -> str:
+    """Require repository-relative paths (no absolute or ``..`` segments)."""
+    text = (value or "").strip()
+    if not text:
+        raise ValueError("source path must be non-empty")
+    if text.startswith("/") or text.startswith("\\"):
+        raise ValueError("absolute source paths are not allowed")
+    if re.match(r"^[A-Za-z]:[\\/]", text):
+        raise ValueError("absolute source paths are not allowed")
+    parts = text.replace("\\", "/").split("/")
+    if any(part == ".." for part in parts):
+        raise ValueError("source paths must not contain '..'")
+    return text
+
+
+class PropagationCallSite(BaseModel):
+    """Call-site location for a propagation path (1-based line/column)."""
+
+    file: str = Field(..., description="Repository-relative source path")
+    line: int = Field(..., ge=1, description="1-based line number")
+    column: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="1-based column of the called identifier when known",
+    )
+
+    @field_validator("file")
+    @classmethod
+    def _safe_file(cls, value: str) -> str:
+        return _reject_unsafe_source_path(value)
+
+
+class PropagationResolution(BaseModel):
+    """Resolution classification for the caller-to-callee edge."""
+
+    state: CallResolutionState = Field(..., description="Resolution state")
+    basis: Optional[CallResolutionBasis] = Field(
+        default=None,
+        description="Basis when state is resolved; otherwise null",
+    )
+
+
+class PropagationArgument(BaseModel):
+    """Caller argument mapped into a callee parameter.
+
+    Indexes are **zero-based** (argument 0 is the first parameter).
+    """
+
+    index: int = Field(..., ge=0, description="Zero-based argument position")
+    expression: str = Field(
+        ...,
+        max_length=MAX_PROPAGATION_EXPRESSION_CHARS,
+        description=(
+            f"Bounded source expression text for the argument "
+            f"(max {MAX_PROPAGATION_EXPRESSION_CHARS} characters; never silently truncated)"
+        ),
+    )
+
+
+class PropagationParameter(BaseModel):
+    """Callee parameter that received propagated time semantics.
+
+    Indexes are **zero-based** and match ``PropagationArgument.index``.
+    """
+
+    index: int = Field(..., ge=0, description="Zero-based parameter position")
+    name: str = Field(..., description="Parameter name from the definition")
+    declared_type: str = Field(..., description="Declared parameter type text")
+
+
+class PropagationPath(BaseModel):
+    """One deterministic one-hop caller→callee time-propagation evidence path.
+
+    Argument and parameter indexes are **zero-based**. Schema 1.3 only; absent
+    on legacy 1.0–1.2 reports. Fail-closed validation rejects malformed paths.
+    """
+
+    kind: PropagationKind = Field(
+        default=PropagationKind.DIRECT_CALLEE_ARGUMENT,
+        description="Propagation relationship kind",
+    )
+    depth: int = Field(
+        default=1,
+        ge=1,
+        le=1,
+        description="Call-boundary depth (exactly 1 for issue #57)",
+    )
+    origin_candidate_ids: List[str] = Field(
+        default_factory=list,
+        max_length=MAX_ORIGIN_CANDIDATE_IDS,
+        description=(
+            "Deterministic origin candidate_id values in the caller "
+            f"(deduplicated, sorted; max {MAX_ORIGIN_CANDIDATE_IDS})"
+        ),
+    )
+    caller_function_id: str = Field(..., description="Public caller function_id")
+    call_site: PropagationCallSite = Field(..., description="Call-site location")
+    resolution: PropagationResolution = Field(
+        ..., description="Call resolution state and basis"
+    )
+    argument: PropagationArgument = Field(..., description="Caller argument")
+    callee_function_id: str = Field(..., description="Public callee function_id")
+    parameter: PropagationParameter = Field(..., description="Callee parameter")
+    time_semantic: TimeSemantic = Field(
+        ..., description="Propagated time semantic classification"
+    )
+    propagation_depth: int = Field(
+        default=1,
+        ge=1,
+        le=1,
+        description="Alias of depth for report clarity (always 1 in #57)",
+    )
+    truncated: bool = Field(
+        default=False,
+        description=(
+            "True when a bound stopped further detail (e.g. too many parameters); "
+            "expression text itself is never silently truncated"
+        ),
+    )
+    stop_reasons: List[PropagationStopReason] = Field(
+        default_factory=list,
+        description="Deterministic stop or truncation reasons",
+    )
+
+    @field_validator("origin_candidate_ids")
+    @classmethod
+    def _sorted_unique_origins(cls, value: List[str]) -> List[str]:
+        if value is None:
+            return []
+        if len(value) > MAX_ORIGIN_CANDIDATE_IDS:
+            raise ValueError(
+                f"at most {MAX_ORIGIN_CANDIDATE_IDS} origin_candidate_ids allowed"
+            )
+        return sorted(set(value))
 
 
 class AnalysisCoverage(str, Enum):
@@ -160,6 +359,16 @@ class Candidate(BaseModel):
         description=(
             "Producer-authored catalog rule_id when this candidate came from an "
             "identified catalog rule; otherwise null"
+        ),
+    )
+    propagation_paths: Optional[List[PropagationPath]] = Field(
+        default=None,
+        max_length=MAX_PROPAGATION_PATHS,
+        description=(
+            "Optional schema 1.3 structured one-hop propagation evidence; "
+            f"null/absent when none was recorded (max {MAX_PROPAGATION_PATHS} paths). "
+            "Cross-record integrity (origin IDs, caller/callee spans) is enforced "
+            "during report construction in callee_propagation, not solely by this model."
         ),
     )
 
@@ -319,6 +528,16 @@ class CandidateEvidence(BaseModel):
     analysis_coverage: AnalysisCoverage = Field(
         ...,
         description="grouped if linked to a function unit; ungrouped if association found none",
+    )
+    propagation_paths: Optional[List[PropagationPath]] = Field(
+        default=None,
+        max_length=MAX_PROPAGATION_PATHS,
+        description=(
+            "Schema 1.3 optional structured propagation paths. Absent or null on "
+            "legacy 1.0–1.2 reports and when no propagation was recorded. "
+            f"Argument/parameter indexes are zero-based (max {MAX_PROPAGATION_PATHS} paths). "
+            "Pipeline-level referential integrity is enforced in callee_propagation."
+        ),
     )
 
 
@@ -486,7 +705,7 @@ class ScanResults(BaseModel):
     """
     schema_version: str = Field(
         default=PUBLIC_RESULT_SCHEMA_VERSION,
-        description='Public result schema version (e.g. "1.2")',
+        description='Public result schema version (e.g. "1.3")',
     )
     meta: ScanMetadata = Field(..., description="Scan metadata")
     candidates: List[CandidateEvidence] = Field(

@@ -246,6 +246,21 @@ class IRAdapter:
             )
             candidates.extend(narrowing_candidates)
 
+            # One-hop direct-callee time propagation (issue #57)
+            propagated = self._scan_for_callee_propagation(
+                root_path,
+                include_patterns,
+                exclude_patterns,
+                candidates,
+                time_t_aliases,
+                time_functions,
+                environment_config,
+            )
+            if propagated:
+                from tacs.core.callee_propagation import merge_propagation_into_existing
+
+                candidates = merge_propagation_into_existing(candidates, propagated)
+
             # Symlink aliases and overlapping detectors can emit the same hit more
             # than once; collapse exact duplicates and stabilize order here so
             # functionization and candidates.jsonl see one logical population.
@@ -455,6 +470,48 @@ class IRAdapter:
                 f"  Found {len(all_matches)} local time-narrowing site(s)"
             )
         return narrowing_matches_to_candidates(all_matches)
+
+    def _scan_for_callee_propagation(
+        self,
+        root_path: str,
+        include_patterns: List[str] = None,
+        exclude_patterns: List[str] = None,
+        existing_candidates: List[Candidate] = None,
+        time_t_aliases: Dict[str, Any] = None,
+        time_functions: List[str] = None,
+        environment_config: Optional[Dict[str, Any]] = None,
+    ) -> List[Candidate]:
+        """One-hop propagation of time-bearing arguments into direct callees."""
+        from tacs.core.callee_propagation import propagate_direct_callee_time
+
+        StatusLogger.timestamped_debug(
+            "Scanning for one-hop direct-callee time propagation..."
+        )
+        files = self._get_files(
+            root_path,
+            resolved_include_patterns(include_patterns),
+            exclude_patterns or [],
+            self.max_file_size,
+        )
+        try:
+            propagated = propagate_direct_callee_time(
+                root_path=root_path,
+                files=files,
+                existing_candidates=existing_candidates or [],
+                time_t_aliases=time_t_aliases,
+                time_functions=time_functions,
+                environment_config=environment_config,
+            )
+        except Exception as exc:
+            StatusLogger.timestamped_warning(
+                f"Direct-callee time propagation failed: {exc}"
+            )
+            return []
+        if propagated:
+            StatusLogger.timestamped_debug(
+                f"  Found {len(propagated)} propagated time-narrowing site(s)"
+            )
+        return propagated
 
     def _scan_for_arithmetic(self, root_path: str, include_patterns: List[str] = None, 
                              exclude_patterns: List[str] = None, 
