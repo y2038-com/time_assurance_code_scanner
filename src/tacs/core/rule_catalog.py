@@ -1,11 +1,22 @@
 # Copyright (c) 2026 Y2038.com LLC
 # SPDX-License-Identifier: Apache-2.0
 
-"""Catalog rule_id format, loading helpers, and validation.
+"""Catalog rule_id format, loading helpers, validation, and classification.
 
 Packaged catalogs must carry explicit stable ``rule_id`` values. External or
 legacy catalogs may omit IDs (propagated as null). Non-null IDs are always
 validated; malformed IDs are never silently coerced to null.
+
+Two separate policies (issue #62):
+
+* **General callability** (``needs_paren`` / ``is_callable_catalog_rule``) —
+  whether a catalog symbol is syntactically invoked as a function. Used by IR
+  token matching. Descriptive categories do not have to equal ``"function"``.
+* **Time-value producers** (``TIME_VALUE_PRODUCER_SYMBOLS`` /
+  ``extract_time_value_producer_symbols``) — whether a call's *return value* is
+  a deterministic absolute / epoch ``time_t`` (or equivalent). Only this set
+  populates Stage 3 ``time_functions`` for line-local cast detection. Being
+  callable, time-related, or ``needs_paren`` alone is not enough.
 """
 
 from __future__ import annotations
@@ -13,12 +24,45 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple, Union
 
 #: Opaque packaged rule id: TACS-RULE-0001 … (fixed width, ASCII, case-stable).
 RULE_ID_PATTERN = re.compile(r"^TACS-RULE-\d{4}$")
 RULE_ID_PREFIX = "TACS-RULE-"
 RULE_ID_WIDTH = 4
+
+#: Lowercased descriptive categories that are not function-call symbols.
+#: Shared with IR rule loading (``needs_paren`` derivation). Unknown categories
+#: fail open as *callable* for token matching only — never as time-value
+#: producers.
+NON_CALLABLE_CATEGORIES = frozenset(
+    {
+        "constant/definition",
+        "env variable",
+        "global variable",
+        "macro",
+        "simple type",
+        "structure",
+    }
+)
+
+#: Exact identifiers whose *return value* is Unix-epoch / absolute ``time_t``
+#: (or an equivalent calendar→``time_t`` conversion). Aligned with issue #52
+#: ``_DEFAULT_TIME_FUNCTIONS``. Out-parameter / status / ``struct tm*`` APIs
+#: from the historical Stage 3 eight-name list (``gmtime``, ``localtime``,
+#: ``clock_gettime``, ``gettimeofday``, ``timespec_get``, ``timespec_getres``)
+#: are intentionally excluded.
+TIME_VALUE_PRODUCER_SYMBOLS = frozenset(
+    {
+        "time",
+        "mktime",
+        "timegm",
+        "timelocal",
+    }
+)
+
+#: C identifier shape for a callable catalog symbol (no ``struct``/spaces).
+_CALLABLE_SYMBOL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 PackagedCatalogError = type("PackagedCatalogError", (ValueError,), {})
 CatalogRuleIdError = type("CatalogRuleIdError", (ValueError,), {})
@@ -204,3 +248,114 @@ def validate_packaged_catalog(
         context=str(catalog_path),
     )
     return entries
+
+
+def rule_needs_paren(entry: Dict[str, Any]) -> bool:
+    """Return whether ``entry`` is treated as a syntactically callable symbol.
+
+    Precedence:
+    1. Explicit boolean ``needs_paren`` on the rule (custom catalogs).
+    2. Otherwise ``category`` lowercased is **not** in
+       ``NON_CALLABLE_CATEGORIES`` (descriptive labels like ``Current Time``
+       remain callable for IR matching).
+
+    Does **not** assert that the call's return value is time-bearing.
+    """
+    explicit = entry.get("needs_paren")
+    if explicit is not None:
+        return bool(explicit)
+    category = entry.get("category") or ""
+    category_l = category.lower() if isinstance(category, str) else ""
+    return category_l not in NON_CALLABLE_CATEGORIES
+
+
+def is_callable_catalog_rule(
+    entry: Dict[str, Any],
+    *,
+    retired_ids: Optional[Iterable[str]] = None,
+) -> bool:
+    """True when ``entry`` is a syntactically callable catalog symbol.
+
+    Used for IR ``needs_paren`` / call-site matching. Fail closed for:
+    missing/blank symbol, non-identifier symbols (types like ``struct tm``),
+    retired ``rule_id`` values, ``type_use_only`` collision rules, and rules
+    whose ``needs_paren`` classification is false. Dynamically discovered
+    typedef / macro rules use non-callable categories and are excluded without
+    special-casing ``discovered``.
+
+    This is **not** the Stage 3 cast-detection producer predicate.
+    """
+    if not isinstance(entry, dict):
+        return False
+    symbol = entry.get("symbol")
+    if not isinstance(symbol, str) or not symbol.strip():
+        return False
+    if not _CALLABLE_SYMBOL_RE.fullmatch(symbol):
+        return False
+    if entry.get("type_use_only"):
+        return False
+    rid = entry.get("rule_id")
+    if isinstance(rid, str) and rid.strip():
+        retired = set(retired_ids or ())
+        if rid in retired:
+            return False
+    return rule_needs_paren(entry)
+
+
+def is_time_value_producer_rule(
+    entry: Dict[str, Any],
+    *,
+    retired_ids: Optional[Iterable[str]] = None,
+) -> bool:
+    """True when ``entry``'s return value is a verified epoch / ``time_t`` producer.
+
+    Fail closed unless the symbol is in ``TIME_VALUE_PRODUCER_SYMBOLS`` and the
+    rule is otherwise an active callable catalog entry. ``needs_paren``,
+    descriptive categories, and unknown custom symbols do not qualify.
+    """
+    if not is_callable_catalog_rule(entry, retired_ids=retired_ids):
+        return False
+    symbol = entry.get("symbol")
+    return isinstance(symbol, str) and symbol in TIME_VALUE_PRODUCER_SYMBOLS
+
+
+def extract_time_value_producer_symbols(
+    entries: Sequence[Dict[str, Any]],
+    *,
+    retired_ids: Optional[Iterable[str]] = None,
+) -> List[str]:
+    """Deterministic unique time-value producer symbols for Stage 3 casts.
+
+    Intersects active catalog entries with ``TIME_VALUE_PRODUCER_SYMBOLS``.
+    Sorted ascending. Descriptive categories are irrelevant beyond callable
+    filtering. Unknown / ambiguous / status-returning callables are excluded.
+    """
+    retired = set(retired_ids or ())
+    names: Set[str] = set()
+    for entry in entries:
+        if is_time_value_producer_rule(entry, retired_ids=retired):
+            names.add(str(entry["symbol"]))
+    return sorted(names)
+
+
+def extract_time_function_symbols(
+    entries: Sequence[Dict[str, Any]],
+    *,
+    retired_ids: Optional[Iterable[str]] = None,
+) -> List[str]:
+    """Alias for ``extract_time_value_producer_symbols`` (Stage 3 ``time_functions``)."""
+    return extract_time_value_producer_symbols(entries, retired_ids=retired_ids)
+
+
+def extract_callable_catalog_symbols(
+    entries: Sequence[Dict[str, Any]],
+    *,
+    retired_ids: Optional[Iterable[str]] = None,
+) -> List[str]:
+    """Deterministic unique syntactically callable catalog symbols (not producers)."""
+    retired = set(retired_ids or ())
+    names: Set[str] = set()
+    for entry in entries:
+        if is_callable_catalog_rule(entry, retired_ids=retired):
+            names.add(str(entry["symbol"]))
+    return sorted(names)

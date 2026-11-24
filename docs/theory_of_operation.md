@@ -401,6 +401,31 @@ In current `main`, this phase combines several deterministic mechanisms:
 * **integrated `#define` scanning** — when the ruleset includes a `#define`
   rule, a define scanner examines macro definitions for time-related shapes.
 
+Stage 3 builds an effective `time_functions` set for the line-local `time_t`
+cast detector. That set is **not** "every callable catalog symbol."
+
+TACS separates two policies (issue #62):
+
+* **General callability** — whether a catalog symbol is syntactically invoked
+  as a function (`needs_paren`, shared with IR token matching). An explicit
+  boolean `needs_paren` wins when present; otherwise a rule is treated as
+  callable unless its category (case-insensitive) is one of the non-callable
+  kinds: constant/definition, env variable, global variable, macro, simple
+  type, or structure. Unknown display categories may fail open as callable for
+  matching only. Descriptive labels such as `Current Time` do not need to equal
+  `"function"`.
+* **Time-value producers** — whether a call's *return value* is a deterministic
+  absolute / epoch `time_t` (or equivalent). Only a bounded reviewed allowlist
+  (`time`, `mktime`, `timegm`, `timelocal`) populates Stage 3 `time_functions`.
+  Being callable, time-related, accepting a time argument, writing through an
+  out-parameter, or setting `needs_paren=true` does **not** make a function a
+  producer. Status codes, `struct tm*` pointers, durations, counts, handles,
+  and unknown custom symbols fail closed.
+
+Retired `rule_id` values, `type_use_only` collision rules, and non-identifier
+symbols (for example `struct tm`) are excluded from both policies where
+applicable. Descriptive category taxonomy work remains separate (issue #26).
+
 Discovering a macro definition as potentially time-related is not the same as
 proving that it creates a rollover bug. A hit remains a candidate for later
 analysis.

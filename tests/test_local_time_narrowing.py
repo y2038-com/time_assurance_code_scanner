@@ -544,20 +544,31 @@ void f(void) {
     assert _match_symbols(source) == []
 
 
-def test_old_line_local_cast_detector_still_flags_time_like_names() -> None:
-    """Document combined pipeline behavior for issue #52 review.
+def test_old_line_local_cast_detector_name_heuristics_need_aliases() -> None:
+    """Document #52/#62 interaction for line-local name heuristics.
 
-    The new local narrowing scanner does not seed from variable names alone.
-    The older line-local ``detect_time_t_casts`` still treats substring name
-    heuristics (``time``, ``timestamp``, ``ts``, ``tick``, ``epoch``,
-    ``unix_time``) as sufficient for a same-line cast. That remains intentional
-    compatibility behavior for this issue and is a separate false-positive
-    surface, not corrected here.
+    The local narrowing scanner (#52) never seeds from variable names alone.
+    The older line-local ``detect_time_t_casts`` still has substring name
+    heuristics, but issue #62 ties those heuristics to per-file discovered
+    typedef aliases. Catalog ``time_functions`` alone enable function-cast
+    detection without turning identifier names into provenance.
     """
     from tacs.python.y2038scan_fast_json_group import detect_time_t_casts
 
     line = "log_value((int32_t)timestamp);"
-    hit = detect_time_t_casts(line, line, time_t_aliases=[], time_functions=[])
+    assert (
+        detect_time_t_casts(line, line, time_t_aliases=[], time_functions=[])
+        is None
+    )
+    assert (
+        detect_time_t_casts(
+            line, line, time_t_aliases=[], time_functions=["time", "mktime"]
+        )
+        is None
+    )
+    hit = detect_time_t_casts(
+        line, line, time_t_aliases=["epoch_t"], time_functions=[]
+    )
     assert hit is not None
     assert hit["discovery_method"] == "time_t_cast"
     assert hit["symbol"] == "cast_from_time_var"
@@ -574,8 +585,8 @@ def test_old_line_local_cast_detector_still_flags_time_like_names() -> None:
     assert _match_symbols(source) == []
 
 
-def test_combined_pipeline_still_emits_name_heuristic_cast(tmp_path: Path) -> None:
-    """Final TACS behavior includes the older name-heuristic cast detector."""
+def test_combined_pipeline_name_heuristics_require_aliases(tmp_path: Path) -> None:
+    """Name-heuristic casts still need aliases; time_functions alone do not."""
     root = tmp_path / "name_heur"
     root.mkdir()
     (root / "name.c").write_text(
@@ -588,7 +599,7 @@ def test_combined_pipeline_still_emits_name_heuristic_cast(tmp_path: Path) -> No
         encoding="utf-8",
     )
     adapter = IRAdapter(str(SCANNER))
-    cands = adapter.discover_candidates(
+    without = adapter.discover_candidates(
         str(root),
         str(RULES),
         min_risk="low",
@@ -597,11 +608,20 @@ def test_combined_pipeline_still_emits_name_heuristic_cast(tmp_path: Path) -> No
         time_functions=["time", "mktime"],
         environment_config=LP64,
     )
-    casts = [c for c in cands if c.discovery_method == "time_t_cast"]
-    assert casts, (
-        "older line-local name heuristic still emits cast_from_time_var "
-        "for 'timestamp' without epoch provenance"
+    assert not any(c.discovery_method == "time_t_cast" for c in without)
+
+    with_aliases = adapter.discover_candidates(
+        str(root),
+        str(RULES),
+        min_risk="low",
+        include_patterns=["**/*.c"],
+        exclude_patterns=[],
+        time_t_aliases={"epoch_t": ["name.c:1: typedef time_t epoch_t;"]},
+        time_functions=["time", "mktime"],
+        environment_config=LP64,
     )
+    casts = [c for c in with_aliases if c.discovery_method == "time_t_cast"]
+    assert casts
     assert all(c.rule_id is None for c in casts)
 
 

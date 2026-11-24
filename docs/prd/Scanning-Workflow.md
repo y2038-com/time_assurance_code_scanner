@@ -31,7 +31,10 @@ Owners: John Lange; Contributors: GPT-5 Thinking
 ### 3.1 Inputs
 - Input is a tree of source files (local directory, cloned git repository, or unpacked ZIP)
 - Repo root path (local clone or unpacked ZIP)
-- Rules JSON (symbols, categories, risk defaults; derived flags like `needs_paren`)
+- Rules JSON (symbols, categories, risk defaults; derived flags like `needs_paren`).
+  Descriptive `category` labels do not control Stage 3 cast-detection producers;
+  callability (`needs_paren`) and time-value-return producers are separate
+  policies (issue #62). See the theory of operation.
 - Scenario facts (time_t bits, signedness, time64 APIs availability, mitigation path if ILP32 signed)
 - Scan config: include/exclude globs, min risk threshold, limits (file count, bytes, timeouts)
 

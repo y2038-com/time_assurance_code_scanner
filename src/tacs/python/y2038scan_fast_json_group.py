@@ -8,7 +8,7 @@
 
 import argparse, json, os, re, sys, glob
 from collections import defaultdict, Counter
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Dict, List, Tuple, Any, Optional, Iterable
 
 # ---- color output (safe if colorama not installed) --------------------------
 try:
@@ -27,11 +27,23 @@ except Exception:
 # ---- risk ordering ----------------------------------------------------------
 RANK = {'low': 0, 'medium': 1, 'high': 2}
 
-# Categories that are NOT function calls (do NOT require a following '(')
-NON_CALLABLE_CATEGORIES = {
-    'constant/definition', 'env variable', 'global variable',
-    'macro', 'simple type', 'structure'
-}
+# Categories that are NOT function calls (do NOT require a following '(').
+# Canonical definition lives in tacs.core.rule_catalog (issue #62).
+try:
+    from tacs.core.rule_catalog import NON_CALLABLE_CATEGORIES, rule_needs_paren
+except ImportError:  # pragma: no cover - script may run without package install
+    NON_CALLABLE_CATEGORIES = {
+        'constant/definition', 'env variable', 'global variable',
+        'macro', 'simple type', 'structure'
+    }
+
+    def rule_needs_paren(entry):  # type: ignore[misc]
+        explicit = entry.get('needs_paren')
+        if explicit is not None:
+            return bool(explicit)
+        category = entry.get('category') or ''
+        category_l = category.lower() if isinstance(category, str) else ''
+        return category_l not in NON_CALLABLE_CATEGORIES
 
 # Allowed source file extensions (keep in lockstep with DEFAULT_SOURCE_EXTENSIONS).
 try:
@@ -95,14 +107,13 @@ def load_rules(path: str, min_risk: str) -> Tuple[Dict[str, List[Dict[str,Any]]]
         if risk not in RANK:
             risk = 'high'
 
-        # category normalization
+        # category normalization (display taxonomy; callability uses needs_paren)
         category = e.get('category') or ''
-        category_l = category.lower() if isinstance(category, str) else ''
 
-        # compute needs_paren if not given (function-like unless in non-callable categories)
-        needs_paren = e.get('needs_paren')
-        if needs_paren is None:
-            needs_paren = (category_l not in NON_CALLABLE_CATEGORIES)
+        # Shared callable classification (explicit needs_paren wins; else
+        # category not in NON_CALLABLE_CATEGORIES). Descriptive labels such as
+        # "Current Time" remain callable.
+        needs_paren = rule_needs_paren(e)
 
         raw_rid = e.get('rule_id')
         rule_id = None
@@ -257,6 +268,81 @@ def has_call_paren(cleaned: str, symbol: str) -> bool:
     return re.search(pat, cleaned) is not None
 
 
+# Builtin APIs whose *return value* is epoch / time_t. Status-returning and
+# struct-pointer APIs (gmtime, clock_gettime, gettimeofday, …) are excluded;
+# keep in lockstep with tacs.core.rule_catalog.TIME_VALUE_PRODUCER_SYMBOLS.
+try:
+    from tacs.core.rule_catalog import TIME_VALUE_PRODUCER_SYMBOLS as _BUILTIN_TIME_FUNCTIONS
+except ImportError:  # pragma: no cover
+    _BUILTIN_TIME_FUNCTIONS = frozenset({"time", "mktime", "timegm", "timelocal"})
+
+# Plausible C cast destination types for Pattern 1. Rejects macro forms such as
+# ``(th)WaitForSingleObject(`` where ``th`` is a parameter name, not a type.
+_PLAUSIBLE_CAST_TARGETS = frozenset(
+    {
+        "bool",
+        "char",
+        "short",
+        "int",
+        "long",
+        "float",
+        "double",
+        "signed",
+        "unsigned",
+        "signed char",
+        "signed short",
+        "signed int",
+        "signed long",
+        "unsigned char",
+        "unsigned short",
+        "unsigned int",
+        "unsigned long",
+        "long long",
+        "signed long long",
+        "unsigned long long",
+        "short int",
+        "long int",
+        "long double",
+    }
+)
+
+
+def _plausible_cast_target(type_name: str) -> bool:
+    t = " ".join(type_name.split())
+    if not t or t in {"void", "const", "volatile"}:
+        return False
+    if t in _PLAUSIBLE_CAST_TARGETS:
+        return True
+    # Fixed-width / project typedef style: int32_t, time32_t, DWORD, etc.
+    if t.endswith("_t") or t.endswith("_T"):
+        return True
+    if re.fullmatch(r"[A-Z][A-Z0-9_]*", t):
+        return True
+    return False
+
+# Cache: sorted function-name tuple -> compiled "(type)func(" pattern.
+_FUNC_CAST_PATTERN_CACHE: Dict[Tuple[str, ...], re.Pattern] = {}
+
+
+def _function_cast_pattern(func_names: Iterable[str]) -> Optional[re.Pattern]:
+    """One compiled alternation for ``(type)name(``; longest names first."""
+    names = tuple(
+        sorted({n for n in func_names if n}, key=lambda s: (-len(s), s))
+    )
+    if not names:
+        return None
+    cached = _FUNC_CAST_PATTERN_CACHE.get(names)
+    if cached is not None:
+        return cached
+    alt = "|".join(re.escape(n) for n in names)
+    pat = re.compile(
+        r"\(\s*(\w+(?:\s+\w+)?)\s*\)\s*\b(" + alt + r")\s*\(",
+        re.ASCII,
+    )
+    _FUNC_CAST_PATTERN_CACHE[names] = pat
+    return pat
+
+
 def detect_time_t_casts(cleaned: str, original: str, time_t_aliases: List[str], 
                         time_functions: List[str]) -> Optional[Dict[str, Any]]:
     """
@@ -271,34 +357,40 @@ def detect_time_t_casts(cleaned: str, original: str, time_t_aliases: List[str],
     Returns:
         Dict with cast match info, or None if no cast detected
     """
-    # Common time_t function names (standard + discovered)
+    # Time-value producers only (Stage 3 + builtins). Not every callable.
     all_time_functions = set(time_functions)
-    all_time_functions.update(['time', 'mktime', 'gmtime', 'localtime', 'clock_gettime', 
-                               'gettimeofday', 'timespec_get', 'timespec_getres'])
+    all_time_functions.update(_BUILTIN_TIME_FUNCTIONS)
     
     # All time_t type names (base + aliases)
     all_time_types = set(['time_t'])
     all_time_types.update(time_t_aliases)
-    
-    # Pattern 1: Explicit cast to narrower type from time_t function
-    # Matches: (int)time(), (long)mktime(), etc.
-    for func in all_time_functions:
-        # Pattern: (target_type)function_name(
-        pattern = r'\(\s*(\w+(?:\s+\w+)?)\s*\)\s*\b' + re.escape(func) + r'\s*\('
-        match = re.search(pattern, cleaned)
-        if match:
-            target_type = match.group(1).strip()
-            # Only flag casts to narrower types (not time_t itself)
-            if target_type not in all_time_types and target_type not in ['void', 'const', 'volatile']:
-                return {
-                    'file': '',  # Will be set by caller
-                    'line': 0,   # Will be set by caller
-                    'symbol': f'cast_from_{func}',
-                    'risk': 'high',
-                    'lineText': original,
-                    'description': f'Cast from time_t function {func}() to {target_type}',
-                    'discovery_method': 'time_t_cast',
-                }
+    # Name-only heuristics require per-file aliases so producer ``time_functions``
+    # alone does not turn identifier names into cast provenance (issue #62).
+    allow_name_heuristics = bool(time_t_aliases)
+
+    # Pattern 1: Explicit cast from a time-value-producing call
+    # Matches: (int)time(), (long)mktime(), etc. Single compiled alternation.
+    if "(" in cleaned and ")" in cleaned:
+        func_pat = _function_cast_pattern(all_time_functions)
+        if func_pat is not None:
+            match = func_pat.search(cleaned)
+            if match:
+                target_type = match.group(1).strip()
+                func = match.group(2)
+                # Only flag casts to narrower types (not time_t itself)
+                if (
+                    target_type not in all_time_types
+                    and _plausible_cast_target(target_type)
+                ):
+                    return {
+                        'file': '',  # Will be set by caller
+                        'line': 0,   # Will be set by caller
+                        'symbol': f'cast_from_{func}',
+                        'risk': 'high',
+                        'lineText': original,
+                        'description': f'Cast from time_t function {func}() to {target_type}',
+                        'discovery_method': 'time_t_cast',
+                    }
     
     # Pattern 2: Explicit cast to narrower type from time_t variable
     # Matches: (int)time_value, (long)timestamp, (int32_t)ts, (unsigned int)ts, etc.
@@ -327,7 +419,9 @@ def detect_time_t_casts(cleaned: str, original: str, time_t_aliases: List[str],
         var_lower = var_name.lower()
         
         # High confidence: variable name clearly time-related
-        if any(indicator in var_lower for indicator in time_indicators):
+        if allow_name_heuristics and any(
+            indicator in var_lower for indicator in time_indicators
+        ):
             return {
                 'file': '',  # Will be set by caller
                 'line': 0,   # Will be set by caller
@@ -395,7 +489,9 @@ def detect_time_t_casts(cleaned: str, original: str, time_t_aliases: List[str],
         # Fallback: Check variable name heuristics (lower confidence)
         time_indicators = ['time', 'timestamp', 'ts', 'tick', 'epoch', 'unix_time']
         var_lower = source_var.lower()
-        if any(indicator in var_lower for indicator in time_indicators):
+        if allow_name_heuristics and any(
+            indicator in var_lower for indicator in time_indicators
+        ):
             # Check if it's a function call (would have been caught by Pattern 1)
             var_pos = cleaned.find(source_var)
             if var_pos >= 0:
