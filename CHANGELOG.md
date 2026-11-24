@@ -11,6 +11,16 @@ currently **1.3**.
 
 ## Unreleased
 
+- Fix Stage 3 ``time_functions`` population so recognized *time-value
+  producers* are no longer gated on ``category == "function"`` (issue #62).
+  Descriptive packaged categories such as ``Current Time`` and
+  ``Format Conversion`` do not block producer recognition. General
+  callability (``needs_paren`` / non-callable categories) remains a separate
+  IR token-matching policy and does **not** imply a time-bearing return.
+  Stage 3 cast detection receives only a bounded reviewed producer set
+  (``time``, ``mktime``, ``timegm``, ``timelocal``); status-returning,
+  pointer-returning, and unknown APIs fail closed as producers. Schema
+  remains **1.3**.
 - Add one-hop direct-callee time-argument propagation (issue #57): when a
   caller passes a deterministically time-bearing scalar into a ``resolved``
   project-local callee, TACS seeds that parameter and reuses the issue #52

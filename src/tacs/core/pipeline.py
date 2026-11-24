@@ -23,6 +23,11 @@ from tacs.core.path_utils import (
 from tacs.core.candidate_utils import candidate_id_for, prepare_candidates
 from tacs.core.discovery_manager import DiscoveryManager
 from tacs.core.ir_adapter import IRAdapter
+from tacs.core.rule_catalog import (
+    extract_time_value_producer_symbols,
+    load_retired_rule_ids,
+    load_rules_document,
+)
 from tacs.core.struct_filter import StructuralFilter
 from tacs.core.status_logger import StatusLogger, format_count
 from tacs.core.scan_session import ScanSession
@@ -587,20 +592,22 @@ class ScanningPipeline:
         StatusLogger.timestamped_print("Stage 3: IR candidate discovery...")
         session.start_timing("ir")
 
-        # Extract time function names from rules for cast detection
-        time_functions = []
+        # Stage 3 cast detection needs *time-value producers* (return epoch /
+        # time_t), not every syntactically callable catalog symbol (issue #62).
+        # Descriptive categories no longer block recognition; producer
+        # membership is a separate fail-closed allowlist.
+        time_functions: List[str] = []
         try:
-            with open(updated_rules_path, 'r', encoding='utf-8') as f:
-                rules = json.load(f)
-            for rule in rules:
-                if rule.get('category') == 'function' and rule.get('symbol'):
-                    symbol = rule.get('symbol')
-                    # Add common time functions
-                    if symbol in ['time', 'mktime', 'gmtime', 'localtime', 'clock_gettime',
-                                  'gettimeofday', 'timespec_get', 'timespec_getres']:
-                        time_functions.append(symbol)
+            rules, embedded_retired = load_rules_document(updated_rules_path)
+            retired = load_retired_rule_ids()
+            retired.extend(
+                rid for rid in embedded_retired if isinstance(rid, str) and rid
+            )
+            time_functions = extract_time_value_producer_symbols(
+                rules, retired_ids=retired
+            )
         except Exception:
-            pass
+            time_functions = []
 
         candidates = self.ir_adapter.discover_candidates(
             root_path, updated_rules_path, min_risk, include_patterns, exclude_patterns,
